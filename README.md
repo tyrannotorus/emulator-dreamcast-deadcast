@@ -1,5 +1,5 @@
 ## Deadcast
-A flycast-based, Sega Dreamcast emulator targeting optimal performance on the Trimui Brick/Hammer.
+A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the Trimui Brick/Hammer.
 
 ## Summary
 This project will be an unattended AI incrementally improving the performance of dreamcast emulation
