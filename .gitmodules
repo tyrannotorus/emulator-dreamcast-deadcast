@@ -1,0 +1,16 @@
+[submodule "core/deps/libchdr"]
+	path = core/deps/libchdr
+	url = https://github.com/flyinghead/libchdr.git
+	ignore = dirty
+[submodule "core/deps/rcheevos"]
+	path = core/deps/rcheevos
+	url = https://github.com/RetroAchievements/rcheevos.git
+[submodule "core/deps/asio"]
+	path = core/deps/asio
+	url = https://github.com/flyinghead/asio.git
+[submodule "core/deps/tinygettext"]
+	path = core/deps/tinygettext
+	url = https://github.com/flyinghead/tinygettext
+[submodule "core/deps/freetype"]
+	path = core/deps/freetype
+	url = https://gitlab.freedesktop.org/freetype/freetype.git

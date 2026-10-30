@@ -1,0 +1,13 @@
+{
+  "name": "Deadcast",
+  "type": "EMU",
+  "description": "Deadcast: modern Flycast for the TrimUI Brick",
+  "author": "tyrannotorus",
+  "repo_url": "https://github.com/tyrannotorus/emulator-dreamcast-deadcast",
+  "release_filename": "DC-Deadcast.pak.zip",
+  "platforms": [
+    "tg5040"
+  ],
+  "launch": "launch.sh",
+  "version": "1.0.0"
+}

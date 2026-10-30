@@ -1,0 +1,702 @@
+#include "addrspace.h"
+#include "hw/aica/aica_if.h"
+#include "hw/pvr/pvr_mem.h"
+#include "hw/pvr/elan.h"
+#include "hw/sh4/sh4_mmr.h"
+#include "hw/sh4/dyna/blockmanager.h"
+#include "hw/sh4/sh4_mem.h"
+#include "oslib/oslib.h"
+#include "oslib/virtmem.h"
+#include <cassert>
+
+namespace addrspace
+{
+
+#define HANDLER_MAX 0x1F
+#define HANDLER_COUNT (HANDLER_MAX+1)
+
+//top registered handler
+static handler lastRegisteredHandler;
+
+//handler tables
+static ReadMem8FP*   RF8[HANDLER_COUNT];
+static WriteMem8FP*  WF8[HANDLER_COUNT];
+
+static ReadMem16FP*  RF16[HANDLER_COUNT];
+static WriteMem16FP* WF16[HANDLER_COUNT];
+
+static ReadMem32FP*  RF32[HANDLER_COUNT];
+static WriteMem32FP* WF32[HANDLER_COUNT];
+
+//upper 8b of the address
+static void* memInfo_ptr[0x100];
+
+#define MAP_RAM_START_OFFSET  0
+#define MAP_VRAM_START_OFFSET (MAP_RAM_START_OFFSET+RAM_SIZE)
+#define MAP_ARAM_START_OFFSET (MAP_VRAM_START_OFFSET+VRAM_SIZE)
+#define MAP_ERAM_START_OFFSET (MAP_ARAM_START_OFFSET+ARAM_SIZE)
+// Deadcast: the SH4's on-chip RAM (8 KB), after the largest of all the rest
+#define MAP_OCR_START_OFFSET (RAM_SIZE_MAX + VRAM_SIZE_MAX + ARAM_SIZE_MAX + elan::ERAM_SIZE_MAX)
+constexpr u32 OCR_SIZE = 0x2000;
+constexpr u32 OCR_VIEW = 0x20800000;		// its view, after the writable AICA RAM
+static int onChipRamMapped = -1;			// its layout in area 7 (mapOnChipRam), -1 none
+
+// Deadcast: the dynarec's window on the SH4's address space without the MMU (addrspace.h): the memory
+// games reach with plain loads and stores at its 32-bit addresses, in P0, P1 and P2 alike
+u8 *window;
+constexpr u64 WindowSize = 1ull << 32;
+static constexpr u32 WindowAliases[] = { 0x00000000, 0x80000000, 0xA0000000 };
+
+static void mapWindow()
+{
+	if (window == nullptr)
+		return;
+	virtmem::unmap_to_reserved(window, WindowSize);
+	for (u32 alias : WindowAliases)
+	{
+		struct { u32 start, end, fileOffset, size; bool ok; } areas[] = {
+			{ 0x00800000, 0x01000000, (u32)MAP_ARAM_START_OFFSET, ARAM_SIZE, false },	// read only (written through its handler)
+			{ 0x04000000, 0x05000000, (u32)MAP_VRAM_START_OFFSET, VRAM_SIZE, true },	// the 64-bit path
+			{ 0x0C000000, 0x10000000, (u32)MAP_RAM_START_OFFSET, RAM_SIZE, true },
+		};
+		for (const auto& area : areas)
+			for (u32 at = area.start; at < area.end; at += area.size)
+			{
+				u8 *dest = window + alias + at;
+				bool mapped = area.ok ? virtmem::map_shared(dest, area.fileOffset, area.size)
+						: virtmem::map_shared(dest, area.fileOffset, area.size) && virtmem::region_lock(dest, area.size);
+				if (!mapped)
+				{
+					WARN_LOG(VMEM, "Deadcast: the dynarec's window cannot be mapped");
+					virtmem::release_space(window, WindowSize);
+					window = nullptr;
+					return;
+				}
+			}
+	}
+	NOTICE_LOG(VMEM, "Deadcast: the dynarec's window at %p", window);
+}
+
+u8 *windowToMap(void *p)
+{
+	const u8 *a = (const u8 *)p;
+	if (window == nullptr || ram_base == nullptr || a < window || a >= window + WindowSize)
+		return nullptr;
+	return ram_base + ((a - window) & 0x1FFFFFFF);
+}
+
+bool windowAliasMapped(void *p)
+{
+	if (windowToMap(p) == nullptr)
+		return false;
+	const u32 alias = (u32)((const u8 *)p - window) & 0xE0000000;
+	return std::find(std::begin(WindowAliases), std::end(WindowAliases), alias) != std::end(WindowAliases);
+}
+
+// a range of the 512 MB map, at offset, (un)locked in the window's aliases of it too
+static void windowLock(u32 offset, u32 size, bool locked)
+{
+	if (window == nullptr)
+		return;
+	for (u32 alias : WindowAliases)
+	{
+		if (locked)
+			virtmem::region_lock(window + alias + offset, size);
+		else
+			virtmem::region_unlock(window + alias + offset, size);
+	}
+}
+
+void protectRamInWindow(u32 offset, u32 size, bool locked) {
+	windowLock(0x0C000000 + offset, size, locked);
+}
+
+void *readConst(u32 addr, bool& ismem, u32 sz)
+{
+	u32 page = addr >> 24;
+	uintptr_t iirf = (uintptr_t)memInfo_ptr[page];
+	void *ptr = (void *)(iirf & ~HANDLER_MAX);
+
+	if (ptr == nullptr)
+	{
+		ismem = false;
+		const uintptr_t id = iirf;
+		switch (sz)
+		{
+		case 1:
+			return (void *)RF8[id];
+		case 2:
+			return (void *)RF16[id];
+		case 4:
+			return (void *)RF32[id];
+		default:
+			die("Invalid size");
+			return nullptr;
+		}
+	}
+	else
+	{
+		ismem = true;
+		// Only the low bits of iirf hold the mask shift. Shifting a 32-bit value by the
+		// whole tagged pointer is undefined, and GCC 16 on 32-bit ARM drops the
+		// address entirely (every access hits offset 0).
+		addr <<= (iirf & HANDLER_MAX);
+		addr >>= (iirf & HANDLER_MAX);
+
+		return &(((u8 *)ptr)[addr]);
+	}
+}
+
+void *writeConst(u32 addr, bool& ismem, u32 sz)
+{
+	u32 page = addr >> 24;
+	uintptr_t iirf = (uintptr_t)memInfo_ptr[page];
+	void *ptr = (void *)(iirf & ~HANDLER_MAX);
+
+	if (ptr == nullptr)
+	{
+		ismem = false;
+		const uintptr_t id = iirf;
+		switch (sz)
+		{
+		case 1:
+			return (void *)WF8[id];
+		case 2:
+			return (void *)WF16[id];
+		case 4:
+			return (void *)WF32[id];
+		default:
+			die("Invalid size");
+			return nullptr;
+		}
+	}
+	else
+	{
+		ismem = true;
+		// Only the low bits of iirf hold the mask shift. Shifting a 32-bit value by the
+		// whole tagged pointer is undefined, and GCC 16 on 32-bit ARM drops the
+		// address entirely (every access hits offset 0).
+		addr <<= (iirf & HANDLER_MAX);
+		addr >>= (iirf & HANDLER_MAX);
+
+		return &(((u8 *)ptr)[addr]);
+	}
+}
+
+template<typename T>
+T DYNACALL readt(u32 addr)
+{
+	constexpr u32 sz = sizeof(T);
+
+	u32 page = addr >> 24;	//1 op, shift/extract
+	uintptr_t iirf = (uintptr_t)memInfo_ptr[page]; //2 ops, insert + read [vmem table will be on reg ]
+	void *ptr = (void *)(iirf & ~HANDLER_MAX);     //2 ops, and // 1 op insert
+
+	if (likely(ptr != nullptr))
+	{
+		// Only the low bits of iirf hold the mask shift. Shifting a 32-bit value by the
+		// whole tagged pointer is undefined, and GCC 16 on 32-bit ARM drops the
+		// address entirely (every access hits offset 0).
+		addr <<= (iirf & HANDLER_MAX);
+		addr >>= (iirf & HANDLER_MAX);
+
+		return *(T *)&((u8 *)ptr)[addr];
+	}
+	else
+	{
+		const u32 id = iirf;
+		switch (sz)
+		{
+		case 1:
+			return (T)RF8[id](addr);
+		case 2:
+			return (T)RF16[id](addr);
+		case 4:
+			return (T)RF32[id](addr);
+		case 8:
+			{
+				T rv = RF32[id](addr);
+				rv |= (T)((u64)RF32[id](addr + 4) << 32);
+				return rv;
+			}
+		default:
+			die("Invalid size");
+			return 0;
+		}
+	}
+}
+template u8 DYNACALL readt<u8>(u32 addr);
+template u16 DYNACALL readt<u16>(u32 addr);
+template u32 DYNACALL readt<u32>(u32 addr);
+template u64 DYNACALL readt<u64>(u32 addr);
+
+template<typename T>
+void DYNACALL writet(u32 addr, T data)
+{
+	constexpr u32 sz = sizeof(T);
+
+	u32 page = addr>>24;
+	uintptr_t iirf = (uintptr_t)memInfo_ptr[page];
+	void *ptr = (void *)(iirf & ~HANDLER_MAX);
+
+	if (likely(ptr != nullptr))
+	{
+		// Only the low bits of iirf hold the mask shift. Shifting a 32-bit value by the
+		// whole tagged pointer is undefined, and GCC 16 on 32-bit ARM drops the
+		// address entirely (every access hits offset 0).
+		addr <<= (iirf & HANDLER_MAX);
+		addr >>= (iirf & HANDLER_MAX);
+
+		*(T *)&((u8 *)ptr)[addr] = data;
+	}
+	else
+	{
+		const u32 id = iirf;
+		switch (sz)
+		{
+		case 1:
+			WF8[id](addr,data);
+			break;
+		case 2:
+			WF16[id](addr,data);
+			break;
+		case 4:
+			WF32[id](addr,data);
+			break;
+		case 8:
+			WF32[id](addr,(u32)data);
+			WF32[id](addr+4,(u32)((u64)data>>32));
+			break;
+		default:
+			die("Invalid size");
+			break;
+		}
+	}
+}
+template void DYNACALL writet<u8>(u32 addr, u8 data);
+template void DYNACALL writet<u16>(u32 addr, u16 data);
+template void DYNACALL writet<u32>(u32 addr, u32 data);
+template void DYNACALL writet<u64>(u32 addr, u64 data);
+
+//ReadMem/WriteMem functions
+//ReadMem
+
+u8 DYNACALL read8(u32 Address) { return readt<u8>(Address); }
+u16 DYNACALL read16(u32 Address) { return readt<u16>(Address); }
+u32 DYNACALL read32(u32 Address) { return readt<u32>(Address); }
+u64 DYNACALL read64(u32 Address) { return readt<u64>(Address); }
+
+//WriteMem
+void DYNACALL write8(u32 Address,u8 data) { writet<u8>(Address,data); }
+void DYNACALL write16(u32 Address,u16 data) { writet<u16>(Address,data); }
+void DYNACALL write32(u32 Address,u32 data) { writet<u32>(Address,data); }
+void DYNACALL write64(u32 Address,u64 data) { writet<u64>(Address,data); }
+
+#define MEM_ERROR_RETURN_VALUE 0
+
+//default read handler
+template<typename T>
+static T DYNACALL readMemNotMapped(u32 addresss)
+{
+	INFO_LOG(MEMORY, "[sh4]read%d from %08x, not mapped (default handler)", (int)sizeof(T), addresss);
+	return (T)MEM_ERROR_RETURN_VALUE;
+}
+//default write hander
+template<typename T>
+static void DYNACALL writeMemNotMapped(u32 addresss, T data)
+{
+	INFO_LOG(MEMORY, "[sh4]Write%d to %08x = %x, not mapped (default handler)", (int)sizeof(T), addresss, data);
+}
+
+//code to register handlers
+//0 is considered error
+handler registerHandler(
+		ReadMem8FP *read8,
+		ReadMem16FP *read16,
+		ReadMem32FP *read32,
+
+		WriteMem8FP *write8,
+		WriteMem16FP *write16,
+		WriteMem32FP *write32)
+{
+	handler rv = lastRegisteredHandler++;
+
+	assert(rv < HANDLER_COUNT);
+
+	RF8[rv] = read8 == nullptr  ? readMemNotMapped<u8>  : read8;
+	RF16[rv] = read16 == nullptr ? readMemNotMapped<u16> : read16;
+	RF32[rv] = read32 == nullptr ? readMemNotMapped<u32> : read32;
+
+	WF8[rv] = write8 == nullptr ? writeMemNotMapped<u8> : write8;
+	WF16[rv] = write16 == nullptr? writeMemNotMapped<u16> : write16;
+	WF32[rv] = write32 == nullptr? writeMemNotMapped<u32> : write32;
+
+	return rv;
+}
+
+static u32 FindMask(u32 msk)
+{
+	u32 s=-1;
+	u32 rv=0;
+
+	while(msk!=s>>rv)
+		rv++;
+
+	return rv;
+}
+
+//map a registered handler to a mem region
+void mapHandler(handler Handler, u32 start, u32 end)
+{
+	assert(start < 0x100);
+	assert(end < 0x100);
+	assert(start <= end);
+	for (u32 i = start; i <= end; i++)
+		memInfo_ptr[i] = (u8 *)nullptr + Handler;
+}
+
+//map a memory block to a mem region
+void mapBlock(void *base, u32 start, u32 end, u32 mask)
+{
+	assert(start < 0x100);
+	assert(end < 0x100);
+	assert(start <= end);
+	assert((0xFF & (uintptr_t)base) == 0);
+	assert(base != nullptr);
+	u32 j = 0;
+	for (u32 i = start; i <= end; i++)
+	{
+		memInfo_ptr[i] = &((u8 *)base)[j & mask] + FindMask(mask) - (j & mask);
+		j += 0x1000000;
+	}
+}
+
+void mirrorMapping(u32 new_region, u32 start, u32 size)
+{
+	u32 end = start + size - 1;
+	assert(start < 0x100);
+	assert(end < 0x100);
+	assert(start <= end);
+	assert(!(start >= new_region && end <= new_region));
+
+	u32 j = new_region;
+	for (u32 i = start; i <= end; i++)
+	{
+		memInfo_ptr[j & 0xFF] = memInfo_ptr[i & 0xFF];
+		j++;
+	}
+}
+
+//init/reset/term
+void init()
+{
+	//clear read tables
+	memset(RF8, 0, sizeof(RF8));
+	memset(RF16, 0, sizeof(RF16));
+	memset(RF32, 0, sizeof(RF32));
+
+	//clear write tables
+	memset(WF8, 0, sizeof(WF8));
+	memset(WF16, 0, sizeof(WF16));
+	memset(WF32, 0, sizeof(WF32));
+
+	//clear meminfo table
+	memset(memInfo_ptr, 0, sizeof(memInfo_ptr));
+
+	//reset registration index
+	lastRegisteredHandler = 0;
+
+	//register default functions (0) for slot 0
+	handler defaultHandler = registerHandler(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+	assert(defaultHandler == 0);
+	(void)defaultHandler;
+}
+
+void term()
+{
+}
+
+u8* ram_base;
+
+static void *malloc_pages(size_t size)
+{
+	return allocAligned(PAGE_SIZE, size);
+}
+
+static void free_pages(void *p)
+{
+	freeAligned(p);
+}
+
+#if FEAT_SHREC != DYNAREC_NONE
+
+// Resets the FPCB table (by either clearing it to the default val
+// or by flushing it and making it fault on access again.
+void bm_reset()
+{
+	// If we allocated it via vmem:
+	if (ram_base)
+		virtmem::reset_mem(p_sh4rcb->fpcb, sizeof(p_sh4rcb->fpcb));
+	else
+		// We allocated it via a regular malloc/new/whatever on the heap
+		bm_vmem_pagefill((void**)p_sh4rcb->fpcb, sizeof(p_sh4rcb->fpcb));
+}
+
+// This gets called whenever there is a pagefault, it is possible that it lands
+// on the fpcb memory range, which is allocated on miss. Returning true tells the
+// fault handler this was us, and that the page is resolved and can continue the execution.
+bool bm_lockedWrite(u8* address)
+{
+	if (!ram_base)
+		return false;  // No vmem, therefore not us who caused this.
+
+	uintptr_t ptrint = (uintptr_t)address;
+	uintptr_t start  = (uintptr_t)p_sh4rcb->fpcb;
+	uintptr_t end    = start + sizeof(p_sh4rcb->fpcb);
+
+	if (ptrint >= start && ptrint < end)
+	{
+		// Alloc the page then and initialize it to default values
+		void *aligned_addr = (void*)(ptrint & (~PAGE_MASK));
+		virtmem::ondemand_page(aligned_addr, PAGE_SIZE);
+		bm_vmem_pagefill((void**)aligned_addr, PAGE_SIZE);
+		return true;
+	}
+	return false;
+}
+#endif
+
+bool reserve()
+{
+	if (ram_base != nullptr)
+		return true;
+
+	virtmem::init((void**)&ram_base, (void**)&p_sh4rcb, RAM_SIZE_MAX + VRAM_SIZE_MAX + ARAM_SIZE_MAX + elan::ERAM_SIZE_MAX + OCR_SIZE);
+	if (ram_base != nullptr && window == nullptr)
+		window = (u8 *)virtmem::reserve_space(WindowSize);
+	return true;
+}
+
+static void termMappings()
+{
+	if (ram_base == nullptr)
+	{
+		free_pages(p_sh4rcb);
+		p_sh4rcb = nullptr;
+		mem_b.free();
+		vram.free();
+		aica::aica_ram.free();
+		free_pages(elan::RAM);
+		elan::RAM = nullptr;
+		// Don't leave the address map pointing at freed memory. A null entry
+		// routes accesses to handler 0 (not mapped), which touches nothing.
+		memset(memInfo_ptr, 0, sizeof(memInfo_ptr));
+	}
+}
+
+void initMappings()
+{
+	termMappings();
+	// Fallback to statically allocated buffers, this results in slow-ops being generated.
+	if (ram_base == nullptr)
+	{
+		WARN_LOG(VMEM, "Warning! nvmem is DISABLED (due to failure or not being built-in)");
+
+		// Allocate it all and initialize it.
+		p_sh4rcb = (Sh4RCB*)malloc_pages(sizeof(Sh4RCB));
+#if FEAT_SHREC != DYNAREC_NONE
+		bm_vmem_pagefill((void**)p_sh4rcb->fpcb, sizeof(p_sh4rcb->fpcb));
+#endif
+		memset(&p_sh4rcb->cntx, 0, sizeof(p_sh4rcb->cntx));
+
+		mem_b.alloc(RAM_SIZE);
+		vram.alloc(VRAM_SIZE);
+		aica::aica_ram.alloc(ARAM_SIZE);
+		elan::RAM = (u8*)malloc_pages(elan::ERAM_SIZE);
+	}
+	else {
+		NOTICE_LOG(VMEM, "Info: nvmem is enabled");
+		INFO_LOG(VMEM, "Info: p_sh4rcb: %p ram_base: %p", p_sh4rcb, ram_base);
+		// Map the different parts of the memory file into the new memory range we got.
+		const virtmem::Mapping mem_mappings[] = {
+			{0x00000000, 0x00800000,                               0,         0, false},  // Area 0 -> unused
+			{0x00800000, 0x01000000,           MAP_ARAM_START_OFFSET, ARAM_SIZE, false},  // Aica
+			{0x01000000, 0x04000000,                               0,         0, false},  // More unused
+			{0x04000000, 0x05000000,           MAP_VRAM_START_OFFSET, VRAM_SIZE,  true},  // Area 1 (vram, 16MB, wrapped on DC as 2x8MB)
+			{0x05000000, 0x06000000,                               0,         0, false},  // 32 bit path (unused)
+			{0x06000000, 0x07000000,           MAP_VRAM_START_OFFSET, VRAM_SIZE,  true},  // VRAM mirror
+			{0x07000000, 0x08000000,                               0,         0, false},  // 32 bit path (unused) mirror
+			{0x08000000, 0x0A000000,                               0,         0, false},  // Area 2
+			{0x0A000000, 0x0C000000,           MAP_ERAM_START_OFFSET, elan::ERAM_SIZE, true},  // Area 2 (Elan RAM)
+			{0x0C000000, 0x10000000,            MAP_RAM_START_OFFSET,  RAM_SIZE,  true},  // Area 3 (main RAM + 3 mirrors)
+			{0x10000000, 0x20000000,                               0,         0, false},  // Area 4-7 (unused)
+			// This is outside of the 512MB addr space. We map 8MB in all cases to help some games read past the end of aica ram
+			{0x20000000, 0x20800000,           MAP_ARAM_START_OFFSET, ARAM_SIZE,  true},  // writable aica ram
+		};
+		virtmem::create_mappings(&mem_mappings[0], std::size(mem_mappings));
+
+		// Point buffers to actual data pointers
+		// This *must* be the first r/w mirror (switch)
+		aica::aica_ram.setRegion(&ram_base[0x20000000], ARAM_SIZE); // Points to the writable AICA addrspace
+		vram.setRegion(&ram_base[0x04000000], VRAM_SIZE); // Points to first vram mirror (writable and lockable)
+		mem_b.setRegion(&ram_base[0x0C000000], RAM_SIZE); // Main memory, first mirror
+		elan::RAM = &ram_base[0x0A000000];
+		virtmem::unmap_to_reserved(&ram_base[0x1C000000], 0x10000);
+		onChipRamMapped = -1;
+		if (virtmem::map_shared(&ram_base[OCR_VIEW], MAP_OCR_START_OFFSET, OCR_SIZE))
+			sh4_setOnChipRam(&ram_base[OCR_VIEW]);
+		else
+			WARN_LOG(VMEM, "Deadcast: the on-chip RAM has no view: slow accesses");
+		mapWindow();
+	}
+
+	// Clear out memory
+	aica::aica_ram.zero();
+	vram.zero();
+	mem_b.zero();
+	NOTICE_LOG(VMEM, "BASE %p RAM(%d MB) %p VRAM64(%d MB) %p ARAM(%d MB) %p",
+			ram_base,
+			(u32)(RAM_SIZE / 1_MB), &mem_b[0],
+			(u32)(VRAM_SIZE / 1_MB), &vram[0],
+			(u32)(ARAM_SIZE / 1_MB), &aica::aica_ram[0]);
+}
+
+// Deadcast: the on-chip RAM where the dynarec's accesses to it (7C000000, masked to area 7: 1C000000)
+// reach it while it is indexed by address bit 13 (CCR.OIX = 0, as games use it): its two 4 KB halves
+// alternate every 8 KB, A A B B, over the first 64 KB. It stays mapped while it is disabled
+// (CCR.ORA = 0, the operand cache then): nothing reads it then, and games switch it on and off every
+// frame. The rest of area 7, the control registers' mirror among it (1F000000), still faults to its
+// handlers.
+void mapOnChipRam(bool indexBit25)
+{
+	if (ram_base == nullptr || sh4_onChipRam() != &ram_base[OCR_VIEW] || onChipRamMapped == (int)indexBit25)
+		return;
+	onChipRamMapped = indexBit25;
+	u8 *start = &ram_base[0x1C000000];
+	constexpr u32 Size = 0x10000;
+	if (indexBit25)
+	{
+		virtmem::unmap_to_reserved(start, Size);
+		if (window != nullptr)
+			virtmem::unmap_to_reserved(window + 0x7C000000, Size);
+		return;
+	}
+	for (u32 page = 0; page < Size / PAGE_SIZE; page++)
+		if (!virtmem::map_shared(start + page * PAGE_SIZE, MAP_OCR_START_OFFSET + ((page >> 1) & 1) * PAGE_SIZE, PAGE_SIZE)
+				|| (window != nullptr
+					&& !virtmem::map_shared(window + 0x7C000000 + page * PAGE_SIZE, MAP_OCR_START_OFFSET + ((page >> 1) & 1) * PAGE_SIZE, PAGE_SIZE)))
+		{
+			WARN_LOG(VMEM, "Deadcast: cannot map the on-chip RAM");
+			virtmem::unmap_to_reserved(start, Size);
+			if (window != nullptr)
+				virtmem::unmap_to_reserved(window + 0x7C000000, Size);
+			return;
+		}
+}
+
+void release()
+{
+	if (window != nullptr)
+	{
+		virtmem::release_space(window, WindowSize);
+		window = nullptr;
+	}
+	if (ram_base != nullptr)
+	{
+		virtmem::destroy();
+		ram_base = nullptr;
+	}
+	else
+	{
+		unprotectVram(0, VRAM_SIZE);
+		termMappings();
+	}
+}
+
+void protectVram(u32 addr, u32 size)
+{
+	addr &= VRAM_MASK;
+#ifndef __SWITCH__
+	if (virtmemEnabled())
+	{
+		virtmem::region_lock(ram_base + 0x04000000 + addr, size);	// P0
+		//virtmem::region_lock(ram_base + 0x06000000 + addr, size);	// P0 - mirror
+		windowLock(0x04000000 + addr, size, true);
+		if (VRAM_SIZE == 0x800000)
+		{
+			// wraps when only 8MB VRAM
+			virtmem::region_lock(ram_base + 0x04000000 + addr + VRAM_SIZE, size);	// P0 wrap
+			//virtmem::region_lock(ram_base + 0x06000000 + addr + VRAM_SIZE, size);	// P0 mirror wrap
+			windowLock(0x04000000 + addr + VRAM_SIZE, size, true);
+		}
+	}
+	else
+#endif
+	{
+		virtmem::region_lock(&vram[addr], size);
+	}
+}
+
+void unprotectVram(u32 addr, u32 size)
+{
+	addr &= VRAM_MASK;
+#ifndef __SWITCH__
+	if (virtmemEnabled())
+	{
+		virtmem::region_unlock(ram_base + 0x04000000 + addr, size);		// P0
+		//virtmem::region_unlock(ram_base + 0x06000000 + addr, size);	// P0 - mirror
+		windowLock(0x04000000 + addr, size, false);
+		if (VRAM_SIZE == 0x800000)
+		{
+			// wraps when only 8MB VRAM
+			virtmem::region_unlock(ram_base + 0x04000000 + addr + VRAM_SIZE, size);		// P0 wrap
+			//virtmem::region_unlock(ram_base + 0x06000000 + addr + VRAM_SIZE, size);	// P0 mirror wrap
+			windowLock(0x04000000 + addr + VRAM_SIZE, size, false);
+		}
+	}
+	else
+#endif
+	{
+		virtmem::region_unlock(&vram[addr], size);
+	}
+}
+
+u32 getVramOffset(void *addr)
+{
+#ifndef __SWITCH__
+	if (virtmemEnabled())
+	{
+		ptrdiff_t offset = (u8*)addr - ram_base;
+		if (offset < 0 || offset >= 0x20000000)
+			return -1;
+		if ((offset >> 24) != 4)
+			return -1;
+
+		return offset & VRAM_MASK;
+	}
+	else
+#endif
+	{
+		uintptr_t offset = virtmem::untag(addr) - virtmem::untag(&vram[0]);
+		if (offset >= VRAM_SIZE)
+			return -1;
+
+		return (u32)offset;
+	}
+}
+
+void getAddress(void** out_ram_base, void** out_ram, void** out_vram, void** out_aica) {
+    if (ram_base != nullptr) {
+        *out_ram_base =	ram_base;
+        *out_ram = &mem_b[0];
+        *out_vram = &vram[0];
+        *out_aica = &aica::aica_ram[0];
+    } else {
+        *out_ram_base =	nullptr;
+        *out_ram = nullptr;
+        *out_vram = nullptr;
+        *out_aica = nullptr;
+    }
+}
+
+} // namespace addrspace
