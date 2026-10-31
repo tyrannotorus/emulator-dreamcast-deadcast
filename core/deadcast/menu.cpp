@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -133,7 +134,7 @@ Setting toggle(const char *name, const char *desc, config::Option<bool>& option)
 		[&option](int v) { option.set(v != 0); } };
 }
 
-// Options' pages. Not shown: the TV standard and the cable, NTSC and VGA for the Brick's screen
+// Emulator Settings' pages. Not shown: the TV standard and the cable, NTSC and VGA for the Brick's screen
 // (emulator.cpp; TV Composite for a game that refuses VGA)
 std::vector<Setting>& consoleSettings()
 {
@@ -311,7 +312,6 @@ struct Item
 	std::function<void(int)> shift;		// Left/Right on an Action, -1 or 1 (Save, Load: the slot)
 	std::function<bool()> available;	// greyed while false (a session's Continue)
 	bool preview = false;				// the slot's saved state beside it (Save, Load)
-	bool compact = false;				// a Choice's value after its name, in its pill (Core)
 	DreamcastKey key = EMU_BTN_NONE;	// Binding: what it is
 };
 // Every page of the menu looks like the first: its title in a pill at the top, its rows (or the link's
@@ -324,6 +324,7 @@ struct Screen
 	std::string title;
 	std::vector<Item> items;
 	std::string desc;					// unless the selected item has its own
+	std::function<std::string()> status;	// at the bottom left, whatever is selected (the main page's: the network)
 	int selected = 0;
 	int start = 0;						// the first row shown
 	std::function<void()> back;			// B, and MENU on the first page; else the page before again
@@ -364,6 +365,8 @@ struct State
 	std::vector<u8> preview;		// its picture
 	int previewWidth = 0;
 	int previewHeight = 0;
+	bool network = false;			// a network connection (checkNetwork), again every second while open
+	u64 networkAt = 0;
 };
 State st;
 
@@ -389,6 +392,32 @@ void pop()
 	st.sliding = true;
 	st.slideBack = true;
 	st.slideStart = getTimeMs();
+}
+
+// a network connection: a default route, other than over the link to the other Brick (dclink0)
+bool checkNetwork()
+{
+	FILE *f = std::fopen("/proc/net/route", "r");
+	if (f == nullptr)
+		return false;
+	bool up = false;
+	char line[256];
+	// past the header: Iface, Destination, Gateway, Flags, ...
+	if (std::fgets(line, sizeof(line), f) != nullptr)
+		while (!up && std::fgets(line, sizeof(line), f) != nullptr)
+		{
+			char iface[32];
+			unsigned destination, gateway, flags;
+			if (std::sscanf(line, "%31s %x %x %x", iface, &destination, &gateway, &flags) == 4)
+				up = destination == 0 && (flags & 1) != 0 && std::strncmp(iface, "dclink", 6) != 0;	// RTF_UP
+		}
+	std::fclose(f);
+	return up;
+}
+
+std::string networkStatus()
+{
+	return st.network ? "Network Connected" : "No Network Connection";
 }
 
 bool linkShown()
@@ -489,16 +518,31 @@ Screen localMultiplayerScreen()
 	return screen;
 }
 
-Screen optionsScreen()
+Screen emulatorSettingsScreen()
 {
 	Screen screen;
-	screen.title = "Options";
+	screen.title = "Emulator Settings";
 	screen.desc = "Deadcast " DEADCAST_VERSION;
 	screen.items.push_back(entry("Console", "The Dreamcast's region and language.", [] { push(settingsScreen("Console", consoleSettings())); }));
 	screen.items.push_back(entry("Video", "", [] { push(settingsScreen("Video", videoSettings())); }));
 	screen.items.push_back(entry("Audio", "", [] { push(settingsScreen("Audio", audioSettings())); }));
 	screen.items.push_back(entry("Controls", "", [] { push(bindingsScreen()); }));
 	screen.items.push_back(entry("Local Multiplayer", "Two players on two Bricks.", [] { push(localMultiplayerScreen()); }));
+	return screen;
+}
+
+// a recompiled build of this game (a recomp module), to run instead of the emulation where there is one.
+// None on this Brick yet; looked for online with a network (no catalog yet: none found)
+Screen recompSettingsScreen()
+{
+	Screen screen;
+	screen.title = "Recomp Settings";
+	screen.status = networkStatus;
+	Item check = entry("Check for Recomp Module", "", [] {
+		st.message = st.network ? "No recomp module for this game yet." : "No network connection.";
+	});
+	check.available = [] { return st.network; };
+	screen.items.push_back(std::move(check));
 	return screen;
 }
 
@@ -584,16 +628,8 @@ Screen mainScreen()
 	Screen screen;
 	screen.title = displayName();
 	screen.back = [] { st.result = Result::Resume; };
+	screen.status = networkStatus;
 	screen.items.push_back(entry("Continue", "", [] { st.result = Result::Resume; }));
-	// what runs the game: Deadcast's emulation, or a recompiled build of it (to come: for now Emulator,
-	// whichever is picked)
-	Item core;
-	core.name = "Core";
-	core.desc = "Recomp: a recompiled build of this game, where there is one. To come.";
-	core.row = Row::Choice;
-	core.values = { "Emulator", "Recomp" };
-	core.compact = true;
-	screen.items.push_back(std::move(core));
 	Item save = entry("Save", "", [] { st.busy = Busy::Save; });
 	Item load = entry("Load", "", [] {
 		updatePreview();
@@ -607,7 +643,8 @@ Screen mainScreen()
 	}
 	screen.items.push_back(std::move(save));
 	screen.items.push_back(std::move(load));
-	screen.items.push_back(entry("Options", "", [] { push(optionsScreen()); }));
+	screen.items.push_back(entry("Emulator Settings", "", [] { push(emulatorSettingsScreen()); }));
+	screen.items.push_back(entry("Recomp Settings", "", [] { push(recompSettingsScreen()); }));
 	screen.items.push_back(entry("Quit", "", [] { st.result = Result::Quit; }));
 	return screen;
 }
@@ -959,18 +996,12 @@ void drawList(const Screen& screen, int ox)
 		// Left and Right change the selected Choice
 		if (selected && item.row == Row::Choice)
 			value = "<  " + value + "  >";
-		std::string label = item.name;
-		if (item.compact)
-		{
-			label += "  " + value;
-			value.clear();
-		}
 		const int valueWidth = value.empty() ? 0 : large.measure(value) + ButtonPadding * 2;
-		const std::string name = Canvas::fit(large, label, right - left - valueWidth - ButtonPadding * 2);
+		const std::string name = Canvas::fit(large, item.name, right - left - valueWidth - ButtonPadding * 2);
 		u32 color = item.available && !item.available() ? LightGray : White;
 		if (selected)
 		{
-			if (item.row != Row::Action && !item.compact)
+			if (item.row != Row::Action)
 				c.pill(left, rowTop - overhang, right - left, PillSize, ColorAccent);
 			c.pill(left, rowTop - overhang, large.measure(name) + ButtonPadding * 2, PillSize, ColorMain);
 			color = ColorSelectedText;
@@ -1118,8 +1149,9 @@ void drawPills(const Screen& screen)
 	const int buttonsWidth = drawButtons(pageButtons(screen), 0);
 	if (screen.kind == Kind::List)
 	{
-		const std::string& desc = !screen.items.empty() && !screen.items[screen.selected].desc.empty()
-				? screen.items[screen.selected].desc : screen.desc;
+		const std::string desc = screen.status ? screen.status()
+				: !screen.items.empty() && !screen.items[screen.selected].desc.empty() ? screen.items[screen.selected].desc
+				: screen.desc;
 		drawDescription(desc, c.width() - Padding * 3 - buttonsWidth);
 	}
 }
@@ -1378,6 +1410,8 @@ bool open()
 	st.dirty = true;
 	st.held = 0;
 	st.previewSlot = -1;
+	st.network = checkNetwork();
+	st.networkAt = getTimeMs() + 1000;
 	st.open = true;
 	return true;
 }
@@ -1485,6 +1519,17 @@ Result frame()
 			st.leaving.reset();
 		}
 		st.dirty = true;
+	}
+	// the network, for the main page and Recomp Settings
+	if (now >= st.networkAt)
+	{
+		st.networkAt = now + 1000;
+		const bool network = checkNetwork();
+		if (network != st.network)
+		{
+			st.network = network;
+			st.dirty = true;
+		}
 	}
 	if (st.held != 0 && st.result == Result::Open && now >= st.repeatAt)
 	{
