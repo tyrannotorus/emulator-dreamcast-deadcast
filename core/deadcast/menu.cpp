@@ -1178,7 +1178,8 @@ bool open()
 		return false;
 	}
 	st.canvas.resize(width, height);
-	st.backdrop = blur(st.frame, st.frameWidth, st.frameHeight, 4, 6, st.backdropWidth, st.backdropHeight);
+	// a spread (standard deviation) of shrink * sqrt(radius * (radius + 1)), about 13 of the frame's pixels
+	st.backdrop = blur(st.frame, st.frameWidth, st.frameHeight, 2, 6, st.backdropWidth, st.backdropHeight);
 	st.title = displayName();
 	st.selected = Continue;
 	st.slot = config::SavestateSlot >= 0 && config::SavestateSlot < SlotCount ? (int)config::SavestateSlot : 0;
