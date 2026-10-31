@@ -106,9 +106,12 @@ enum class Core { Emulator, Recomp };
 struct Host
 {
 	Core core = Core::Emulator;					// the core this process plays the game with
+	std::string disc;							// the disc played (its recomp module found by it)
 	Item save;									// the emulator's save states (a module: none, disabled)
 	Item load;
 	std::function<Screen()> emulatorSettings;	// the emulator's pages (a module: none, disabled)
+	// a recomp setting changed (key, value): a module applies it, if it can while playing
+	std::function<void(const std::string&, const std::string&)> recompSetting;
 };
 // the first page: Continue, Save, Load, Core Settings, Quit, the network's status at the bottom left
 Screen mainScreen(const std::string& title, Host host);
@@ -135,7 +138,8 @@ void awaitControl(bool waiting);
 bool awaitingControl();
 void button(Button button, bool pressed);
 
-enum class Result { Open, Resume, Quit, Restart };
+// Restart: the game again from its start (two players); Switch: in the other core (its choice stored)
+enum class Result { Open, Resume, Quit, Restart, Switch };
 void finish(Result result);
 // every frame while open: repeats held directions, redraws when needed; closes on a result
 Result frame();

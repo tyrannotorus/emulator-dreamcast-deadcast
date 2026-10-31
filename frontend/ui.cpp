@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "recomp.h"
 
 #include <algorithm>
 #include <chrono>
@@ -107,6 +108,8 @@ struct State
 	u64 networkAt = 0;
 	bool starting = false;			// the start page up
 	Host host;						// the main page's
+	bool hasModule = false;			// a recomp module installed for the disc
+	recomp::Module module;
 };
 State st;
 
@@ -495,10 +498,40 @@ void reset()
 	st.networkAt = nowMs() + 1000;
 }
 
-// a recomp module for this game's disc on this Brick (none yet)
 bool moduleInstalled()
 {
-	return false;
+	return st.hasModule;
+}
+
+// the module's settings, as its manifest declares them, kept in Deadcast's store
+Screen recompSettingsScreen()
+{
+	Screen screen;
+	screen.title = "Recomp Settings";
+	screen.desc = st.module.name + " " + st.module.version;
+	for (const recomp::Setting& setting : st.module.settings)
+	{
+		Item item;
+		item.name = setting.name;
+		item.row = Row::Choice;
+		const std::string key = st.module.id + "." + setting.key;
+		const std::string now = recomp::get(key, setting.def);
+		std::vector<std::string> values;
+		for (const auto& value : setting.values)
+		{
+			if (value.first == now)
+				item.value = (int)values.size();
+			values.push_back(value.first);
+			item.values.push_back(value.second);
+		}
+		item.change = [key, name = setting.key, values](int i) {
+			recomp::set(key, values[i]);
+			if (st.host.recompSetting)
+				st.host.recompSetting(name, values[i]);
+		};
+		screen.items.push_back(std::move(item));
+	}
+	return screen;
 }
 
 // what the catalog has for this game's disc (nothing yet)
@@ -520,13 +553,20 @@ Screen coreSettingsScreen()
 	current.values = { "Emulator", "Recomp" };
 	current.value = (int)st.host.core;
 	current.available = moduleInstalled;
+	// the other core: the game starts again in it, asked first
+	current.change = [](int value) {
+		ask("This will restart your game.", "RESTART", [value] {
+			recomp::set("core." + st.module.id, value == (int)Core::Recomp ? "recomp" : "emulator");
+			finish(Result::Switch);
+		}, [] { page().items[0].value = (int)st.host.core; });
+	};
 	screen.items.push_back(std::move(current));
 	Item emulator = entry("Emulator Settings", "", [] { push(st.host.emulatorSettings()); });
 	emulator.available = [] { return st.host.core == Core::Emulator && st.host.emulatorSettings != nullptr; };
 	screen.items.push_back(std::move(emulator));
-	Item recomp = entry("Recomp Settings", "", nullptr);
-	recomp.available = moduleInstalled;
-	screen.items.push_back(std::move(recomp));
+	Item settings = entry("Recomp Settings", "", [] { push(recompSettingsScreen()); });
+	settings.available = moduleInstalled;
+	screen.items.push_back(std::move(settings));
 	screen.items.push_back(entry(moduleInstalled() ? "Check for Recomp Update" : "Download Recomp Module", "", [] {
 		if (st.network)
 			busy("Checking...", checkModule);
@@ -555,6 +595,7 @@ Screen mainScreen(const std::string& title, Host host)
 	}
 	screen.items.push_back(entry("Core Settings", "", [] { push(coreSettingsScreen()); }));
 	screen.items.push_back(entry("Quit", "", [] { finish(Result::Quit); }));
+	st.hasModule = recomp::installed(recomp::chdSha1(host.disc), st.module);
 	st.host = std::move(host);
 	return screen;
 }

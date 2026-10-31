@@ -83,6 +83,7 @@ struct State
 	u32 linkVersion = 0;			// the link's status it shows
 	std::string biosFile;			// the missing BIOS page: the file it asks for
 	bool startingTwoPlayers = false;	// the start page says so
+	bool switching = false;			// the other core chosen
 };
 State st;
 
@@ -623,6 +624,7 @@ void drawPreview(int ox)
 ui::Host host()
 {
 	ui::Host host;
+	host.disc = settings.content.path;
 	host.save = entry("Save", "", [] {
 		ui::work("Saving...", discName(), [] {
 			if (saveState())
@@ -873,6 +875,11 @@ bool isOpen()
 	return ui::isOpen();
 }
 
+bool switching()
+{
+	return st.switching;
+}
+
 void button(u32 code, bool pressed)
 {
 	if (!ui::isOpen())
@@ -911,6 +918,9 @@ Result frame()
 		return Result::Quit;
 	case ui::Result::Restart:
 		return Result::Restart;
+	case ui::Result::Switch:
+		st.switching = true;
+		return Result::Switch;
 	default:
 		return Result::Resume;
 	}

@@ -1354,6 +1354,8 @@ void gui_display_ui()
 			emu.start();
 			break;
 		case deadcast::menu::Result::Quit:
+		// Deadcast: the other core chosen: this process ends, the launcher starts the game again in it
+		case deadcast::menu::Result::Switch:
 			dc_exit();
 			break;
 		case deadcast::menu::Result::Restart:

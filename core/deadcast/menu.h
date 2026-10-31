@@ -13,8 +13,9 @@ namespace deadcast::menu
 {
 
 // Restart: the game again from the start of its load (linked to another Brick: as two players,
-// deadcast/netplay.h)
-enum class Result { Open, Resume, Quit, Restart };
+// deadcast/netplay.h). Switch: the game again in the other core (Core Settings): Deadcast ends and the
+// launcher starts it again (switching()).
+enum class Result { Open, Resume, Quit, Restart, Switch };
 
 // Opens the menu over the stopped game; false if there is no screen to draw on.
 bool open();
@@ -22,6 +23,8 @@ bool open();
 // why it is paused on top. The emulator is not stopped (the session waits); Continue there closes it here.
 bool openSession();
 bool isOpen();
+// Core Settings switched the game's core: Deadcast ends with recomp::SwitchExit (frontend/recomp.h)
+bool switching();
 // Raw pad input (SDL button and axis codes) while the menu is open.
 void button(u32 code, bool pressed);
 void axis(u32 code, int value);

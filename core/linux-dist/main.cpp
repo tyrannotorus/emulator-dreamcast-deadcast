@@ -11,6 +11,8 @@
 #include "oslib/oslib.h"
 #include "oslib/i18n.h"
 #include "stdclass.h"
+#include "deadcast/menu.h"
+#include "recomp.h"
 
 #include <csignal>
 #include <string>
@@ -251,6 +253,9 @@ static bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, 
 int main(int argc, char* argv[])
 {
 	selfPath = argv[0];
+	// Deadcast: the disc's recomp module instead, if that is its chosen core (no emulator started)
+	if (argc > 1)
+		deadcast::recomp::runChosen(argv[1]);
 #if defined(USE_BREAKPAD)
 	google_breakpad::MinidumpDescriptor descriptor("/tmp");
 	google_breakpad::ExceptionHandler eh(descriptor, nullptr, dumpCallback, nullptr, true, -1);
@@ -297,7 +302,8 @@ int main(int argc, char* argv[])
 	flycast_term();
 	os_UninstallFaultHandler();
 
-	return 0;
+	// Deadcast: the other core chosen in Core Settings: the launcher starts the game again in it
+	return deadcast::menu::switching() ? deadcast::recomp::SwitchExit : 0;
 }
 
 [[noreturn]] void os_DebugBreak()

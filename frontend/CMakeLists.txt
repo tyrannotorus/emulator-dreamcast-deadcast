@@ -3,6 +3,8 @@
 add_library(deadcast_frontend STATIC
         canvas.cpp
         canvas.h
+        recomp.cpp
+        recomp.h
         ui.cpp
         ui.h)
 target_include_directories(deadcast_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
