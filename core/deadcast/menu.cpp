@@ -359,6 +359,7 @@ struct State
 	std::string message;			// shown over everything until A or B
 	int awaiting = -1;				// Input: the row waiting for a control
 	int busy = -1;					// Save or Load: its screen shown, then done (it takes seconds)
+	std::string biosFile;			// the missing BIOS page: the file it asks for
 	Result result = Result::Open;
 	bool dirty = true;
 	u32 held = 0;					// a direction held: repeated
@@ -695,6 +696,12 @@ void actScreen(u32 code)
 
 void act(u32 code)
 {
+	if (!st.biosFile.empty())
+	{
+		if (code == PadA || code == PadB)
+			st.result = Result::Quit;
+		return;
+	}
 	if (st.busy >= 0)
 		return;
 	st.dirty = true;
@@ -973,11 +980,14 @@ void drawScreen(const Screen& screen)
 
 void drawPage(const std::string& line, const std::string& under);
 std::string discName();
+void drawBiosPage();
 
 void draw()
 {
 	Canvas& c = st.canvas;
-	if (st.busy >= 0)
+	if (!st.biosFile.empty())
+		drawBiosPage();
+	else if (st.busy >= 0)
 		drawPage(st.busy == Save ? "Saving..." : "Loading...", discName());
 	else if (!st.message.empty())
 	{
@@ -1000,6 +1010,7 @@ void close(bool resume)
 	st.backdrop.clear();
 	st.preview.clear();
 	st.screens.clear();
+	st.biosFile.clear();
 }
 
 // a page with a line in white and text under it in grey, centered
@@ -1035,6 +1046,61 @@ std::string discName()
 	return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
+// what a BIOS file is, by its name
+std::string biosName(const std::string& file)
+{
+	if (file == "dc_boot.bin")
+		return "the Dreamcast BIOS";
+	if (file == "naomi.zip")
+		return "the NAOMI BIOS";
+	if (file == "naomi2.zip")
+		return "the NAOMI 2 BIOS";
+	if (file == "awbios.zip")
+		return "the Atomiswave BIOS";
+	return file;
+}
+
+// where a BIOS goes: the first of the BIOS folders (the pak's bios/), in full
+std::string biosFolder()
+{
+	const char *bios = std::getenv("DEADCAST_BIOS_PATH");
+	const std::string list = bios != nullptr ? bios : "";
+	return list.substr(0, list.find(':'));
+}
+
+// which BIOS file to copy where, then how to leave
+void drawBiosPage()
+{
+	Canvas& c = st.canvas;
+	Font& big = fonts->page;
+	Font& text = fonts->pageText;
+	const int width = std::min(c.width() - 120, 904);
+	const std::vector<std::string> title = wrap(big, "Deadcast needs " + biosName(st.biosFile), width);
+	const std::vector<std::string> body = wrap(text, "Copy " + st.biosFile + " into this folder:", width);
+	const std::string folder = biosFolder();
+	const int bar = text.lineHeight() + 16;
+	const int height = (int)title.size() * big.lineHeight() + 18 + (int)body.size() * text.lineHeight() + 14 + bar + 36
+			+ text.lineHeight();
+	int y = (c.height() - height) / 2;
+	auto line = [&](Font& font, const std::string& s, u32 rgb) {
+		c.text(font, s, (c.width() - font.measure(s)) / 2, y + font.ascent(), rgb);
+		y += font.lineHeight();
+	};
+	c.clear(Black);
+	for (const std::string& s : title)
+		line(big, s, White);
+	y += 18;
+	for (const std::string& s : body)
+		line(text, s, 0xb4b4b4);
+	y += 14;
+	const int barWidth = text.measure(folder) + 48;
+	c.roundRect((c.width() - barWidth) / 2, y, barWidth, bar, 12, 0x2a2a2a);
+	y += 8;
+	line(text, folder, White);
+	y += 8 + 36;
+	line(text, "Press A or B to exit", White);
+}
+
 bool starting = false;
 
 }	// namespace
@@ -1061,6 +1127,29 @@ void showStartError(const std::string& what)
 	drawPage("Cannot start " + displayName(), what);
 	GraphicsContext::Instance()->showPicture(st.canvas.data());
 	std::this_thread::sleep_for(std::chrono::seconds(3));
+}
+
+bool showBiosMissing(const std::string& file)
+{
+	if (!starting)
+	{
+		GraphicsContext *context = GraphicsContext::Instance();
+		int width, height;
+		if (context == nullptr || st.open || !loadFonts() || !context->beginPictures(width, height))
+			return false;
+		st.canvas.resize(width, height);
+	}
+	starting = false;
+	st.biosFile = file;
+	st.screens.clear();
+	st.message.clear();
+	st.awaiting = -1;
+	st.busy = -1;
+	st.held = 0;
+	st.result = Result::Open;
+	st.dirty = true;
+	st.open = true;
+	return true;
 }
 
 void endStart()

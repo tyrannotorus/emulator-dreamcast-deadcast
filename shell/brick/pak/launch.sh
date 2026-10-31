@@ -29,16 +29,12 @@ if [ ! -f "$DISC" ]; then
 	exit 1
 fi
 
-# Settings, mappings, VMUs and save states are kept in DEADCAST_HOME; the BIOS is read from Bios/DC.
-export DEADCAST_HOME="$USERDATA_PATH/DC-Deadcast"
+# Settings, mappings, VMUs and save states are kept in DEADCAST_HOME. The BIOS is read from the pak's
+# own bios/ first, then from the firmware's Bios/DC; a missing one is shown on the screen.
+export DEADCAST_HOME="$USERDATA_PATH/DC-DEADCAST"
 export HOME="$DEADCAST_HOME"
-export DEADCAST_BIOS_PATH="$BIOS_PATH/DC"
-mkdir -p "$DEADCAST_HOME/mappings"
-
-if [ ! -f "$DEADCAST_BIOS_PATH/dc_boot.bin" ]; then
-	echo "Deadcast: missing $DEADCAST_BIOS_PATH/dc_boot.bin"
-	exit 1
-fi
+mkdir -p "$DEADCAST_HOME/mappings" "$PAK_DIR/bios"
+export DEADCAST_BIOS_PATH="$PAK_DIR/bios:$BIOS_PATH/DC"
 
 # The default settings and controls, on the first run. The Brick's controls appear as an Xbox 360
 # pad, and Flycast names a mapping after the pad.

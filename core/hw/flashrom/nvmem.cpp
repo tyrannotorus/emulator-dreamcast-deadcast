@@ -301,8 +301,11 @@ bool loadFiles()
 	if (!settings.platform.isConsole())
 		return true;
 
-	if (sys_rom->Load(getRomPrefix(), "%boot.bin;%bios.bin", "bootrom"))
+	// Deadcast: from the BIOS folders first (hostfs::findBios)
+	const std::string bios = hostfs::findBios(getRomPrefix(), "%boot.bin;%bios.bin");
+	if (!bios.empty() && sys_rom->Load(bios))
 	{
+		NOTICE_LOG(FLASHROM, "Loaded %s as bootrom", bios.c_str());
 		if (config::GGPOEnable)
 			sys_rom->digest(settings.network.md5.bios);
 		bios_loaded = true;

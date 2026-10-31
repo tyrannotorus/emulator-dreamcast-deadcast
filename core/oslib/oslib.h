@@ -54,6 +54,9 @@ namespace hostfs
 	std::string findFlash(const std::string& prefix, const std::string& names);
 	std::string getFlashSavePath(const std::string& prefix, const std::string& name);
 	std::string findNaomiBios(const std::string& name);
+	// Deadcast: a BIOS file (findFlash's names) from the folders DEADCAST_BIOS_PATH lists first, in order
+	// (the pak's bios/, then the firmware's), else wherever findFlash looks
+	std::string findBios(const std::string& prefix, const std::string& names);
 
 	std::string getSavestatePath(int index, bool writable);
 

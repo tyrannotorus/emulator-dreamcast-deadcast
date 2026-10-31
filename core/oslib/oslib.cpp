@@ -163,8 +163,60 @@ std::string getFlashSavePath(const std::string& prefix, const std::string& name)
 	return get_writable_data_path(prefix + name);
 }
 
+// Deadcast: the folders DEADCAST_BIOS_PATH lists, colon separated
+static std::vector<std::string> biosFolders()
+{
+	std::vector<std::string> folders;
+	const char *env = std::getenv("DEADCAST_BIOS_PATH");
+	const std::string list = env != nullptr ? env : "";
+	for (size_t start = 0; start < list.size(); )
+	{
+		size_t colon = list.find(':', start);
+		if (colon == std::string::npos)
+			colon = list.size();
+		if (colon > start)
+			folders.push_back(list.substr(start, colon - start));
+		start = colon + 1;
+	}
+	return folders;
+}
+
+static std::string inBiosFolders(const std::string& name)
+{
+	for (const std::string& folder : biosFolders())
+	{
+		const std::string path = folder + "/" + name;
+		if (hostfs::storage().exists(path))
+			return path;
+	}
+	return "";
+}
+
+std::string findBios(const std::string& prefix, const std::string& names)
+{
+	for (size_t start = 0; start < names.size(); )
+	{
+		size_t semicolon = names.find(';', start);
+		if (semicolon == std::string::npos)
+			semicolon = names.size();
+		std::string name = names.substr(start, semicolon - start);
+		const size_t percent = name.find('%');
+		if (percent != std::string::npos)
+			name.replace(percent, 1, prefix);
+		const std::string path = inBiosFolders(name);
+		if (!path.empty())
+			return path;
+		start = semicolon + 1;
+	}
+	return findFlash(prefix, names);
+}
+
 std::string findNaomiBios(const std::string& name)
 {
+	// Deadcast: the BIOS folders first
+	if (std::string path = inBiosFolders(name); !path.empty())
+		return path;
+
 	// First check user-defined BIOS paths
 	for (const auto& path : config::BiosPath.get())
 	{

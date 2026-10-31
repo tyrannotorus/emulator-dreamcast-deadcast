@@ -611,7 +611,7 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 			{
 				// Boot BIOS
 				if (!nvmem::loadFiles())
-					throw FlycastException(strprintf(i18n::T("No BIOS file found in %s"), hostfs::getFlashSavePath("", "").c_str()));
+					throw BiosMissingException("dc_boot.bin");
 				gdr::initDrive("");
 			}
 			else
@@ -624,10 +624,11 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 						loadGameSpecificSettings();
 						if (config::UseReios || !nvmem::loadFiles())
 						{
-							nvmem::loadHle();
-							NOTICE_LOG(BOOT, "Did not load BIOS, using reios");
-							if (!config::UseReios && config::UseReios.isReadOnly())
-								os_notify(i18n::T("This game requires a real BIOS"), 15000);
+						// Deadcast: the real BIOS is required, unless the HLE one is chosen
+						if (!config::UseReios)
+						throw BiosMissingException("dc_boot.bin");
+						nvmem::loadHle();
+						NOTICE_LOG(BOOT, "Using reios");
 						}
 					}
 					else

@@ -237,6 +237,14 @@ public:
 	FlycastException(const char *reason) : std::runtime_error(reason) {}
 };
 
+// Deadcast: a BIOS file the game needs is missing (file: its name, as it goes in the BIOS folder)
+class BiosMissingException : public FlycastException
+{
+public:
+	BiosMissingException(const std::string& file) : FlycastException("Missing BIOS file " + file), file(file) {}
+	std::string file;
+};
+
 class LoadCancelledException : public FlycastException
 {
 public:

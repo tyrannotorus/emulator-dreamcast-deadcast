@@ -25,5 +25,8 @@ Result frame();
 bool showStart();
 void showStartError(const std::string& what);
 void endStart();
+// Instead of the start page: which BIOS file is missing and where it goes, until A or B (then
+// frame() returns Quit). false without a screen for it.
+bool showBiosMissing(const std::string& file);
 
 }

@@ -11,7 +11,7 @@ on the TrimUI Brick/Hammer.
 
 ## AI Slop Section
 
-Deadcast runs on the TrimUI Brick (NextUI, tg5040) only, as `Emus/tg5040/DC-Deadcast.pak`. It renders
+Deadcast runs on the TrimUI Brick (NextUI, tg5040) only, as `Emus/tg5040/DC-DEADCAST.pak`. It renders
 with Vulkan on the Brick's PowerVR GE8300 straight to the panel through fb0; SDL2 reads the pad and
 plays the audio; the SH4 runs on the ARM64 dynarec.
 
@@ -28,12 +28,29 @@ shell/brick/toolchain.sh                 # the tg5040 sysroot, out of ghcr.io/lo
 shell/brick/devlibs.sh SERIAL            # the Brick's libcurl.so.4, over adb
 git submodule update --init core/deps/{asio,freetype,libchdr,rcheevos,tinygettext}
 shell/brick/build.sh                     # build-brick/deadcast/deadcast
-shell/brick/package.sh                   # build-brick/DC-Deadcast.pak
+shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak
 ```
 
-Copy `build-brick/DC-Deadcast.pak` to the SD card's `Emus/tg5040/`. Games go in `Roms/Dreamcast
-(DC-Deadcast)/`: a disc (`.chd`, `.gdi`, `.cdi`) or an `.m3u` naming one elsewhere on the card. The
-BIOS is read from `Bios/DC/` (`dc_boot.bin`; `naomi.zip` for NAOMI games).
+### Install
+
+Copy `build-brick/DC-DEADCAST.pak` to the SD card's `Emus/tg5040/`.
+
+NextUI picks a game's emulator by the tag in parentheses at the end of its Roms folder's name: a game
+in `Roms/<name> (TAG)/` runs with `Emus/tg5040/TAG.pak`. Deadcast's tag is `DC-DEADCAST`, because `DC`
+is taken by the Pak Store's Flycast pak (`DC.pak`); the two can be installed side by side.
+
+Put games in a folder such as `Roms/Dreamcast (DC-DEADCAST)/`: a disc (`.chd`, `.gdi`, `.cdi`), or an
+`.m3u` naming a disc elsewhere on the card (to share discs with another pak without a second copy).
+NextUI shows folders without their tag and merges console folders whose names match up to the tag, so
+give Deadcast's folder a different name than another Dreamcast pak's (`Sega Dreamcast (DC)` for
+`DC.pak`). `Roms/map.txt` renames folders in the menu, one per line: the folder's name, a tab, the
+name to show.
+
+The BIOS goes in the pak's own `bios/` folder (`Emus/tg5040/DC-DEADCAST.pak/bios/`): `dc_boot.bin` for
+Dreamcast discs, `naomi.zip` for NAOMI games. Deadcast looks there first, then in `Bios/DC/`, where
+other Dreamcast paks keep theirs; if neither has it, it shows which file to copy where. A Pak Store
+update keeps the pak's `bios/`; uninstalling the pak removes it. Settings, VMUs and save states are
+kept in `.userdata/tg5040/DC-DEADCAST/`.
 
 ### Controls
 

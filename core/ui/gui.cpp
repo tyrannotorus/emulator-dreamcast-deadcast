@@ -1363,6 +1363,15 @@ void gui_display_ui()
 					emu.start();
 				}
 			}
+		} catch (const BiosMissingException& ex) {
+			ERROR_LOG(BOOT, "%s", ex.what());
+			if (deadcast::menu::showBiosMissing(ex.file))
+				gui_setState(GuiState::Menu);
+			else
+			{
+				deadcast::menu::endStart();
+				gui_stop_game(ex.what());
+			}
 		} catch (const FlycastException& ex) {
 			ERROR_LOG(BOOT, "%s", ex.what());
 			deadcast::menu::showStartError(ex.what());

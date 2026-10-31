@@ -202,7 +202,7 @@ void naomi_cart_LoadBios(const char *filename)
 		{
 			// If a specific BIOS is needed for this game, fail.
 			if (game->bios != nullptr || !bios_loaded)
-				throw NaomiCartException(strprintf(T("Error: cannot load BIOS %s"), game->bios != nullptr ? game->bios : "naomi.zip"));
+				throw BiosMissingException(std::string(game->bios != nullptr ? game->bios : "naomi") + ".zip");
 
 			// otherwise use the default BIOS
 		}
@@ -462,7 +462,7 @@ static void loadDecryptedRom(const std::string& path, const std::string& fileNam
 		if (!loadBios("naomi", NULL, NULL, -1))
 		{
 			if (!bios_loaded)
-				throw FlycastException(Ts("Error: cannot load BIOS from naomi.zip"));
+				throw BiosMissingException("naomi.zip");
 		}
 	}
 
