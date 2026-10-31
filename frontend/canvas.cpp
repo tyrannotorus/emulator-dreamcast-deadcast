@@ -1,5 +1,4 @@
 #include "canvas.h"
-#include "log/Log.h"
 
 #include <algorithm>
 #include <cmath>

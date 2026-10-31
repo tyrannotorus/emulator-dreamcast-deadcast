@@ -1,6 +1,4 @@
 target_sources(${PROJECT_NAME} PRIVATE
-        canvas.cpp
-        canvas.h
         link.cpp
         link.h
         link_bluetooth.cpp

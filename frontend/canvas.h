@@ -1,8 +1,8 @@
 // CPU drawing for the menu: BGRA8 pixels as fb0 stores them, anti-aliased shapes and FreeType text.
 // Colors are 0xRRGGBB.
 #pragma once
-#include "types.h"
-
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -12,6 +12,9 @@ typedef struct FT_FaceRec_ *FT_Face;
 
 namespace deadcast
 {
+
+typedef uint8_t u8;
+typedef uint32_t u32;
 
 class Font
 {

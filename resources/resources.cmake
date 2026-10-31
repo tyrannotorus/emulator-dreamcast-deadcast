@@ -35,8 +35,7 @@ if(NOT LIBRETRO)
     cmrc_add_resources(flycast-resources
             fonts/Roboto-Medium.ttf.zip
             fonts/Roboto-Bold.ttf.zip
-            fonts/fa-solid-900.ttf.zip
-            fonts/NotoSans-Bold.ttf.zip)	# Deadcast's menu (deadcast/menu.cpp); SIL OFL 1.1, fonts/NotoSans-OFL.txt
+            fonts/fa-solid-900.ttf.zip)
     if(ANDROID OR IOS)
         cmrc_add_resources(flycast-resources
                 WHENCE resources

@@ -1,9 +1,9 @@
 // The in-game menu (MENU button), styled after NextUI's minarch: Continue, Save, Load, Core Settings, Quit.
 // Every page of it looks like that first one (its title in a pill, its rows, the buttons at the bottom
 // right) over the paused game blurred; a page opened slides its rows in from the right, the ones before
-// them out to the left (the other way back), while the pills stay in place. Drawn on the CPU (canvas.h) and shown through the graphics context's
-// pictures. The game is stopped while it is open; everything runs on the render thread, where SDL input
-// is read too.
+// them out to the left (the other way back), while the pills stay in place. Drawn on the CPU by the
+// frontend shared with the recomp modules (frontend/ui.h), shown through the graphics context's pictures.
+// The game is stopped while it is open; everything runs on the render thread, where SDL input is read too.
 #pragma once
 #include "types.h"
 
