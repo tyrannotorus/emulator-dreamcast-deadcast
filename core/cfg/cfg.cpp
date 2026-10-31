@@ -101,6 +101,10 @@ bool isTransient(const std::string& section, const std::string& key) {
 	return cfgdb.isTransient(section, key);
 }
 
+void clearTransient(const std::string& section, const std::string& key) {
+	cfgdb.clearTransient(section, key);
+}
+
 bool hasSection(const std::string& section) {
 	return cfgdb.hasSection(section);
 }

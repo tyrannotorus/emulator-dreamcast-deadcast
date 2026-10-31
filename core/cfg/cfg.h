@@ -19,6 +19,8 @@ float loadFloat(const std::string& section, const std::string& key, float def = 
 void saveFloat(const std::string& section, const std::string& key, float value);
 void setTransient(const std::string& section, const std::string& key, const std::string& value);
 bool isTransient(const std::string& section, const std::string& key);
+// Deadcast: a transient value dropped (the saved one again)
+void clearTransient(const std::string& section, const std::string& key);
 
 void parseCommandLine(int argc, const char * const argv[]);
 

@@ -6,6 +6,7 @@
 */
 #include "sb_mem.h"
 #include "sb.h"
+#include "hw/aica/aica.h"
 #include "hw/aica/aica_if.h"
 #include "hw/flashrom/nvmem.h"
 #include "hw/gdrom/gdrom_if.h"
@@ -124,6 +125,7 @@ T DYNACALL ReadMem_area0(u32 paddr)
 	case 6:
 	case 7:
 		// AICA ram
+		aica::ramAccess();
 		return ReadMemArr<T>(&aica::aica_ram[0], addr & ARAM_MASK);
 
 	default:
@@ -242,6 +244,7 @@ void DYNACALL WriteMem_area0(u32 paddr, T data)
 	case 6:
 	case 7:
 		// AICA ram
+		aica::ramAccess();
 		WriteMemArr(&aica::aica_ram[0], addr & ARAM_MASK, data);
 		return;
 

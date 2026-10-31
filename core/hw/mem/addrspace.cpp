@@ -40,6 +40,7 @@ static void* memInfo_ptr[0x100];
 constexpr u32 OCR_SIZE = 0x2000;
 constexpr u32 OCR_VIEW = 0x20800000;		// its view, after the writable AICA RAM
 static int onChipRamMapped = -1;			// its layout in area 7 (mapOnChipRam), -1 none
+static bool aramHandled;					// aramThroughHandlers
 
 // Deadcast: the dynarec's window on the SH4's address space without the MMU (addrspace.h): the memory
 // games reach with plain loads and stores at its 32-bit addresses, in P0, P1 and P2 alike
@@ -91,6 +92,26 @@ bool windowAliasMapped(void *p)
 		return false;
 	const u32 alias = (u32)((const u8 *)p - window) & 0xE0000000;
 	return std::find(std::begin(WindowAliases), std::end(WindowAliases), alias) != std::end(WindowAliases);
+}
+
+void aramThroughHandlers(bool on)
+{
+	if (ram_base == nullptr || on == aramHandled)
+		return;
+	aramHandled = on;
+	std::vector<u8 *> views { &ram_base[0x00800000] };
+	if (window != nullptr)
+		for (u32 alias : WindowAliases)
+			views.push_back(window + alias + 0x00800000);
+	for (u8 *view : views)
+	{
+		if (on)
+			virtmem::unmap_to_reserved(view, 0x00800000);
+		else
+			for (u32 at = 0; at < 0x00800000; at += ARAM_SIZE)
+				if (!virtmem::map_shared(view + at, MAP_ARAM_START_OFFSET, ARAM_SIZE) || !virtmem::region_lock(view + at, ARAM_SIZE))
+					WARN_LOG(VMEM, "Deadcast: the AICA's RAM cannot be mapped again");
+	}
 }
 
 // a range of the 512 MB map, at offset, (un)locked in the window's aliases of it too
@@ -497,6 +518,7 @@ static void termMappings()
 void initMappings()
 {
 	termMappings();
+	aramHandled = false;
 	// Fallback to statically allocated buffers, this results in slow-ops being generated.
 	if (ram_base == nullptr)
 	{

@@ -8,6 +8,7 @@
 #include "hw/sh4/sh4_sched.h"
 #include "hw/arm7/arm7.h"
 #include "hw/arm7/arm_mem.h"
+#include "hw/mem/addrspace.h"
 #include "cfg/option.h"
 #include "oslib/oslib.h"
 #include "deadcast/profiler.h"
@@ -77,21 +78,31 @@ static void update_arm_interrupts()
 // renders them in batches, paced by the audio output, and the SH4 waits when it gets more than MaxLag
 // samples ahead. SH4 accesses to AICA registers, save, load and reset first sync() with the AICA
 // thread. The AICA's interrupt to the SH4 is raised by the SH4 thread at its next sample.
+// In step (two Bricks in a netplay session, which must run exactly alike): the SH4 and the AICA meet
+// every SyncSamples samples, and the AICA's interrupt reaches the SH4 only where they meet (there and at
+// register accesses): at the same sample on both Bricks, wherever either's AICA thread had got to. And
+// the SH4 reaches the AICA's RAM only through its handlers (addrspace::aramThroughHandlers), which meet
+// the AICA thread first (ramAccess): it is idle then until the SH4's next sample, so each sees the other's
+// writes at the same samples on both Bricks.
 namespace worker
 {
 constexpr u32 Batch = 64;		// made once this many samples are due
 constexpr u32 Chunk = 64;		// the most the AICA thread makes at a time, so a held SH4 goes on soon
 constexpr u32 MaxLag = 1024;	// the SH4 waits beyond this many samples ahead (23 ms)
+constexpr u32 SyncSamples = 256;	// in step: the SH4 and the AICA meet this often (5.8 ms)
 
 static std::thread thread;
 static std::mutex mutex;
 static std::condition_variable wake;	// for the AICA thread: samples due, a sync, or stop
 static std::condition_variable idle;	// for the SH4 thread: all caught up
 static std::atomic<u32> pending;		// samples due
-static bool busy;
+static std::atomic<bool> busy;
 static bool syncing;
 static bool throttled;	// the SH4 is waiting for fewer than MaxLag samples due
 static bool stopping;
+static bool inStep;		// netplay: SyncSamples
+static std::atomic<bool> sleeping;	// the AICA thread waiting for samples due
+static u32 sinceSync;	// in step: samples since the SH4 and the AICA last met
 static std::atomic<int> sh4Irq { -1 };	// what the SH4 interrupt must become: -1 unchanged, 0 or 1
 static thread_local bool onWorker;
 
@@ -144,6 +155,27 @@ static int AicaUpdate(int tag, int cycles, int jitter, void *arg)
 		arm::run(1);
 		return AICA_TICK;
 	}
+	if (worker::inStep)
+	{
+		worker::pending += TickSamples;
+		worker::sinceSync += TickSamples;
+		// the AICA thread kept close behind, so that the SH4 seldom has to wait for it where they meet
+		if (worker::sleeping)
+		{
+			std::lock_guard<std::mutex> lock(worker::mutex);
+			worker::wake.notify_one();
+		}
+		if (worker::sinceSync >= worker::SyncSamples)
+		{
+			worker::sinceSync = 0;
+			const auto start = std::chrono::steady_clock::now();
+			sync();
+			// held there by the audio output (the AICA thread waiting to hand it samples): not lag (spg.cpp)
+			if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(1))
+				sh4HeldBack++;
+		}
+		return AICA_TICK * TickSamples;
+	}
 	applySh4Irq();
 	u32 due = worker::pending.fetch_add(TickSamples) + TickSamples;
 	if (due > worker::MaxLag)
@@ -169,10 +201,14 @@ static void workerLoop()
 	std::unique_lock<std::mutex> lock(worker::mutex);
 	while (true)
 	{
-		// Deadcast: polls for samples due every 2 ms; the SH4 thread only wakes it when waiting itself
+		// Deadcast: polls for samples due every 2 ms; the SH4 thread only wakes it when waiting itself, or
+		// in step at every tick (TickSamples due)
+		worker::sleeping = true;
 		worker::wake.wait_for(lock, std::chrono::milliseconds(2), [] {
-			return worker::pending >= worker::Batch || (worker::syncing && worker::pending != 0) || worker::stopping;
+			return worker::pending >= (worker::inStep ? TickSamples : worker::Batch) || (worker::syncing && worker::pending != 0)
+					|| worker::stopping;
 		});
+		worker::sleeping = false;
 		if (worker::stopping && worker::pending == 0)
 			break;
 		worker::busy = true;
@@ -188,17 +224,24 @@ static void workerLoop()
 	}
 }
 
+// Deadcast: the SH4 and the AICA thread met, and how long the SH4 waited for it there (the perf line)
+u32 aicaStatMeets;
+u64 aicaStatWaitUs;
+
 void sync()
 {
 	if (!worker::running() || worker::onWorker)
 		return;
+	aicaStatMeets++;
 	std::unique_lock<std::mutex> lock(worker::mutex);
 	if (worker::pending != 0 || worker::busy)
 	{
+		const auto start = std::chrono::steady_clock::now();
 		worker::syncing = true;
 		worker::wake.notify_one();
 		worker::idle.wait(lock, [] { return worker::pending == 0 && !worker::busy; });
 		worker::syncing = false;
+		aicaStatWaitUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
 	}
 	lock.unlock();
 	applySh4Irq();
@@ -379,6 +422,40 @@ void midiSend(u8 data)
 	update_arm_interrupts();
 	MCIPD->MIDI_IN = 1;
 	UpdateSh4Ints();
+}
+
+bool threaded()
+{
+	return worker::running();
+}
+
+void ramAccess()
+{
+	if (!worker::inStep)
+		return;
+	// caught up already (nothing due, the AICA thread idle: only the SH4 adds samples due, so it stays so
+	// until its next tick), most accesses: no lock
+	if (worker::pending == 0 && !worker::busy)
+	{
+		aicaStatMeets++;
+		applySh4Irq();
+	}
+	// else wait for it; a wait or not, the AICA's interrupt is applied here, at this SH4 access on both
+	// Bricks
+	else
+		sync();
+}
+
+void applyThreadedAudio()
+{
+	if (config::ThreadedAudio)
+		startWorker();
+	else
+		stopWorker();
+	// in step for a netplay session only (one begun or over: the game is loaded again)
+	worker::inStep = config::GGPOEnable && worker::running();
+	worker::sinceSync = 0;
+	addrspace::aramThroughHandlers(worker::inStep);
 }
 
 void init()

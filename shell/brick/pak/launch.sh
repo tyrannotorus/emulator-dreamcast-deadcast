@@ -65,3 +65,27 @@ echo "Deadcast: $DISC"
 echo "Deadcast: deadcast exited with $?"
 # NextUI's display mode again, should deadcast have been killed before restoring it
 command -v fbset > /dev/null && fbset -g 1024 768 1024 16384 32
+# and the USB ports as they were, should it have been killed with its USB link up (core/deadcast/link.cpp):
+# ADB alone on the bottom port, and the port a device again if deadcast made it a host
+G=/sys/kernel/config/usb_gadget/g1
+if [ -e "$G/configs/c.1/ffs.deadcast" ]; then
+	echo >"$G/UDC"
+	rm -f "$G/configs/c.1/ffs.deadcast"
+	umount /dev/usb-ffs/deadcast
+	rmdir /dev/usb-ffs/deadcast "$G/functions/ffs.deadcast"
+	sleep 0.3
+	[ -n "$(cat "$G/UDC")" ] || ls /sys/class/udc >"$G/UDC"
+fi
+if [ -f /tmp/deadcast-link-host ]; then
+	# reading this file is what switches the port (Allwinner's driver)
+	cat /sys/devices/platform/soc/usbc0/usb_device >/dev/null
+	rm -f /tmp/deadcast-link-host
+fi
+# and the top port's 5 V, off while a Brick there ran on its own battery
+if [ -f /tmp/deadcast-link-top-off ]; then
+	D=/sys/kernel/debug/sunxi_pinctrl
+	echo r_pio >$D/dev_name
+	echo PL8 >$D/sunxi_pin
+	echo 'PL8 1' >$D/data
+	rm -f /tmp/deadcast-link-top-off
+fi

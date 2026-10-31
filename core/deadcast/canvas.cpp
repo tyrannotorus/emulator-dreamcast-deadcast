@@ -80,6 +80,12 @@ void Canvas::clear(u32 rgb)
 	std::fill(pixels.begin(), pixels.end(), 0xff000000 | rgb);
 }
 
+void Canvas::copy(const Canvas& from)
+{
+	if (from.w == w && from.h == h)
+		std::copy(from.pixels.begin(), from.pixels.end(), pixels.begin());
+}
+
 void Canvas::fill(int x, int y, int width, int height, u32 rgb)
 {
 	const int x0 = std::max(x, 0), x1 = std::min(x + width, w);
@@ -118,14 +124,23 @@ void Canvas::roundRect(int x, int y, int width, int height, int r, u32 rgb)
 			fill(x, y + yy, width, 1, rgb);
 			continue;
 		}
-		for (int xx = 0; xx < width; xx++)
-		{
+		auto corner = [&](int xx) {
 			const float px = xx + 0.5f;
 			const float cx = px < r ? r : px > width - r ? width - r : px;
 			const float d = std::hypot(px - cx, py - cy) - r;
-			const float coverage = std::clamp(0.5f - d, 0.f, 1.f);
-			blend(x + xx, y + yy, rgb, (u32)(coverage * 255.f + 0.5f));
-		}
+			blend(x + xx, y + yy, rgb, (u32)(std::clamp(0.5f - d, 0.f, 1.f) * 255.f + 0.5f));
+		};
+		for (int xx = 0; xx < r; xx++)
+			corner(xx);
+		// between the corners, the row's edge alone
+		const u32 alpha = (u32)(std::clamp(0.5f - (std::abs(py - cy) - r), 0.f, 1.f) * 255.f + 0.5f);
+		if (alpha >= 255)
+			fill(x + r, y + yy, width - 2 * r, 1, rgb);
+		else
+			for (int xx = r; xx < width - r; xx++)
+				blend(x + xx, y + yy, rgb, alpha);
+		for (int xx = std::max(r, width - r); xx < width; xx++)
+			corner(xx);
 	}
 }
 

@@ -5,6 +5,9 @@
 extern bool SH4FastEnough;
 extern float emulationLagMs;
 extern u32 sh4HeldBack;
+// Deadcast: real time the SH4 thread waited for something other than its own work (a netplay session's
+// other Brick), since the last vblank: not lag
+extern float sh4WaitedMs;
 
 bool spg_Init();
 void spg_Term();

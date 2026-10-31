@@ -307,18 +307,18 @@ void Panel::showPicture(const u32 *bgra)
 	picturePage ^= 1;
 }
 
-void Panel::endPictures(bool resume)
+void Panel::endPictures(GraphicsContext::AfterPictures after)
 {
 	if (!pictures)
 		return;
 	pictures = false;
-	if (!resume || !pictureMode)
+	if (after == GraphicsContext::AfterPictures::Stay || !pictureMode)
 		return;
 	pictureMode = false;
 	const int page = shownPage;
-	if (page < 0)
+	if (after == GraphicsContext::AfterPictures::NextFrame || page < 0)
 	{
-		// no frame yet: the pictures stay up until the first
+		// the pictures stay up until the next frame (the first, if none yet)
 		modeAtFrame = true;
 		return;
 	}

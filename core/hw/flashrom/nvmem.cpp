@@ -23,6 +23,7 @@
 #include "reios/reios.h"
 #include "oslib/oslib.h"
 #include "oslib/resources.h"
+#include "deadcast/netplay.h"
 
 extern bool bios_loaded;
 
@@ -249,11 +250,20 @@ static std::string getArcadeFlashPath()
 	return hostfs::getArcadeFlashPath() + suffix;
 }
 
+// Deadcast: since a two-player game began in this run (deadcast/netplay.h), the flash is erased at a
+// load, so that both Bricks start alike (the console's defaults), and never saved: this console's own is
+// not touched
+static bool sessionFlash;
+
 static bool loadFlash()
 {
 	bool rc = true;
 	if (settings.platform.isConsole()) {
-		rc = sys_nvmem->Load(getRomPrefix(), "%nvmem.bin", "nvram");
+		sessionFlash = deadcast::netplay::twoPlayerRun();
+		if (sessionFlash)
+			memset(sys_nvmem->data, 0xff, sys_nvmem->size);
+		else
+			rc = sys_nvmem->Load(getRomPrefix(), "%nvmem.bin", "nvram");
 		fixUpDCFlash();
 	}
 	else if (!settings.naomi.slave)
@@ -322,7 +332,10 @@ void saveFiles()
 	if (settings.naomi.slave || settings.naomi.drivingSimSlave)
 		return;
 	if (settings.platform.isConsole())
-		sys_nvmem->Save(getRomPrefix(), "nvmem.bin", "nvmem");
+	{
+		if (!sessionFlash)
+			sys_nvmem->Save(getRomPrefix(), "nvmem.bin", "nvmem");
+	}
 	else
 		sys_nvmem->Save(getArcadeFlashPath());
 	if (settings.platform.isAtomiswave())

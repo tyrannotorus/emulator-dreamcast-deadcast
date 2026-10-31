@@ -3,6 +3,9 @@
 #include <cstdlib>
 #include "cfg/option.h"
 #include "emulator.h"
+#include "hw/aica/aica.h"
+#include "hw/pvr/spg.h"
+#include <chrono>
 
 static void registerForEvents();
 
@@ -83,7 +86,15 @@ void WriteSample(s16 r, s16 l)
 	{
 		dumpAudio(Buffer, SAMPLE_COUNT);
 		if (currentBackend != nullptr)
+		{
+			// Deadcast: the AICA on the SH4's thread (a netplay session), the audio output waited for here keeps
+			// the SH4 to time: held back, so no lag for frame skipping to make up (spg.cpp), as with the AICA
+			// thread's wait. (Not counted, it showed as lag: 2 of 3 frames skipped in sessions, 2026-10-31.)
+			const auto start = std::chrono::steady_clock::now();
 			currentBackend->push(Buffer, SAMPLE_COUNT, config::LimitFPS);
+			if (!aica::threaded() && std::chrono::steady_clock::now() - start > std::chrono::milliseconds(1))
+				sh4HeldBack++;
+		}
 		writePtr = 0;
 	}
 }

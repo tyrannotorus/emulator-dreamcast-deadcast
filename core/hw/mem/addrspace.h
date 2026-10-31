@@ -92,6 +92,10 @@ u8 *windowToMap(void *p);
 bool windowAliasMapped(void *p);
 // main RAM's code protection (bm_LockPage), in the window's aliases of it
 void protectRamInWindow(u32 offset, u32 size, bool locked);
+// Deadcast: the SH4's views of the AICA's RAM (area 0, and the window's aliases of it) gone (on), so that
+// every SH4 access to it faults and the dynarec turns it into a call of its handler (sb_mem.cpp), or back
+// read only (initMappings maps them so as well): a netplay session's AICA thread in step (aica.cpp)
+void aramThroughHandlers(bool on);
 
 void protectVram(u32 addr, u32 size);
 void unprotectVram(u32 addr, u32 size);

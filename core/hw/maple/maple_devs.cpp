@@ -10,6 +10,7 @@
 #include "hw/aica/sgc_if.h"
 #include "cfg/option.h"
 #include "input/maplelink.h"
+#include "deadcast/netplay.h"
 #include <zlib.h>
 #include <cerrno>
 #include <ctime>
@@ -432,9 +433,39 @@ struct maple_sega_vmu: maple_base
 	{
 		memset(flash_data, 0, sizeof(flash_data));
 		memset(lcd_data, 0, sizeof(lcd_data));
+		// Deadcast: since a two-player game began in this run (deadcast/netplay.h), as in that game: this
+		// player's VMU (its own file, port A1's), the other player's (as it came, in memory only), or a
+		// blank one (in memory)
+		if (!deadcast::netplay::twoPlayerRun())
+			openFile(logical_port);
+		else switch (deadcast::netplay::vmu(logical_port))
+		{
+		case deadcast::netplay::Vmu::Own:
+			openFile("A1");
+			break;
+		case deadcast::netplay::Vmu::Peer:
+			if (deadcast::netplay::peerVmu().size() == sizeof(flash_data))
+				memcpy(flash_data, deadcast::netplay::peerVmu().data(), sizeof(flash_data));
+			break;
+		case deadcast::netplay::Vmu::Blank:
+			break;
+		}
 
+		u8 sum = 0;
+		for (u32 i = 0; i < sizeof(flash_data); i++)
+			sum |= flash_data[i];
+
+		if (sum == 0)
+			// This means the existing VMU file is completely empty and needs to be recreated
+			initializeVmu();
+		fullSaveNeeded = false;
+	}
+
+	// port's VMU file, kept open to write it back
+	void openFile(const std::string& port)
+	{
         // Load existing vmu file if found
-        std::string rpath = hostfs::getVmuPath(logical_port, false);
+        std::string rpath = hostfs::getVmuPath(port, false);
         // this might be a storage url
         hostfs::File *rfile = hostfs::storage().openFile(rpath, "rb");
         if (rfile == nullptr) {
@@ -447,7 +478,7 @@ struct maple_sega_vmu: maple_base
             delete rfile;
         }
         // Open or create the vmu file to save to
-        std::string wpath = hostfs::getVmuPath(logical_port, true);
+        std::string wpath = hostfs::getVmuPath(port, true);
         file = nowide::fopen(wpath.c_str(), "rb+");
         if (file == nullptr)
         {
@@ -463,15 +494,6 @@ struct maple_sega_vmu: maple_base
 					nowide::remove(rpath.c_str());
 			}
         }
-
-		u8 sum = 0;
-		for (u32 i = 0; i < sizeof(flash_data); i++)
-			sum |= flash_data[i];
-
-		if (sum == 0)
-			// This means the existing VMU file is completely empty and needs to be recreated
-			initializeVmu();
-		fullSaveNeeded = false;
 	}
 
 	~maple_sega_vmu() override

@@ -36,6 +36,21 @@ void endOfFrame();
 void sendChatMessage(int playerNum, const std::string& msg);
 void receiveChatMessages(void (*callback)(int playerNum, const std::string& msg));
 
+// Deadcast: the lockstep session's pause (MENU on either Brick; the other Brick silent or gone), for the menu
+enum class PauseReason { None, Menu, PeerMenu, Lost, Left };
+struct NetplayPause
+{
+	bool paused = false;
+	PauseReason reason = PauseReason::None;
+	bool peerPresent = false;
+};
+NetplayPause netplayPause();
+void netplayRequestPause();
+void netplayResume();
+int sessionSide();
+// after a session: the local pad on the side it played (1: player 2's port), else 0
+void setAloneSide(int side);
+
 static inline bool rollbacking() {
 	extern bool inRollback;
 

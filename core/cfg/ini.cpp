@@ -294,6 +294,16 @@ bool IniFile::isTransient(const std::string& section, const std::string& name) c
 		return entry->transient;
 }
 
+void IniFile::clearTransient(const std::string& section, const std::string& name)
+{
+	auto it = sections.find(section);
+	if (it == sections.end())
+		return;
+	auto entry = it->second.entries.find(name);
+	if (entry != it->second.entries.end())
+		entry->second.transient = false;
+}
+
 void IniFile::deleteSection(const std::string& section) {
 	sections.erase(section);
 }

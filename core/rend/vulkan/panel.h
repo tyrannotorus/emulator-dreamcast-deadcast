@@ -5,6 +5,7 @@
 // scaling it to the panel, which cuts memory traffic. NextUI's mode and page are restored at the end.
 #pragma once
 #include "vulkan.h"
+#include "wsi/context.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -43,10 +44,11 @@ public:
 
 	// Deadcast: CPU-drawn pictures (the menu, the start page) between frames, at the panel's native size:
 	// fb0 in NextUI's mode, two pages of their own after ours, written then shown in turn.
-	// endPictures(true) restores Deadcast's mode with its last frame, or with the first one if none yet.
+	// endPictures restores Deadcast's mode with its last frame (LastFrame), or with the next one (NextFrame,
+	// LastFrame without one yet); Stay leaves the pictures up.
 	bool beginPictures(int& width, int& height);
 	void showPicture(const u32 *bgra);
-	void endPictures(bool resume);
+	void endPictures(GraphicsContext::AfterPictures after);
 
 private:
 	void showLoop();

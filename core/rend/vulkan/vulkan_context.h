@@ -163,7 +163,7 @@ public:
 	bool hasPerPixel() override { return fragmentStoresAndAtomics; }
 	bool beginPictures(int& width, int& height) override { return panel.beginPictures(width, height); }
 	void showPicture(const u32 *bgra) override { panel.showPicture(bgra); }
-	void endPictures(bool resume) override { panel.endPictures(resume); }
+	void endPictures(AfterPictures after) override { panel.endPictures(after); }
 	bool hasProvokingVertex() { return provokingVertexSupported; }
 	bool recreateSwapChainIfNeeded();
 	void addToFlight(Deletable *object) override {

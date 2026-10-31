@@ -43,9 +43,13 @@ bool mainui_rend_frame()
 
 	os_DoEvents();
 	os_UpdateInputState();
+	// Deadcast: a two-player session paused: its menu
+	gui_netplay_check();
 
 	if (gui_is_open())
 	{
+		// Deadcast: a frame every 16 ms, however long it took to draw (the menu's pages slide)
+		const auto frameStart = std::chrono::steady_clock::now();
 		try {
 			gui_display_ui();
 		} catch (const FlycastException& e) {
@@ -54,7 +58,7 @@ bool mainui_rend_frame()
 			return false;
 		}
 #ifndef TARGET_IPHONE
-		std::this_thread::sleep_for(std::chrono::milliseconds(16));
+		std::this_thread::sleep_until(frameStart + std::chrono::milliseconds(16));
 #endif
 	}
 	else

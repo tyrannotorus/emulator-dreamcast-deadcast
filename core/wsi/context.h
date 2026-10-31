@@ -39,11 +39,13 @@ public:
 	// Set the game swap interval: 1 for 60 FPS, 2 for 30 FPS
 	virtual void setSwapInterval(int interval) {}
 	// Deadcast: CPU-drawn pictures (the menu) at the screen's size, shown while no frame is drawn.
-	// begin: false without a screen; show: BGRA8, width x height; end: back to the game's frames
-	// (resume), or the screen left as is (quitting)
+	// begin: false without a screen; show: BGRA8, width x height; end: the screen left as is (the game
+	// quits or loads again), the game's last frame again (the menu closed), or its next one once drawn
+	// (the start page: a game loaded again has its own first frame, not the last one of before)
+	enum class AfterPictures { Stay, LastFrame, NextFrame };
 	virtual bool beginPictures(int& width, int& height) { return false; }
 	virtual void showPicture(const u32 *bgra) {}
-	virtual void endPictures(bool resume) {}
+	virtual void endPictures(AfterPictures after) {}
 
 	void setWindow(void *window, void *display = nullptr) {
 		this->window = window;

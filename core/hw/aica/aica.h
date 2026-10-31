@@ -8,6 +8,14 @@ namespace aica
 // Deadcast: wait for the AICA thread (ThreadedAudio) to catch up with the SH4: before the SH4 touches the
 // AICA's state. Does nothing without the thread, or on it.
 void sync();
+// Deadcast: the AICA thread on or off as config::ThreadedAudio now says (a game's settings, loaded after
+// init), in step with the SH4 in a netplay session (aica.cpp)
+void applyThreadedAudio();
+// Deadcast: the AICA on its own thread (else on the SH4's)
+bool threaded();
+// Deadcast: the SH4 side touches the AICA's RAM (its handlers, the G2 DMA): in step (a netplay session),
+// the AICA thread catches up first
+void ramAccess();
 
 #define SCIEB_addr 0x289C
 #define SCIPD_addr (0x289C+4)

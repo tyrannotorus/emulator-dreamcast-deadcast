@@ -1,5 +1,7 @@
 #include "menu.h"
 #include "canvas.h"
+#include "link.h"
+#include "netplay.h"
 #include "cfg/cfg.h"
 #include "cfg/option.h"
 #include "emulator.h"
@@ -40,8 +42,10 @@ constexpr int PillSize = S(30);
 constexpr int ButtonSize = S(20);
 constexpr int ButtonMargin = S(5);
 constexpr int ButtonPadding = S(12);
-constexpr int OptionPadding = S(8);
 constexpr int SlotCount = 10;		// Deadcast's save state slots
+constexpr int MaxRows = 5;			// a page's rows shown at once (arrows: there are more)
+constexpr u64 SlideMs = 150;
+constexpr float BackdropBrightness = 0.4f;	// the paused game behind the menu (white: 40% grey)		// a page's rows sliding in, the ones before them out
 
 constexpr u32 White = 0xffffff;
 constexpr u32 Gray = 0x999999;
@@ -199,15 +203,12 @@ const std::vector<Control> Controls {
 	{ DC_BTN_A, "A Button" }, { DC_BTN_B, "B Button" }, { DC_BTN_X, "X Button" }, { DC_BTN_Y, "Y Button" },
 	{ DC_BTN_START, "Start" }, { DC_AXIS_LT, "L Trigger" }, { DC_AXIS_RT, "R Trigger" },
 	{ EMU_BTN_SAVESTATE, "Save State" }, { EMU_BTN_LOADSTATE, "Load State" }, { EMU_BTN_SCREENSHOT, "Screenshot" },
-	{ EMU_BTN_DPAD_STICK, "Swap D-Pad", "In game, makes the d-pad the analog stick, and the d-pad again. A sets, X clears." },
+	{ EMU_BTN_DPAD_STICK, "Swap D-Pad", "In game, makes the d-pad the analog stick, and the d-pad again." },
 };
 // in the mapping but not listed (R2): a control bound in Controls is taken from it too
 const std::vector<Control> Unlisted {
 	{ EMU_BTN_FFORWARD, "Fast Forward" },
 };
-// what a binding's value may read, for the lists' width
-const char *const ControlNames[] { "NONE", "UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L1", "R1", "L2", "R2",
-	"SELECT", "START", "FN1", "FN2", "MINUS", "PLUS" };
 
 // the Brick's pad (not SDL's keyboard)
 std::shared_ptr<GamepadDevice> pad()
@@ -318,48 +319,65 @@ std::string displayName()
 	return name.empty() ? settings.content.title : name;
 }
 
-// a list of options, over the main menu
-enum class Kind { List, Var, Input };
+
+// A row of a page: does something (A), picks one of its values (Left/Right), or shows what a control is
+// bound to
+enum class Row { Action, Choice, Binding };
 struct Item
 {
 	std::string name;
 	std::string desc;
-	std::vector<std::string> values;	// Var: what it may be; Input: what it is bound to
+	Row row = Row::Action;
+	std::vector<std::string> values;	// Choice: what it may be; Binding: what it is bound to
 	int value = 0;
-	std::function<void(int)> change;	// Var: a value picked
+	std::function<void(int)> change;	// Choice: a value picked
 	std::function<void()> confirm;		// A
-	DreamcastKey key = EMU_BTN_NONE;	// Input: what it is
+	std::function<void(int)> shift;		// Left/Right on an Action, -1 or 1 (Save, Load: the slot)
+	std::function<bool()> available;	// greyed while false (a session's Continue)
+	bool preview = false;				// the slot's saved state beside it (Save, Load)
+	DreamcastKey key = EMU_BTN_NONE;	// Binding: what it is
 };
+// Every page of the menu looks like the first: its title in a pill at the top, its rows (or the link's
+// status), the buttons at the bottom right. Opening or leaving a page slides the rows; the pills stay in
+// place, the new page's at once.
+enum class Kind { List, Link };
 struct Screen
 {
 	Kind kind = Kind::List;
+	std::string title;
 	std::vector<Item> items;
 	std::string desc;					// unless the selected item has its own
 	int selected = 0;
 	int start = 0;						// the first row shown
+	std::function<void()> back;			// B, and MENU on the first page; else the page before again
 };
 
-enum MainItem { Continue, Save, Load, Options, Quit, MainCount };
-const char *const MainItems[MainCount] { "Continue", "Save", "Load", "Options", "Quit" };
+// a paused two-player session's rows (no saving or loading: the two Bricks must stay alike)
+enum SessionItem { SessionContinue, SessionLeave, SessionQuit };
+enum class Busy { None, Save, Load };
 
 struct State
 {
 	bool open = false;
 	Canvas canvas;
+	Canvas background;				// the game's frame blurred, behind every page
 	std::vector<u8> frame;			// the game's, when the menu opened (a saved state's picture)
 	int frameWidth = 0;
 	int frameHeight = 0;
-	std::vector<u8> backdrop;		// it blurred, behind the main menu
-	int backdropWidth = 0;
-	int backdropHeight = 0;
-	std::string title;
-	int selected = Continue;
 	int slot = 0;
-	std::vector<Screen> screens;	// over the main menu, the top one shown
+	std::vector<Screen> screens;	// the pages open, the first (main, or a session's) at the bottom
+	// a page opened (sliding in from the right, the one before out to the left) or left (the other way)
+	bool sliding = false;
+	bool slideBack = false;
+	u64 slideStart = 0;
+	std::unique_ptr<Screen> leaving;	// the page left, until it is off the screen
 	std::string message;			// shown over everything until A or B
-	int awaiting = -1;				// Input: the row waiting for a control
-	int busy = -1;					// Save or Load: its screen shown, then done (it takes seconds)
+	int awaiting = -1;				// a Binding row waiting for a control
+	Busy busy = Busy::None;			// Save or Load: its screen shown, then done (it takes seconds)
 	std::string biosFile;			// the missing BIOS page: the file it asks for
+	bool session = false;			// a paused two-player session's menu (openSession)
+	netplay::PauseState shownPause;	// the pause it shows
+	u32 linkVersion = 0;			// the link's status its page shows
 	Result result = Result::Open;
 	bool dirty = true;
 	u32 held = 0;					// a direction held: repeated
@@ -372,9 +390,33 @@ struct State
 };
 State st;
 
-int maxRows()
+// GSAP's power1.out: fast, then slowing to a stop
+float easeOut(float t)
 {
-	return (st.canvas.height() - ((Padding + PillSize) * 2 + ButtonSize)) / ButtonSize;
+	return 1.f - (1.f - t) * (1.f - t);
+}
+
+void push(Screen screen)
+{
+	st.screens.push_back(std::move(screen));
+	st.leaving.reset();
+	st.sliding = true;
+	st.slideBack = false;
+	st.slideStart = getTimeMs();
+}
+
+void pop()
+{
+	st.leaving = std::make_unique<Screen>(std::move(st.screens.back()));
+	st.screens.pop_back();
+	st.sliding = true;
+	st.slideBack = true;
+	st.slideStart = getTimeMs();
+}
+
+bool linkShown()
+{
+	return !st.screens.empty() && st.screens.back().kind == Kind::Link;
 }
 
 void move(Screen& screen, int step)
@@ -385,8 +427,8 @@ void move(Screen& screen, int step)
 	screen.selected = (screen.selected + step + count) % count;
 	if (screen.selected < screen.start)
 		screen.start = screen.selected;
-	if (screen.selected >= screen.start + maxRows())
-		screen.start = screen.selected - maxRows() + 1;
+	if (screen.selected >= screen.start + MaxRows)
+		screen.start = screen.selected - MaxRows + 1;
 }
 
 std::string saveDesc()
@@ -446,15 +488,16 @@ Item entry(const std::string& name, const std::string& desc, std::function<void(
 	return item;
 }
 
-Screen settingsScreen(std::vector<Setting>& list)
+Screen settingsScreen(const std::string& title, std::vector<Setting>& list)
 {
 	Screen screen;
-	screen.kind = Kind::Var;
+	screen.title = title;
 	for (Setting& setting : list)
 	{
 		Item item;
 		item.name = setting.name;
 		item.desc = setting.desc;
+		item.row = Row::Choice;
 		for (const auto& choice : setting.choices)
 			item.values.push_back(choice.first);
 		item.value = setting.index();
@@ -474,16 +517,16 @@ void refreshBindings(Screen& screen)
 	}
 }
 
-Screen bindingsScreen(const std::vector<Control>& controls)
+Screen bindingsScreen()
 {
 	Screen screen;
-	screen.kind = Kind::Input;
-	screen.desc = "Press A to set and X to clear.";
-	for (const Control& control : controls)
+	screen.title = "Controls";
+	for (const Control& control : Controls)
 	{
 		Item item;
 		item.name = control.name;
 		item.desc = control.desc != nullptr ? control.desc : "";
+		item.row = Row::Binding;
 		item.key = control.key;
 		screen.items.push_back(std::move(item));
 	}
@@ -491,16 +534,22 @@ Screen bindingsScreen(const std::vector<Control>& controls)
 	return screen;
 }
 
+Screen optionsScreen();
+
+// Save Changes done: back to Options (its Save Changes says which config is used now)
 void savedSettings(const std::string& message)
 {
 	st.message = message;
-	st.screens.pop_back();		// Save Changes, back to Options
-	st.screens.back().items.back().desc = saveDesc();
+	pop();
+	const int selected = st.screens.back().selected;
+	st.screens.back() = optionsScreen();
+	st.screens.back().selected = selected;
 }
 
 Screen saveChangesScreen()
 {
 	Screen screen;
+	screen.title = "Save Changes";
 	screen.desc = saveDesc();
 	screen.items.push_back(entry("Save for console", "", [] {
 		saveSettings(false);
@@ -516,13 +565,41 @@ Screen saveChangesScreen()
 	return screen;
 }
 
+// the link's page, the link looking for the other Brick
+void openLink(link::Via via)
+{
+	Screen screen;
+	screen.kind = Kind::Link;
+	screen.title = via == link::Via::Bluetooth ? "Bluetooth" : "USB Link";
+	push(std::move(screen));
+	st.linkVersion = ~0u;
+	// for the other Brick to check (two players only in the same game), and this player's VMU to swap
+	link::setGame(settings.content.gameId, hostfs::getVmuPath("A1", false));
+	link::start(via);
+}
+
+// two players on two Bricks: how the Bricks connect
+Screen localMultiplayerScreen()
+{
+	Screen screen;
+	screen.title = "Local Multiplayer";
+	screen.items.push_back(entry("USB Link", "Play with another Brick over a USB cable. In testing.", [] { openLink(link::Via::Usb); }));
+	screen.items.push_back(entry("Bluetooth", "Play with another Brick nearby, no cable. In testing.", [] { openLink(link::Via::Bluetooth); }));
+	screen.items.push_back(entry("LAN", "Play with another Brick over Wi-Fi. A future feature.", [] {
+		st.message = "LAN play is not ready yet.";
+	}));
+	return screen;
+}
+
 Screen optionsScreen()
 {
 	Screen screen;
-	screen.items.push_back(entry("Frontend", "Deadcast " DEADCAST_VERSION, [] { st.screens.push_back(settingsScreen(frontendSettings())); }));
-	screen.items.push_back(entry("Emulator", "", [] { st.screens.push_back(settingsScreen(emulatorSettings())); }));
-	screen.items.push_back(entry("Controls", "", [] { st.screens.push_back(bindingsScreen(Controls)); }));
-	screen.items.push_back(entry("Save Changes", saveDesc(), [] { st.screens.push_back(saveChangesScreen()); }));
+	screen.title = "Options";
+	screen.items.push_back(entry("Frontend", "Deadcast " DEADCAST_VERSION, [] { push(settingsScreen("Frontend", frontendSettings())); }));
+	screen.items.push_back(entry("Emulator", "", [] { push(settingsScreen("Emulator", emulatorSettings())); }));
+	screen.items.push_back(entry("Controls", "", [] { push(bindingsScreen()); }));
+	screen.items.push_back(entry("Save Changes", saveDesc(), [] { push(saveChangesScreen()); }));
+	screen.items.push_back(entry("Local Multiplayer", "Two players on two Bricks.", [] { push(localMultiplayerScreen()); }));
 	return screen;
 }
 
@@ -540,6 +617,11 @@ bool saveState()
 	if (!dc_savestateAllowed())
 	{
 		st.message = "The game cannot be saved now.";
+		return false;
+	}
+	if (netplay::twoPlayerRun())
+	{
+		st.message = "No save states in a game started as two players.\nIts own saves (on the VMU) work.";
 		return false;
 	}
 	// its picture: the frame the menu opened over
@@ -598,59 +680,96 @@ void updatePreview()
 	stbi_image_free(rgb);
 }
 
-void actMain(u32 code)
+Screen mainScreen()
 {
-	switch (code)
+	Screen screen;
+	screen.title = displayName();
+	screen.back = [] { st.result = Result::Resume; };
+	screen.items.push_back(entry("Continue", "", [] { st.result = Result::Resume; }));
+	Item save = entry("Save", "", [] { st.busy = Busy::Save; });
+	Item load = entry("Load", "", [] {
+		updatePreview();
+		if (st.stateExists)
+			st.busy = Busy::Load;
+	});
+	for (Item *item : { &save, &load })
 	{
-	case PadUp:
-		st.selected = (st.selected + MainCount - 1) % MainCount;
-		break;
-	case PadDown:
-		st.selected = (st.selected + 1) % MainCount;
-		break;
-	case PadLeft:
-	case PadRight:
-		if (st.selected == Save || st.selected == Load)
-			st.slot = (st.slot + (code == PadLeft ? SlotCount - 1 : 1)) % SlotCount;
-		break;
-	case PadB:
-	case PadMenu:
-		st.result = Result::Resume;
-		break;
-	case PadA:
-		switch (st.selected)
-		{
-		case Continue:
-			st.result = Result::Resume;
-			break;
-		case Save:
-			st.busy = Save;
-			break;
-		case Load:
-			updatePreview();
-			if (st.stateExists)
-				st.busy = Load;
-			break;
-		case Options:
-			st.screens.push_back(optionsScreen());
-			break;
-		case Quit:
-			st.result = Result::Quit;
-			break;
-		}
-		break;
+		item->shift = [](int step) { st.slot = (st.slot + step + SlotCount) % SlotCount; };
+		item->preview = true;
+	}
+	screen.items.push_back(std::move(save));
+	screen.items.push_back(std::move(load));
+	screen.items.push_back(entry("Options", "", [] { push(optionsScreen()); }));
+	screen.items.push_back(entry("Quit", "", [] { st.result = Result::Quit; }));
+	return screen;
+}
+
+// why the session is paused, for the title
+std::string sessionTitle()
+{
+	switch (st.shownPause.pause)
+	{
+	case netplay::Pause::PeerMenu:
+		return "Paused by the other player";
+	case netplay::Pause::Lost:
+		return st.shownPause.peerPresent ? "The other player is back" : "Lost the other Brick";
+	case netplay::Pause::Left:
+		return "The other player left";
+	default:
+		return "Two players: paused";
 	}
 }
 
-void actScreen(u32 code)
+bool canContinue()
+{
+	return st.shownPause.peerPresent && st.shownPause.pause != netplay::Pause::Left;
+}
+
+void continueSession()
+{
+	netplay::resume();
+	st.result = Result::Resume;
+}
+
+Screen sessionScreen()
+{
+	Screen screen;
+	screen.title = sessionTitle();
+	screen.back = [] {
+		if (canContinue())
+			continueSession();
+	};
+	Item resume = entry("Continue", "", [] {
+		if (canContinue())
+			continueSession();
+		else
+			st.message = st.shownPause.pause == netplay::Pause::Left ? "The other player left: leave, or quit."
+					: "The other Brick is not there.\nIt can come back while this is open.";
+	});
+	resume.available = canContinue;
+	screen.items.push_back(std::move(resume));
+	screen.items.push_back(entry("Leave two-player game", "", [] { st.result = Result::Leave; }));
+	screen.items.push_back(entry("Quit", "", [] { st.result = Result::Quit; }));
+	screen.selected = canContinue() ? SessionContinue : SessionLeave;
+	return screen;
+}
+
+void actList(u32 code)
 {
 	Screen& screen = st.screens.back();
-	if (screen.items.empty())
+	if (code == PadB || (code == PadMenu && st.screens.size() == 1))
 	{
-		if (code == PadB)
-			st.screens.pop_back();
+		if (screen.back)
+		{
+			const std::function<void()> back = screen.back;
+			back();
+		}
+		else if (st.screens.size() > 1)
+			pop();
 		return;
 	}
+	if (screen.items.empty())
+		return;
 	Item& item = screen.items[screen.selected];
 	switch (code)
 	{
@@ -662,29 +781,31 @@ void actScreen(u32 code)
 		break;
 	case PadLeft:
 	case PadRight:
-		if (screen.kind == Kind::Var && !item.values.empty())
+	{
+		const int step = code == PadLeft ? -1 : 1;
+		if (item.row == Row::Choice && !item.values.empty())
 		{
 			const int count = (int)item.values.size();
-			item.value = (item.value + (code == PadLeft ? count - 1 : 1)) % count;
+			item.value = (item.value + step + count) % count;
 			if (item.change)
 				item.change(item.value);
 		}
+		else if (item.shift)
+			item.shift(step);
 		break;
-	case PadB:
-		st.screens.pop_back();
-		break;
+	}
 	case PadA:
-		if (screen.kind == Kind::Input)
+		if (item.row == Row::Binding)
 			st.awaiting = screen.selected;
 		else if (item.confirm)
 		{
-			// it may change the screens, this one's items with them
+			// it may change the pages, this one's items with them
 			const std::function<void()> confirm = item.confirm;
 			confirm();
 		}
 		break;
 	case PadX:
-		if (screen.kind == Kind::Input)
+		if (item.row == Row::Binding)
 		{
 			unbind(item.key);
 			refreshBindings(screen);
@@ -692,6 +813,32 @@ void actScreen(u32 code)
 		}
 		break;
 	}
+}
+
+// linked: A tests again
+bool canTest(const link::Status& status)
+{
+	return status.role != link::Role::None && status.state != link::State::Testing;
+}
+
+// B leaves (the link down, unless a session keeps it), A tests again
+void actLink(u32 code)
+{
+	if (code == PadB)
+	{
+		if (!link::kept())
+			link::stop();
+		pop();
+	}
+	else if (code == PadA && canTest(link::status()))
+		link::test();
+}
+
+// linked, tested, IP up, the same game on both: both start it again as two players
+bool canStart(const link::Status& status)
+{
+	return status.state == link::State::Tested && status.role != link::Role::None && !status.address.empty()
+			&& status.sameGame;
 }
 
 void act(u32 code)
@@ -702,7 +849,7 @@ void act(u32 code)
 			st.result = Result::Quit;
 		return;
 	}
-	if (st.busy >= 0)
+	if (st.busy != Busy::None || st.screens.empty())
 		return;
 	st.dirty = true;
 	if (!st.message.empty())
@@ -710,10 +857,10 @@ void act(u32 code)
 		if (code == PadA || code == PadB)
 			st.message.clear();
 	}
-	else if (st.screens.empty())
-		actMain(code);
+	else if (linkShown())
+		actLink(code);
 	else
-		actScreen(code);
+		actList(code);
 }
 
 // the control pressed for the row waiting for one
@@ -766,23 +913,26 @@ void drawButton(const char *button, const char *hint, int x, int y)
 	c.text(fonts->small, hint, x + ox, baseline(fonts->small, y, ButtonSize), ColorHint);
 }
 
-// button and hint pairs in a pill at the bottom
-void drawButtons(const std::vector<std::pair<const char *, const char *>>& pairs, bool right)
+using Buttons = std::vector<std::pair<const char *, const char *>>;
+
+// button and hint pairs in a pill at the bottom right of a page drawn at ox; the pill's width
+int drawButtons(const Buttons& pairs, int ox)
 {
 	Canvas& c = st.canvas;
 	int ow = ButtonMargin;
 	for (const auto& pair : pairs)
 		ow += buttonWidth(pair.first, pair.second) + ButtonMargin;
-	int ox = right ? c.width() - Padding - ow : Padding;
-	int oy = c.height() - Padding - PillSize;
-	c.pill(ox, oy, ow, PillSize, ColorAccent);
-	ox += ButtonMargin;
-	oy += ButtonMargin;
+	int x = ox + c.width() - Padding - ow;
+	int y = c.height() - Padding - PillSize;
+	c.pill(x, y, ow, PillSize, ColorAccent);
+	x += ButtonMargin;
+	y += ButtonMargin;
 	for (const auto& pair : pairs)
 	{
-		drawButton(pair.first, pair.second, ox, oy);
-		ox += buttonWidth(pair.first, pair.second) + ButtonMargin;
+		drawButton(pair.first, pair.second, x, y);
+		x += buttonWidth(pair.first, pair.second) + ButtonMargin;
 	}
+	return ow;
 }
 
 // lines of text centered in a rectangle
@@ -802,70 +952,6 @@ void drawMessage(Font& font, const std::string& message, int x, int y, int w, in
 		st.canvas.text(font, line, x + (w - font.measure(line)) / 2, top + font.ascent(), White);
 		top += font.lineHeight();
 	}
-}
-
-void drawPreview()
-{
-	Canvas& c = st.canvas;
-	const int hw = c.width() / 2;
-	const int hh = c.height() / 2;
-	const int pw = hw + S(4 * 2);
-	const int ph = hh + S(4 * 2 + 6 + 4);
-	int ox = c.width() - pw - Padding;
-	int oy = (c.height() - ph) / 2;
-	c.roundRect(ox, oy, pw, ph, S(4), White);
-	ox += S(4);
-	oy += S(4);
-	c.fill(ox, oy, hw, hh, Black);
-	updatePreview();
-	if (!st.preview.empty())
-		c.picture(st.preview.data(), st.previewWidth, st.previewHeight, ox, oy, hw, hh);
-	else
-		drawMessage(fonts->large, st.stateExists ? "No Preview" : "Empty Slot", ox, oy, hw, hh);
-	// the slots: the one picked a black dot, the others small gray ones
-	const int px = ox + (hw - S(15 * SlotCount)) / 2;
-	const int py = oy + hh + S(4);
-	for (int i = 0; i < SlotCount; i++)
-	{
-		const int cx = px + S(15 * i) + S(15) / 2;
-		const int cy = py + S(3);
-		if (i == st.slot)
-			c.circle(cx, cy, S(3), Black);
-		else
-			c.circle(cx, cy, S(1), LightGray);
-	}
-}
-
-void drawMain()
-{
-	Canvas& c = st.canvas;
-	Font& large = fonts->large;
-	c.clear(ColorBackground);
-	if (!st.backdrop.empty())
-		c.picture(st.backdrop.data(), st.backdropWidth, st.backdropHeight, 0, 0, c.width(), c.height());
-
-	const int maxWidth = c.width() - Padding * 2;
-	const std::string title = Canvas::fit(large, st.title, maxWidth - ButtonPadding * 2);
-	c.pill(Padding, Padding, std::min(maxWidth, large.measure(title) + ButtonPadding * 2), PillSize, ColorAccent);
-	c.text(large, title, Padding + ButtonPadding, baseline(large, Padding, PillSize), ColorHint);
-
-	drawButtons({ { "B", "BACK" }, { "A", "OKAY" } }, true);
-
-	// the items, in the middle (NextUI's 1x rows)
-	const int oy = ((c.height() / Scale - 5 * 2) - MainCount * 30) / 2;
-	for (int i = 0; i < MainCount; i++)
-	{
-		const int top = S(oy + 5 + i * 30);
-		u32 color = White;
-		if (i == st.selected)
-		{
-			c.pill(Padding, top, large.measure(MainItems[i]) + ButtonPadding * 2, PillSize, ColorMain);
-			color = ColorSelectedText;
-		}
-		c.text(large, MainItems[i], Padding + ButtonPadding, baseline(large, top, PillSize), color);
-	}
-	if (st.selected == Save || st.selected == Load)
-		drawPreview();
 }
 
 // text broken at spaces into lines no wider than width (a longer word on its own)
@@ -889,128 +975,237 @@ std::vector<std::string> wrap(Font& font, const std::string& text, int width)
 	return lines;
 }
 
-// a description at the bottom, broken into lines that fit
-void drawDescription(const std::string& desc)
+// the selected slot's saved state, at the right of a page drawn at ox, the slots under it
+void drawPreview(int ox)
 {
 	Canvas& c = st.canvas;
+	const int hw = c.width() / 2;
+	const int hh = c.height() / 2;
+	const int pw = hw + S(4 * 2);
+	const int ph = hh + S(4 * 2 + 6 + 4);
+	int x = ox + c.width() - pw - Padding;
+	int y = (c.height() - ph) / 2;
+	c.roundRect(x, y, pw, ph, S(4), White);
+	x += S(4);
+	y += S(4);
+	c.fill(x, y, hw, hh, Black);
+	updatePreview();
+	if (!st.preview.empty())
+		c.picture(st.preview.data(), st.previewWidth, st.previewHeight, x, y, hw, hh);
+	else
+		drawMessage(fonts->large, st.stateExists ? "No Preview" : "Empty Slot", x, y, hw, hh);
+	// the slots: the one picked a black dot, the others small gray ones
+	const int px = x + (hw - S(15 * SlotCount)) / 2;
+	const int py = y + hh + S(4);
+	for (int i = 0; i < SlotCount; i++)
+	{
+		const int cx = px + S(15 * i) + S(15) / 2;
+		const int cy = py + S(3);
+		if (i == st.slot)
+			c.circle(cx, cy, S(3), Black);
+		else
+			c.circle(cx, cy, S(1), LightGray);
+	}
+}
+
+// the selected row's description at the bottom left, beside the buttons' pill (width wide), on its line
+void drawDescription(const std::string& desc, int width)
+{
+	if (desc.empty())
+		return;
+	Canvas& c = st.canvas;
 	Font& tiny = fonts->tiny;
-	const std::vector<std::string> lines = wrap(tiny, desc, c.width() - Padding * 2);
+	const std::vector<std::string> lines = wrap(tiny, desc, width);
 	const int leading = S(12);
-	int y = c.height() - Padding - leading * (int)lines.size();
+	int y = c.height() - Padding - (PillSize + leading * (int)lines.size()) / 2;
 	for (const std::string& line : lines)
 	{
-		c.text(tiny, line, (c.width() - tiny.measure(line)) / 2, baseline(tiny, y, leading), White);
+		c.text(tiny, line, Padding, baseline(tiny, y, leading), White);
 		y += leading;
 	}
 }
 
-void drawScreen(const Screen& screen)
+// a page's rows: NextUI's 1x rows where the main menu's are (a shorter list from the same top, so that
+// pages sliding by line up), the selected one in a pill, a Choice's or Binding's value at the right;
+// arrows above and below when there are more
+void drawList(const Screen& screen, int ox)
 {
 	Canvas& c = st.canvas;
-	Font& small = fonts->small;
-	Font& tiny = fonts->tiny;
-	c.clear(ColorBackground);
-
+	Font& large = fonts->large;
 	const int count = (int)screen.items.size();
-	const int end = std::min(count, screen.start + maxRows());
-	const int oy = Padding + PillSize;
-	std::string desc;
-	// as wide as its widest row, in the middle
-	int mw = 0;
-	int valuesWidth = 0;
-	if (screen.kind == Kind::Input)
-		for (const char *name : ControlNames)
-			valuesWidth = std::max(valuesWidth, tiny.measure(name));
-	for (const Item& item : screen.items)
+	const int shown = std::min(count, MaxRows);
+	const int oy = ((c.height() / Scale - 5 * 2) - MaxRows * 30) / 2;
+	const int left = ox + Padding;
+	const int right = ox + c.width() - Padding;
+	for (int i = 0; i < shown; i++)
 	{
-		if (screen.kind == Kind::List)
-			mw = std::max(mw, small.measure(item.name) + OptionPadding * 2);
-		else
+		const int index = screen.start + i;
+		const Item& item = screen.items[index];
+		const bool selected = index == screen.selected;
+		const int top = S(oy + 5 + i * 30);
+		std::string value;
+		if (item.row != Row::Action && item.value < (int)item.values.size() && !(selected && st.awaiting >= 0))
+			value = item.values[item.value];
+		// Left and Right change the selected Choice
+		if (selected && item.row == Row::Choice)
+			value = "<  " + value + "  >";
+		const int valueWidth = value.empty() ? 0 : large.measure(value) + ButtonPadding * 2;
+		const std::string name = Canvas::fit(large, item.name, right - left - valueWidth - ButtonPadding * 2);
+		u32 color = item.available && !item.available() ? LightGray : White;
+		if (selected)
 		{
-			int rw = valuesWidth;
-			for (const std::string& value : item.values)
-				rw = std::max(rw, tiny.measure(value));
-			mw = std::max(mw, small.measure(item.name) + rw + OptionPadding * 4);
-		}
-	}
-	mw = std::min(mw, c.width() - Padding * 2);
-	const int ox = (c.width() - mw) / 2;
-
-	for (int i = screen.start; i < end; i++)
-	{
-		const Item& item = screen.items[i];
-		const int top = oy + (i - screen.start) * ButtonSize;
-		const int labelWidth = small.measure(item.name) + OptionPadding * 2;
-		u32 color = White;
-		if (i == screen.selected)
-		{
-			if (screen.kind != Kind::List)
-				c.pill(ox, top, mw, ButtonSize, ColorAccent);
-			c.pill(ox, top, labelWidth, ButtonSize, ColorMain);
+			if (item.row != Row::Action)
+				c.pill(left, top, right - left, PillSize, ColorAccent);
+			c.pill(left, top, large.measure(name) + ButtonPadding * 2, PillSize, ColorMain);
 			color = ColorSelectedText;
-			desc = item.desc;
 		}
-		c.text(small, item.name, ox + OptionPadding, baseline(small, top, ButtonSize), color);
-		if (screen.kind != Kind::List && !(st.awaiting == i) && item.value < (int)item.values.size())
-		{
-			const std::string& value = item.values[item.value];
-			c.text(tiny, value, ox + mw - OptionPadding - tiny.measure(value), baseline(tiny, top, ButtonSize), White);
-		}
+		c.text(large, name, left + ButtonPadding, baseline(large, top, PillSize), color);
+		if (!value.empty())
+			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, top, PillSize), White);
 	}
-	if (count > maxRows())
+	if (count > shown)
 	{
-		// NextUI's gray arrows, 24 x 4 (1x)
-		const int ax = (c.width() - S(24)) / 2;
-		const int ay = (PillSize - S(4)) / 2;
+		// NextUI's gray arrows, 24 x 4 (1x), in the gaps above and below the rows
+		const float ax = (float)(left + ButtonPadding);
 		if (screen.start > 0)
 		{
-			const float up[] { (float)ax, (float)(Padding + ay + S(4)), (float)(ax + S(12)), (float)(Padding + ay),
-				(float)(ax + S(24)), (float)(Padding + ay + S(4)) };
+			const float y = (float)((Padding + PillSize + S(oy + 5)) / 2 - S(2));
+			const float up[] { ax, y + S(4), ax + S(12), y, ax + S(24), y + S(4) };
 			c.polygon(up, 3, Gray);
 		}
-		if (end < count)
+		if (screen.start + shown < count)
 		{
-			const int y = c.height() - (Padding + PillSize + ButtonSize) + ay;
-			const float down[] { (float)ax, (float)y, (float)(ax + S(24)), (float)y, (float)(ax + S(12)), (float)(y + S(4)) };
+			const float y = (float)((S(oy + 5 + shown * 30) + c.height() - Padding - PillSize) / 2 - S(2));
+			const float down[] { ax, y, ax + S(24), y, ax + S(12), y + S(4) };
 			c.polygon(down, 3, Gray);
 		}
 	}
-	drawDescription(desc.empty() ? screen.desc : desc);
+	if (count > 0 && screen.items[screen.selected].preview)
+		drawPreview(ox);
 }
 
-void drawPage(const std::string& line, const std::string& under);
-std::string discName();
-void drawBiosPage();
-
-void draw()
+// the link's page: what it is doing, and the last test's numbers
+void drawLink(int ox)
 {
 	Canvas& c = st.canvas;
-	if (!st.biosFile.empty())
-		drawBiosPage();
-	else if (st.busy >= 0)
-		drawPage(st.busy == Save ? "Saving..." : "Loading...", discName());
-	else if (!st.message.empty())
+	Font& large = fonts->large;
+	Font& small = fonts->small;
+	const link::Status s = link::status();
+	std::string title;
+	std::vector<std::string> unders;
+	switch (s.state)
 	{
-		c.clear(ColorBackground);
-		drawMessage(fonts->large, st.message, 0, 0, c.width(), c.height());
-		drawButtons({ { "A", "OKAY" } }, true);
+	case link::State::Off:
+	case link::State::Waiting:
+		title = "Looking for the other Brick";
+		if (!s.activity.empty())
+			unders.push_back(s.activity);
+		if (s.via == link::Via::Bluetooth)
+			unders.push_back("Open Local Multiplayer, Bluetooth on the other Brick too, and keep the two close.");
+		else if (s.topPortInUse)
+			unders.push_back("Something is on this Brick's top port: this Brick hosts there.");
+		else
+			unders.push_back("Cable the two Bricks: top port to bottom port, or bottom to bottom. Open USB Link on both.");
+		break;
+	case link::State::Testing:
+		title = "Testing the link...";
+		break;
+	case link::State::Tested:
+		title = canStart(s) ? "Starting two players..." : "Linked";
+		if (!s.sameGame)
+			unders.push_back("The other Brick is playing another game. Start the same game on both.");
+		break;
+	case link::State::Failed:
+		title = "The link failed";
+		break;
 	}
-	else if (st.screens.empty())
-		drawMain();
-	else
-		drawScreen(st.screens.back());
-	GraphicsContext::Instance()->showPicture(c.data());
+	if (s.role != link::Role::None)
+		unders.push_back("To Brick " + s.peer + " over " + s.port + ": this Brick is player "
+				+ (s.role == link::Role::Host ? "1" : "2"));
+	if (s.state == link::State::Tested)
+		for (size_t start = 0, end; start < s.result.size(); start = end + 1)
+		{
+			end = s.result.find('\n', start);
+			if (end == std::string::npos)
+				end = s.result.size();
+			unders.push_back(s.result.substr(start, end - start));
+		}
+	if (!s.address.empty())
+		unders.push_back("IP over the link: " + s.address + " to " + s.peerAddress);
+	if (!s.error.empty())
+		unders.push_back(s.error);
+
+	// left-aligned with the pages' rows, in the middle of the room between the title and the buttons
+	const int x = ox + Padding + ButtonPadding;
+	const int width = c.width() - (Padding + ButtonPadding) * 2;
+	const std::vector<std::string> lines = wrap(large, title, width);
+	std::vector<std::string> wrapped;
+	for (const std::string& under : unders)
+		for (const std::string& l : wrap(small, under, width))
+			wrapped.push_back(l);
+	const int gap = wrapped.empty() ? 0 : S(4);
+	const int height = (int)lines.size() * large.lineHeight() + gap + (int)wrapped.size() * small.lineHeight();
+	const int top = Padding + PillSize;
+	int y = top + (c.height() - Padding - PillSize - top - height) / 2;
+	for (const std::string& l : lines)
+	{
+		c.text(large, l, x, y + large.ascent(), White);
+		y += large.lineHeight();
+	}
+	y += gap;
+	for (const std::string& l : wrapped)
+	{
+		c.text(small, l, x, y + small.ascent(), 0xb4b4b4);
+		y += small.lineHeight();
+	}
 }
 
-void close(bool resume)
+// a page's rows (or the link's status) with their left edge at ox, off the screen while they slide
+void drawBody(const Screen& screen, int ox)
 {
-	GraphicsContext::Instance()->endPictures(resume);
-	st.open = false;
-	st.frame.clear();
-	st.backdrop.clear();
-	st.preview.clear();
-	st.screens.clear();
-	st.biosFile.clear();
+	if (ox <= -st.canvas.width() || ox >= st.canvas.width())
+		return;
+	if (screen.kind == Kind::Link)
+		drawLink(ox);
+	else
+		drawList(screen, ox);
+}
+
+// what a page's buttons do: the link's by where it is, a list's by its selected row
+Buttons pageButtons(const Screen& screen)
+{
+	Buttons buttons { { "B", "BACK" } };
+	if (screen.kind == Kind::Link)
+	{
+		if (canTest(link::status()))
+			buttons.push_back({ "A", "TEST" });
+	}
+	else if (!screen.items.empty() && screen.items[screen.selected].row == Row::Binding)
+	{
+		buttons.push_back({ "X", "CLEAR" });
+		buttons.push_back({ "A", "SET" });
+	}
+	else if (screen.items.empty() || screen.items[screen.selected].row == Row::Action)
+		buttons.push_back({ "A", "OKAY" });
+	return buttons;
+}
+
+// a page's title in its pill, its buttons, its selected row's description: in place
+void drawPills(const Screen& screen)
+{
+	Canvas& c = st.canvas;
+	Font& large = fonts->large;
+	const int maxWidth = c.width() - Padding * 2;
+	const std::string title = Canvas::fit(large, screen.title, maxWidth - ButtonPadding * 2);
+	c.pill(Padding, Padding, std::min(maxWidth, large.measure(title) + ButtonPadding * 2), PillSize, ColorAccent);
+	c.text(large, title, Padding + ButtonPadding, baseline(large, Padding, PillSize), ColorHint);
+	const int buttonsWidth = drawButtons(pageButtons(screen), 0);
+	if (screen.kind == Kind::List)
+	{
+		const std::string& desc = !screen.items.empty() && !screen.items[screen.selected].desc.empty()
+				? screen.items[screen.selected].desc : screen.desc;
+		drawDescription(desc, c.width() - Padding * 3 - buttonsWidth);
+	}
 }
 
 // a page with a line in white and text under it in grey, centered
@@ -1101,7 +1296,59 @@ void drawBiosPage()
 	line(text, "Press A or B to exit", White);
 }
 
+void draw()
+{
+	Canvas& c = st.canvas;
+	if (!st.biosFile.empty())
+		drawBiosPage();
+	else if (st.busy != Busy::None)
+		drawPage(st.busy == Busy::Save ? "Saving..." : "Loading...", discName());
+	else
+	{
+		c.copy(st.background);
+		if (!st.message.empty())
+		{
+			drawMessage(fonts->large, st.message, 0, 0, c.width(), c.height());
+			drawButtons({ { "A", "OKAY" } }, 0);
+		}
+		else if (!st.screens.empty())
+		{
+			const Screen& screen = st.screens.back();
+			if (st.sliding && (st.slideBack ? st.leaving != nullptr : st.screens.size() > 1))
+			{
+				// opened: both pages' rows to the left, the new ones in from the right; left: to the right
+				const float t = easeOut(std::min(1.f, (float)(getTimeMs() - st.slideStart) / SlideMs));
+				const int shift = (int)std::lround(t * c.width());
+				const Screen& from = st.slideBack ? *st.leaving : st.screens[st.screens.size() - 2];
+				drawBody(from, st.slideBack ? shift : -shift);
+				drawBody(screen, st.slideBack ? shift - c.width() : c.width() - shift);
+			}
+			else
+				drawBody(screen, 0);
+			drawPills(screen);
+		}
+	}
+	GraphicsContext::Instance()->showPicture(c.data());
+}
+
+void close(bool resume)
+{
+	if (linkShown() && !link::kept())
+		link::stop();
+	GraphicsContext::Instance()->endPictures(resume ? GraphicsContext::AfterPictures::LastFrame
+			: GraphicsContext::AfterPictures::Stay);
+	st.open = false;
+	st.session = false;
+	st.frame.clear();
+	st.preview.clear();
+	st.screens.clear();
+	st.leaving.reset();
+	st.sliding = false;
+	st.biosFile.clear();
+}
+
 bool starting = false;
+bool startingTwoPlayers = false;	// the start page says so
 
 }	// namespace
 
@@ -1142,9 +1389,11 @@ bool showBiosMissing(const std::string& file)
 	starting = false;
 	st.biosFile = file;
 	st.screens.clear();
+	st.leaving.reset();
+	st.sliding = false;
 	st.message.clear();
 	st.awaiting = -1;
-	st.busy = -1;
+	st.busy = Busy::None;
 	st.held = 0;
 	st.result = Result::Open;
 	st.dirty = true;
@@ -1152,12 +1401,25 @@ bool showBiosMissing(const std::string& file)
 	return true;
 }
 
+bool showStartTwoPlayers()
+{
+	if (!starting)
+		return false;
+	if (!startingTwoPlayers)
+	{
+		drawPage("Starting two players...", "Waiting for the other Brick");
+		GraphicsContext::Instance()->showPicture(st.canvas.data());
+		startingTwoPlayers = true;
+	}
+	return true;
+}
+
 void endStart()
 {
 	if (!starting)
 		return;
-	GraphicsContext::Instance()->endPictures(true);
-	starting = false;
+	GraphicsContext::Instance()->endPictures(GraphicsContext::AfterPictures::NextFrame);
+	starting = startingTwoPlayers = false;
 }
 
 bool open()
@@ -1167,7 +1429,7 @@ bool open()
 	GraphicsContext *context = GraphicsContext::Instance();
 	if (context == nullptr || !loadFonts())
 		return false;
-	// the frame on the screen, before the menu takes it: its background and a saved state's picture
+	// the frame on the screen, before the menu takes it: the pages' background and a saved state's picture
 	st.frameWidth = st.frameHeight = 0;
 	if (renderer == nullptr || !renderer->GetLastFrame(st.frame, st.frameWidth, st.frameHeight))
 		st.frame.clear();
@@ -1178,20 +1440,40 @@ bool open()
 		return false;
 	}
 	st.canvas.resize(width, height);
-	// a spread (standard deviation) of shrink * sqrt(radius * (radius + 1)), about 13 of the frame's pixels
-	st.backdrop = blur(st.frame, st.frameWidth, st.frameHeight, 2, 6, st.backdropWidth, st.backdropHeight);
-	st.title = displayName();
-	st.selected = Continue;
+	// blurred (a spread, the standard deviation, of shrink * sqrt(radius * (radius + 1)): about 13 of the
+	// frame's pixels) and darkened, so that white text reads over a white screen too; scaled to the screen
+	// once, as every page is drawn over it
+	int blurredWidth, blurredHeight;
+	const std::vector<u8> blurred = blur(st.frame, st.frameWidth, st.frameHeight, 2, 6, blurredWidth, blurredHeight);
+	st.background.resize(width, height);
+	st.background.clear(ColorBackground);
+	if (!blurred.empty())
+		st.background.picture(blurred.data(), blurredWidth, blurredHeight, 0, 0, width, height, BackdropBrightness);
+	st.session = false;
 	st.slot = config::SavestateSlot >= 0 && config::SavestateSlot < SlotCount ? (int)config::SavestateSlot : 0;
 	st.screens.clear();
+	st.screens.push_back(mainScreen());
+	st.leaving.reset();
+	st.sliding = false;
 	st.message.clear();
 	st.awaiting = -1;
-	st.busy = -1;
+	st.busy = Busy::None;
 	st.result = Result::Open;
 	st.dirty = true;
 	st.held = 0;
 	st.previewSlot = -1;
 	st.open = true;
+	return true;
+}
+
+bool openSession()
+{
+	if (!open())
+		return false;
+	st.session = true;
+	st.shownPause = netplay::pauseState();
+	st.screens.clear();
+	st.screens.push_back(sessionScreen());
 	return true;
 }
 
@@ -1235,15 +1517,59 @@ Result frame()
 	if (!st.open)
 		return Result::Resume;
 	// a save or load once its screen is up
-	if (st.busy >= 0 && !st.dirty)
+	if (st.busy != Busy::None && !st.dirty)
 	{
-		const bool done = st.busy == Save ? saveState() : loadState();
-		st.busy = -1;
+		const bool done = st.busy == Busy::Save ? saveState() : loadState();
+		st.busy = Busy::None;
 		st.dirty = true;
 		if (done)
 			st.result = Result::Resume;
 	}
+	// a session's menu: closed when the session goes on (Continue on the other Brick), drawn again when
+	// why it is paused changes (the other Brick gone, back, left)
+	if (st.session && st.result == Result::Open)
+	{
+		const netplay::PauseState now = netplay::pauseState();
+		if (now.pause == netplay::Pause::None)
+			st.result = Result::Resume;
+		else if (now.pause != st.shownPause.pause || now.peerPresent != st.shownPause.peerPresent)
+		{
+			st.shownPause = now;
+			Screen& screen = st.screens.front();
+			screen.title = sessionTitle();
+			// on Continue, which went away (the other Brick gone or left): on Leave instead
+			if (screen.selected == SessionContinue && !canContinue())
+				screen.selected = SessionLeave;
+			st.dirty = true;
+		}
+	}
+	// the link's page again whenever its status changes
+	if (linkShown())
+	{
+		const link::Status s = link::status();
+		if (s.version != st.linkVersion)
+		{
+			st.linkVersion = s.version;
+			st.dirty = true;
+		}
+		// linked: the game again on both, as two players, from its start
+		if (canStart(s))
+		{
+			netplay::begin(s.role == link::Role::Host, s.peerAddress, s.inputDelay);
+			st.result = Result::Restart;
+		}
+	}
 	const u64 now = getTimeMs();
+	// a page sliding: drawn every frame until it is in place
+	if (st.sliding)
+	{
+		if (now - st.slideStart >= SlideMs)
+		{
+			st.sliding = false;
+			st.leaving.reset();
+		}
+		st.dirty = true;
+	}
 	if (st.held != 0 && st.result == Result::Open && now >= st.repeatAt)
 	{
 		st.repeatAt = now + 100;

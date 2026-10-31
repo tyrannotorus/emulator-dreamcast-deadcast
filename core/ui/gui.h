@@ -25,6 +25,8 @@
 void gui_init();
 void gui_updateStyle();
 void gui_open_settings();
+// Deadcast: a paused two-player session's menu, once paused (called every main loop iteration)
+void gui_netplay_check();
 void gui_display_ui();
 void gui_draw_osd();
 void gui_display_osd();

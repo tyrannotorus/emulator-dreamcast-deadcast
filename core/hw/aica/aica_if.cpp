@@ -333,6 +333,8 @@ void Write_DmaStart(u32 addr, u32 data)
 		std::swap(src, dst);
 	DEBUG_LOG(AICA, "%s: DMA Write to %X from %X %d bytes", LogTag, dst, src, len);
 
+	// Deadcast: the AICA's RAM, maybe, read or written: in step, the AICA thread caught up first
+	ramAccess();
 	WriteMemBlock_nommu_dma(dst, src, len);
 
 	if (lenReg & 0x80000000)

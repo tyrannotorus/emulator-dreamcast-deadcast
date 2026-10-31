@@ -55,6 +55,8 @@ public:
 	const u32 *data() const { return pixels.data(); }
 
 	void clear(u32 rgb);
+	// another canvas of the same size, over this one
+	void copy(const Canvas& from);
 	void fill(int x, int y, int width, int height, u32 rgb);
 	// rounded rectangle, radius r; a pill is r = height / 2
 	void roundRect(int x, int y, int width, int height, int r, u32 rgb);

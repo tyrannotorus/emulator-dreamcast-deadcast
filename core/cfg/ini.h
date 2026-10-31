@@ -38,6 +38,8 @@ public:
 	bool hasSection(const std::string& section) const;
 	bool hasEntry(const std::string& section, const std::string& name) const;
 	bool isTransient(const std::string& section, const std::string& name) const;
+	// Deadcast: the entry's own value again, not the transient one
+	void clearTransient(const std::string& section, const std::string& name);
 	void deleteSection(const std::string& section);
 	void deleteEntry(const std::string& section, const std::string& name);
 

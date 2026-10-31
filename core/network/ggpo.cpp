@@ -33,6 +33,14 @@ namespace ggpo
 
 bool inRollback;
 
+// Deadcast: after a two-player session, the player's pad on the side it played (1: player 2's port)
+static int aloneSide;
+
+void setAloneSide(int side)
+{
+	aloneSide = side;
+}
+
 static void getLocalInput(MapleInputState inputState[4])
 {
 	if (!config::ThreadedRendering)
@@ -67,6 +75,8 @@ static void getLocalInput(MapleInputState inputState[4])
 		mo_y_delta[player] -= relY;
 		mo_wheel_delta[player] -= wheel;
 	}
+	if (aloneSide == 1)
+		std::swap(inputState[0], inputState[1]);
 }
 
 }
@@ -77,6 +87,9 @@ static void getLocalInput(MapleInputState inputState[4])
 #include "ui/gui.h"
 #include "ui/gui_util.h"
 #include "hw/mem/mem_watch.h"
+#include "hw/sh4/sh4_mem.h"
+#include "hw/pvr/spg.h"
+#include <map>
 #include <string.h>
 #include <chrono>
 #include <thread>
@@ -89,9 +102,9 @@ static void getLocalInput(MapleInputState inputState[4])
 
 //#define SYNC_TEST 1
 
-#ifdef SYNC_TEST
+// (Deadcast: for its desync check too)
 #include <xxhash.h>
-#endif
+#include <poll.h>
 
 namespace ggpo
 {
@@ -148,6 +161,50 @@ struct MemPages
 static std::unordered_map<int, MemPages> deltaStates;
 static int lastSavedFrame = -1;
 
+// Deadcast: both sides hash their state every CheckEvery frames and swap the hashes (GameEvent::Checksum),
+// each sent CheckSettle frames later, past any rollback that could redo its frame. A frame whose hashes
+// differ is a desync: the two emulators no longer run alike.
+constexpr int CheckEvery = 300;
+constexpr int CheckSettle = 60;
+static std::mutex checkMutex;
+static std::map<int, u64> ownHashes, peerHashes;
+static int checkToSend = -1;
+static u32 checksInStep, desyncs;
+
+// each frame both Bricks have a hash for, compared once; this Brick's hashes kept until sent
+static void compareHashes()
+{
+	for (auto peer = peerHashes.begin(); peer != peerHashes.end(); )
+	{
+		auto own = ownHashes.find(peer->first);
+		if (own == ownHashes.end())
+		{
+			// gone by here (older than any kept): never to be compared
+			if (!ownHashes.empty() && peer->first < ownHashes.begin()->first)
+				peer = peerHashes.erase(peer);
+			else
+				++peer;
+			continue;
+		}
+		if (own->second == peer->second)
+		{
+			checksInStep++;
+			WARN_LOG(NETWORK, "Deadcast: frame %d in step with the other Brick (%u checks, %u desyncs)", peer->first, checksInStep, desyncs);
+		}
+		else
+		{
+			if (desyncs++ == 0)
+				os_notify("The two Bricks are out of step", 5000);
+			WARN_LOG(NETWORK, "Deadcast: DESYNC at frame %d: %016llx here, %016llx there (%u checks in step)", peer->first,
+					(unsigned long long)own->second, (unsigned long long)peer->second, checksInStep);
+		}
+		peer = peerHashes.erase(peer);
+	}
+	// this Brick's own, a few checks back at most
+	while (ownHashes.size() > 4)
+		ownHashes.erase(ownHashes.begin());
+}
+
 static int timesyncOccurred;
 
 #pragma pack(push, 1)
@@ -181,7 +238,8 @@ struct GameEvent
 {
 	enum : char {
 		Chat,
-		VF4Card
+		VF4Card,
+		Checksum	// Deadcast: the desync check's
 	} type;
 	union {
 		struct {
@@ -192,6 +250,10 @@ struct GameEvent
 			u8 playerNum;
 			u8 data[128];
 		} card;
+		struct {
+			s32 frame;
+			u64 hash;
+		} checksum;
 	} u;
 
 	constexpr static int chatMessageLen(int len) { return len - sizeof(u.chat.playerNum) - sizeof(type); }
@@ -354,6 +416,16 @@ static bool save_game_state(unsigned char **buffer, int *len, int *checksum, int
 		*len = 0;
 		return false;
 	}
+	// Deadcast: the desync check (redone after a rollback: the last hash of a frame is the one sent)
+	if (frame % CheckEvery == 0)
+	{
+		// main RAM: the game's state (the rollback state also holds things that differ between machines)
+		const u64 hash = XXH3_64bits(&mem_b[0], settings.platform.ram_size);
+		std::lock_guard<std::mutex> lock(checkMutex);
+		ownHashes[frame] = hash;
+	}
+	if (frame >= CheckSettle && (frame - CheckSettle) % CheckEvery == 0)
+		checkToSend = frame - CheckSettle;
 #ifdef SYNC_TEST
 	*checksum = XXH3_64bits(*buffer, usedSize);
 #endif
@@ -472,10 +544,396 @@ static void on_message(u8 *msg, int len)
 		setRfidCardData(event->u.card.playerNum, event->u.card.data);
 		break;
 
+	case GameEvent::Checksum:
+	{
+		std::lock_guard<std::mutex> lock(checkMutex);
+		peerHashes[event->u.checksum.frame] = event->u.checksum.hash;
+		compareHashes();
+		break;
+	}
+
 	default:
 		WARN_LOG(NETWORK, "Unknown app message type %d", event->type);
 		break;
 	}
+}
+
+// Deadcast: lockstep netplay, in place of GGPO's rollback (no state saved each frame, none loaded back):
+// a frame runs only once both Bricks have both players' inputs for it, each Brick's sent Delay frames
+// ahead and again in the packets after (a lost packet costs nothing). Over the USB link (well under a
+// millisecond each way) the wait costs next to nothing, where GGPO's state saved every frame cost the
+// Brick 40% of its speed (2026-10-31). Same start (the disc's, deadcast/netplay.h), same inputs, same
+// frames: the desync check (main RAM hashed every CheckEvery frames, swapped in the same packets) says if
+// not.
+// Pausing: MENU puts PauseBit in this Brick's next input, so both Bricks stop before the same frame and
+// show the menu; Continue on either goes on (the resume count in every packet takes the other along).
+// The other Brick silent for TimeoutMs (a cable pulled, a Brick switched off) or gone (it left): paused
+// as well, until it is back (Continue then goes on with it) or this player goes on alone.
+namespace lockstep
+{
+constexpr u32 Magic = 0x4b434f4c;		// "LOCK"
+enum : u32 { Hello, Frames };
+enum : u32 { LeftFlag = 1, PausedFlag = 2 };	// Packet::flags
+constexpr u32 PauseBit = 1;				// in Inputs::kbModifiers (no keyboard in a Dreamcast session)
+constexpr int Window = 16;				// inputs in every packet
+constexpr int Ring = 64;
+constexpr int TimeoutMs = 3000;			// no input from the other Brick for this long: it is gone
+
+#pragma pack(push, 1)
+struct Packet
+{
+	u32 magic = Magic;
+	u32 kind = Frames;
+	s32 frame = -1;			// the newest input's
+	u32 count = 0;			// inputs, oldest first, the newest for frame
+	u8 verif[32] {};		// Hello: the game's and the state's MD5s
+	s32 hashFrame = -1;		// the desync check's latest
+	u64 hash = 0;
+	u32 resumes = 0;		// how often the session went on after a pause
+	u32 flags = 0;
+	Inputs inputs[Window];
+};
+#pragma pack(pop)
+
+static int sock = -1;
+static sockaddr_in peer;
+static std::atomic<bool> running { false };
+static int frame;					// the frame running
+static int delay;
+static int lastLocal;				// the newest frame this Brick's input is in for
+static int lastRemote;				// the newest frame the other Brick's input is in for
+static Inputs local[Ring], remote[Ring];
+static u8 verif[32];
+static int ownHashFrame = -1;
+static u64 ownHash;
+static int lastPeerHashFrame = -1;
+// the pause (netplayPause() for the menu)
+static std::atomic<bool> paused { false };
+static std::atomic<int> pauseReason { (int)PauseReason::None };
+static std::atomic<bool> peerPresent { true };
+static std::atomic<bool> peerLeft { false };
+static std::atomic<bool> wantPause { false };
+static std::atomic<bool> wantResume { false };
+static std::atomic<u32> resumes { 0 };
+static int pausedBefore = -1;		// the frame the last menu pause stopped before
+static std::atomic<s64> lastHeardMs { 0 };
+static float waitedMs;				// for the other Brick's input, since the last desync check
+
+static s64 nowMs()
+{
+	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static Inputs sampleLocal()
+{
+	if (!config::ThreadedRendering)
+		os_UpdateInputState();
+	Inputs inputs {};
+	inputs.kcode = ~kcode[0];
+	if (rt[0] >= 0x4000)
+		inputs.kcode |= BTN_TRIGGER_RIGHT;
+	else
+		inputs.kcode &= ~BTN_TRIGGER_RIGHT;
+	if (lt[0] >= 0x4000)
+		inputs.kcode |= BTN_TRIGGER_LEFT;
+	else
+		inputs.kcode &= ~BTN_TRIGGER_LEFT;
+	if (analogAxes > 0)
+	{
+		inputs.u.analog.x = joyx[0] >> 8;
+		if (analogAxes >= 2)
+			inputs.u.analog.y = joyy[0] >> 8;
+	}
+	if (wantPause.exchange(false))
+		inputs.kbModifiers |= PauseBit;
+	return inputs;
+}
+
+static void toMaple(const Inputs& inputs, MapleInputState& state)
+{
+	state = {};
+	state.kcode = ~inputs.kcode;
+	if (analogAxes > 0)
+	{
+		state.fullAxes[PJAI_X1] = inputs.u.analog.x << 8;
+		if (analogAxes >= 2)
+			state.fullAxes[PJAI_Y1] = inputs.u.analog.y << 8;
+	}
+	state.halfAxes[PJTI_R] = (state.kcode & BTN_TRIGGER_RIGHT) == 0 ? 0xffff : 0;
+	state.halfAxes[PJTI_L] = (state.kcode & BTN_TRIGGER_LEFT) == 0 ? 0xffff : 0;
+}
+
+static void send(u32 kind, u32 flags = 0)
+{
+	Packet p;
+	p.kind = kind;
+	std::memcpy(p.verif, verif, sizeof(verif));
+	p.hashFrame = ownHashFrame;
+	p.hash = ownHash;
+	p.resumes = resumes;
+	p.flags = flags | (paused ? PausedFlag : 0);
+	if (kind == Frames)
+	{
+		// this Brick's inputs so far, Window of them at most
+		const int newest = lastLocal;
+		const int oldest = std::max(0, newest - Window + 1);
+		p.frame = newest;
+		p.count = newest - oldest + 1;
+		for (int f = oldest; f <= newest; f++)
+			p.inputs[f - oldest] = local[f % Ring];
+	}
+	sendto(sock, (const char *)&p, sizeof(p), 0, (sockaddr *)&peer, sizeof(peer));
+}
+
+// what came from the other Brick, waiting up to timeoutMs for something: false if nothing came
+static bool receive(int timeoutMs)
+{
+	pollfd pfd { sock, POLLIN, 0 };
+	if (poll(&pfd, 1, timeoutMs) <= 0)
+		return false;
+	Packet p;
+	bool got = false;
+	ssize_t n;
+	while ((n = recv(sock, (char *)&p, sizeof(p), 0)) > 0)
+	{
+		if (n != sizeof(p) || p.magic != Magic)
+			continue;
+		got = true;
+		lastHeardMs = nowMs();
+		if (p.flags & LeftFlag)
+			peerLeft = true;
+		// the other Brick went on after a pause: this one follows
+		if (p.resumes > resumes)
+			resumes = p.resumes;
+		if (p.kind == Hello)
+		{
+			if (std::memcmp(p.verif, verif, sizeof(verif)) != 0)
+				throw FlycastException("The other Brick has another game, or another start");
+			continue;
+		}
+		const int oldest = p.frame - (int)p.count + 1;
+		for (int f = std::max(oldest, lastRemote + 1); f <= p.frame; f++)
+			remote[f % Ring] = p.inputs[f - oldest];
+		lastRemote = std::max(lastRemote, p.frame);
+		if (p.hashFrame > lastPeerHashFrame)
+		{
+			lastPeerHashFrame = p.hashFrame;
+			std::lock_guard<std::mutex> lock(checkMutex);
+			peerHashes[p.hashFrame] = p.hash;
+			compareHashes();
+		}
+	}
+	return got;
+}
+
+// the session over here: the other Brick told (a few times: UDP), the socket closed
+static void stop()
+{
+	if (sock >= 0 && running)
+		for (int i = 0; i < 5; i++)
+			send(Frames, LeftFlag);
+	running = false;
+	paused = false;
+	if (sock >= 0)
+		closesocket(sock);
+	sock = -1;
+}
+
+static void start(int port, const VerificationData& verification)
+{
+	std::memcpy(verif, verification.gameMD5, 16);
+	std::memcpy(verif + 16, verification.stateMD5, 16);
+	const std::string server = config::NetworkServer.get();
+	const size_t colon = server.find(':');
+	peer = {};
+	peer.sin_family = AF_INET;
+	peer.sin_port = htons(colon == std::string::npos ? SERVER_PORT : atoi(server.substr(colon + 1).c_str()));
+	if (inet_pton(AF_INET, server.substr(0, colon).c_str(), &peer.sin_addr) != 1)
+		throw FlycastException("The other Brick's address is not set");
+	sock = socket(AF_INET, SOCK_DGRAM, 0);
+	sockaddr_in self {};
+	self.sin_family = AF_INET;
+	self.sin_port = htons(port);
+	self.sin_addr.s_addr = htonl(INADDR_ANY);
+	if (sock < 0 || bind(sock, (sockaddr *)&self, sizeof(self)) != 0)
+	{
+		if (sock >= 0)
+			closesocket(sock);
+		sock = -1;
+		throw FlycastException("Netplay: no UDP port");
+	}
+	set_non_blocking(sock);
+	delay = std::max(1, config::GGPODelay.get());
+	frame = 0;
+	// the first frames, before any input could get across: nothing pressed, on both
+	for (int f = 0; f < Ring; f++)
+		local[f] = remote[f] = Inputs {};
+	lastLocal = lastRemote = delay - 1;
+	ownHashFrame = lastPeerHashFrame = -1;
+	{
+		std::lock_guard<std::mutex> lock(checkMutex);
+		ownHashes.clear();
+		peerHashes.clear();
+	}
+	paused = false;
+	pauseReason = (int)PauseReason::None;
+	peerPresent = true;
+	peerLeft = false;
+	wantPause = false;
+	wantResume = false;
+	resumes = 0;
+	pausedBefore = -1;
+	lastHeardMs = nowMs();
+	running = true;
+	WARN_LOG(NETWORK, "Deadcast: lockstep netplay as player %d, input %d frame(s) ahead", localPlayerNum + 1, delay);
+}
+
+// the other Brick there (its hello or its first frames): both start at frame 0. Not there within
+// HandshakeMs (it never restarted, or left): the session ends, the game goes on alone.
+static void handshake()
+{
+	constexpr int HandshakeMs = 10000;
+	const auto start = std::chrono::steady_clock::now();
+	while (running)
+	{
+		send(Hello);
+		if (receive(100))
+			break;
+		if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(HandshakeMs))
+		{
+			stop();
+			throw FlycastException("The other Brick did not come");
+		}
+	}
+	// one more, for the other Brick to know it was heard
+	if (running)
+		send(Hello);
+}
+
+// stopped before frame (a menu pause: both Bricks alike), until Continue here or on the other Brick
+// (whose resume count then comes in), or the session's end (the menu's Leave or Quit: stop())
+static void pauseLoop(PauseReason reason)
+{
+	const u32 at = resumes;
+	pauseReason = (int)reason;
+	paused = true;
+	WARN_LOG(NETWORK, "Deadcast: two-player game paused before frame %d (%d)", frame, (int)reason);
+	s64 heartbeat = 0;
+	while (running && resumes == at)
+	{
+		if (nowMs() - heartbeat >= 100)
+		{
+			send(Frames);
+			heartbeat = nowMs();
+		}
+		receive(50);
+		const bool present = !peerLeft && nowMs() - lastHeardMs < TimeoutMs;
+		peerPresent = present;
+		if (peerLeft)
+			pauseReason = (int)PauseReason::Left;
+		else if (!present)
+			pauseReason = (int)PauseReason::Lost;
+		if (wantResume.exchange(false) && present)
+			resumes = at + 1;
+	}
+	paused = false;
+	pauseReason = (int)PauseReason::None;
+	if (!running)
+		throw FlycastException("The two-player game is over");
+	WARN_LOG(NETWORK, "Deadcast: two-player game goes on at frame %d", frame);
+	// the other Brick learns at once
+	send(Frames);
+}
+
+static void nextFrame()
+{
+	// the frame just run: the desync check at its end, then this Brick's input for frame + delay
+	if (frame % CheckEvery == 0)
+	{
+		ownHash = XXH3_64bits(&mem_b[0], settings.platform.ram_size);
+		ownHashFrame = frame;
+		if (frame != 0)
+			WARN_LOG(NETWORK, "Deadcast: frames %d-%d waited %.0f ms for the other Brick", frame - CheckEvery, frame, waitedMs);
+		waitedMs = 0.f;
+		std::lock_guard<std::mutex> lock(checkMutex);
+		ownHashes[frame] = ownHash;
+		compareHashes();
+	}
+	lastLocal = frame + delay;
+	local[lastLocal % Ring] = sampleLocal();
+	frame++;
+	send(Frames);
+	// the next frame's input from the other Brick: none for TimeoutMs, or it left: paused until it is back.
+	// The time waited for it is not lag for frame skipping to make up (spg.cpp)
+	s64 since = nowMs();
+	const auto waitStart = std::chrono::steady_clock::now();
+	while (lastRemote < frame)
+	{
+		if (!running)
+			throw FlycastException("The two-player game is over");
+		if (peerLeft)
+		{
+			pauseLoop(PauseReason::Left);
+			since = nowMs();
+			continue;
+		}
+		const int waited = (int)(nowMs() - since);
+		if (waited >= TimeoutMs)
+		{
+			pauseLoop(PauseReason::Lost);
+			since = nowMs();
+			continue;
+		}
+		if (!receive(std::min(20, TimeoutMs - waited)))
+			send(Frames);
+	}
+	const float waited = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - waitStart).count();
+	sh4WaitedMs += waited;
+	waitedMs += waited;
+	// a pause asked for this frame by either Brick: both stop before it
+	const u32 mine = local[frame % Ring].kbModifiers & PauseBit;
+	const u32 theirs = remote[frame % Ring].kbModifiers & PauseBit;
+	if ((mine | theirs) != 0 && frame != pausedBefore)
+	{
+		pausedBefore = frame;
+		pauseLoop(mine != 0 ? PauseReason::Menu : PauseReason::PeerMenu);
+	}
+	receive(0);
+}
+
+static void input(MapleInputState inputState[4])
+{
+	for (int player = 0; player < 4; player++)
+		inputState[player] = {};
+	toMaple(local[frame % Ring], inputState[localPlayerNum]);
+	toMaple(remote[frame % Ring], inputState[1 - localPlayerNum]);
+}
+
+}
+
+NetplayPause netplayPause()
+{
+	NetplayPause p;
+	p.paused = lockstep::running && lockstep::paused;
+	p.reason = p.paused ? (PauseReason)lockstep::pauseReason.load() : PauseReason::None;
+	p.peerPresent = lockstep::peerPresent;
+	return p;
+}
+
+void netplayRequestPause()
+{
+	if (lockstep::running && !lockstep::paused)
+		lockstep::wantPause = true;
+}
+
+void netplayResume()
+{
+	lockstep::wantResume = true;
+}
+
+int sessionSide()
+{
+	return localPlayerNum;
 }
 
 void startSession(int localPort, int localPlayerNum)
@@ -552,6 +1010,11 @@ void startSession(int localPort, int localPlayerNum)
 				.add(settings.network.md5.vmu)
 				.getDigest(verif.stateMD5);
 	}
+
+	// Deadcast: lockstep, not GGPO's rollback (see lockstep above)
+	ggpo::localPlayerNum = localPlayerNum;
+	lockstep::start(localPort, verif);
+	return;
 
 	GGPOErrorCode result = ggpo_start_session(&ggpoSession, &cb, settings.content.gameId.c_str(), MAX_PLAYERS, inputSize, localPort,
 			&verif, sizeof(verif));
@@ -632,6 +1095,14 @@ void startSession(int localPort, int localPlayerNum)
 void stopSession()
 {
 	std::lock_guard<std::recursive_mutex> lock(ggpoMutex);
+	if (lockstep::running)
+	{
+		lockstep::stop();
+		emu.setNetworkState(false);
+		memwatch::unprotect();
+		memwatch::reset();
+		return;
+	}
 	if (ggpoSession == nullptr)
 		return;
 	ggpo_close_session(ggpoSession);
@@ -645,6 +1116,11 @@ void stopSession()
 void getInput(MapleInputState inputState[4])
 {
 	std::lock_guard<std::recursive_mutex> lock(ggpoMutex);
+	if (lockstep::running)
+	{
+		lockstep::input(inputState);
+		return;
+	}
 	if (ggpoSession == nullptr)
 	{
 		getLocalInput(inputState);
@@ -712,6 +1188,14 @@ bool nextFrame()
 	}
 	lastFrameTime = now;
 
+	// (not under ggpoMutex: a pause waits in there for the menu, which takes it)
+	if (lockstep::running)
+	{
+		// the next frame, the SH4 going again (endOfFrame stopped it), as GGPO's does below
+		lockstep::nextFrame();
+		emu.getSh4Executor()->Start();
+		return true;
+	}
 	std::lock_guard<std::recursive_mutex> lock(ggpoMutex);
 	if (ggpoSession == nullptr)
 		return false;
@@ -721,6 +1205,22 @@ bool nextFrame()
 	// may rollback
 	if (error == GGPO_OK)
 		error = ggpo_idle(ggpoSession, 0);
+	// Deadcast: a settled frame's hash to the other Brick, and compared once both are in
+	if (error == GGPO_OK && checkToSend >= 0)
+	{
+		GameEvent event;
+		event.type = GameEvent::Checksum;
+		event.u.checksum.frame = checkToSend;
+		{
+			std::lock_guard<std::mutex> lock(checkMutex);
+			auto own = ownHashes.find(checkToSend);
+			event.u.checksum.hash = own != ownHashes.end() ? own->second : 0;
+		}
+		checkToSend = -1;
+		ggpo_send_message(ggpoSession, &event, sizeof(event.type) + sizeof(event.u.checksum), true);
+		std::lock_guard<std::mutex> lock(checkMutex);
+		compareHashes();
+	}
 	if (error != GGPO_OK)
 	{
 		stopSession();
@@ -806,7 +1306,7 @@ bool nextFrame()
 
 bool active()
 {
-	return ggpoSession != nullptr;
+	return ggpoSession != nullptr || lockstep::running;
 }
 
 std::future<bool> startNetwork()
@@ -836,6 +1336,12 @@ std::future<bool> startNetwork()
 				throw;
 			}
 #endif
+		}
+		// Deadcast: lockstep's handshake (its own; nothing of GGPO's to wait for)
+		if (lockstep::running)
+		{
+			lockstep::handshake();
+			synchronized = lockstep::running;
 		}
 		while (!synchronized && active())
 		{
@@ -874,7 +1380,8 @@ std::future<bool> startNetwork()
 				event.type = GameEvent::VF4Card;
 				event.u.card.playerNum = config::ActAsServer ? 0 : 1;
 				memcpy(event.u.card.data, cardData, sizeof(event.u.card.data));
-				ggpo_send_message(ggpoSession, &event, sizeof(event.type) + sizeof(event.u.card), true);
+				if (ggpoSession != nullptr)
+					ggpo_send_message(ggpoSession, &event, sizeof(event.type) + sizeof(event.u.card), true);
 			}
 		}
 		emu.setNetworkState(active());
@@ -884,7 +1391,7 @@ std::future<bool> startNetwork()
 
 void displayStats()
 {
-	if (!active())
+	if (!active() || ggpoSession == nullptr)
 		return;
 	GGPONetworkStats stats;
 	ggpo_get_network_stats(ggpoSession, remotePlayer, &stats);
@@ -950,7 +1457,7 @@ void endOfFrame()
 }
 
 void sendChatMessage(int playerNum, const std::string& msg) {
-	if (!active())
+	if (!active() || ggpoSession == nullptr)
 		return;
 	GameEvent event;
 	event.type = GameEvent::Chat;

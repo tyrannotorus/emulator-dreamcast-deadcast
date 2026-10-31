@@ -54,6 +54,7 @@
 #include "oslib/i18n.h"
 #include "gui_font.h"
 #include "deadcast/menu.h"
+#include "deadcast/netplay.h"
 using namespace i18n;
 
 #ifdef _WIN32
@@ -406,6 +407,8 @@ void gui_plot_render_time(int width, int height)
 }
 #endif
 
+static void netplayEnded(const std::string& why);
+
 void gui_open_settings()
 {
 	const LockGuard lock(guiMutex);
@@ -425,6 +428,10 @@ void gui_open_settings()
 				}
 			}
 		}
+		else if (deadcast::netplay::inSession())
+			// Deadcast: MENU in a two-player game pauses both Bricks (the menu opens once they have stopped:
+			// gui_netplay_check)
+			deadcast::netplay::requestPause();
 		else
 		{
 			chat.toggle();
@@ -468,9 +475,42 @@ void gui_start_game(const std::string& path)
 	gameLoader.load(path);
 }
 
+// Deadcast: a two-player session over: the game stopped, and again from where it was, one player
+static void netplayEnded(const std::string& why)
+{
+	try {
+		emu.stop();
+	} catch (const FlycastException& e) {
+		WARN_LOG(NETWORK, "%s", e.what());
+	}
+	NetworkHandshake::term();
+	deadcast::netplay::end(why);
+	// a copy: unloading the game clears settings.content
+	const std::string path = settings.content.path;
+	gui_setState(GuiState::Closed);
+	gui_start_game(path);
+}
+
+// Deadcast: a two-player session paused (MENU here or on the other Brick, the other Brick silent or gone):
+// its menu, over the game stopped where both stopped (the emulator is not stopped: the session waits)
+void gui_netplay_check()
+{
+	const LockGuard lock(guiMutex);
+	if (gui_state != GuiState::Closed || !deadcast::netplay::inSession())
+		return;
+	if (deadcast::netplay::pauseState().pause != deadcast::netplay::Pause::None && deadcast::menu::openSession())
+		gui_setState(GuiState::Menu);
+}
+
 void gui_stop_game(const std::string& message)
 {
 	const LockGuard lock(guiMutex);
+	// Deadcast: the other Brick gone (or never there): no stop, the game goes on alone
+	if (deadcast::netplay::inSession())
+	{
+		netplayEnded(message.empty() ? "The two-player game is over." : message);
+		return;
+	}
 	if (!commandLineStart)
 	{
 		// Exit to main menu
@@ -1340,8 +1380,41 @@ void gui_display_ui()
 		case deadcast::menu::Result::Quit:
 			dc_exit();
 			break;
+		case deadcast::menu::Result::Leave:
+			// Deadcast: the session menu's Leave: on alone from where the game is
+			netplayEnded("You left the two-player game.");
+			break;
+		case deadcast::menu::Result::Restart:
+		{
+			// Deadcast: the game again, as two players (USB Link's Play, deadcast/netplay.h); the path a
+			// copy, as unloading the game clears settings.content
+			const std::string path = settings.content.path;
+			gui_setState(GuiState::Closed);
+			gui_start_game(path);
+			break;
+		}
 		default:
 			break;
+		}
+		return;
+	}
+	// Deadcast: two players: its start page up until the other Brick is there too, in place of Flycast's
+	// network window
+	if (gui_state == GuiState::NetworkStart && deadcast::menu::showStartTwoPlayers())
+	{
+		if (networkStatus.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+			return;
+		deadcast::menu::endStart();
+		try {
+			if (networkStatus.get())
+			{
+				gui_setState(GuiState::Closed);
+				emu.start();
+			}
+			else
+				gui_stop_game();
+		} catch (const FlycastException& e) {
+			gui_stop_game(e.what());
 		}
 		return;
 	}
@@ -1351,14 +1424,16 @@ void gui_display_ui()
 		try {
 			if (gameLoader.ready() && !custom_texture.isPreloading())
 			{
-				deadcast::menu::endStart();
 				if (NetworkHandshake::instance != nullptr)
 				{
+					// the start page stays up, two players starting, until the other Brick is there too
+					deadcast::menu::showStartTwoPlayers();
 					networkStatus = NetworkHandshake::instance->start();
 					gui_setState(GuiState::NetworkStart);
 				}
 				else
 				{
+					deadcast::menu::endStart();
 					gui_setState(GuiState::Closed);
 					emu.start();
 				}
@@ -1643,6 +1718,12 @@ void gui_loadState(bool inRam)
 void gui_saveState(bool stopRestart, bool inRam)
 {
 	const LockGuard lock(guiMutex);
+	// Deadcast: a state would carry the other player's VMU into a later game (deadcast/netplay.h)
+	if (deadcast::netplay::twoPlayerRun() && !inRam)
+	{
+		os_notify("No save states in a game started as two players. Its own saves work.", 3000);
+		return;
+	}
 	if ((gui_state == GuiState::Closed || !stopRestart) && dc_savestateAllowed())
 	{
 		try {

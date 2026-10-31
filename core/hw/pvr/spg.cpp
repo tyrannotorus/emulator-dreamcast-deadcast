@@ -13,7 +13,7 @@
 extern u32 bmStatCompiled, bmStatCacheResets;
 extern u64 bmStatCompileUs;
 
-namespace aica { extern u32 aicaStatReads, aicaStatWrites; }
+namespace aica { extern u32 aicaStatReads, aicaStatWrites, aicaStatMeets; extern u64 aicaStatWaitUs; }
 #include <string>
 #include "stdclass.h"
 #include <array>
@@ -55,6 +55,7 @@ u32 fskip;
 float emulationLagMs;
 // Deadcast: the times the SH4 was held back, ahead of the audio (AicaUpdate)
 u32 sh4HeldBack;
+float sh4WaitedMs;
 
 // Deadcast: DEADCAST_PERF prints a line every second: vblanks against the game's rate, frames rendered
 // and skipped, frames presented, and the longest gap between two of them.
@@ -183,7 +184,7 @@ static void perfVblank()
 	double window = (double)(now - windowStart);
 	printf("Deadcast perf %6.1f s: vblank %5.2f/s %5.1f%% | rendered %5.2f/s skipped %5.2f/s | presented %5.2f/s longest %5.1f ms"
 			" | emu cpu %3.0f%% waits %3.0f%% | render cpu %3.0f%% | mmu flushes %u+%u misses %u"
-			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u\n",
+			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u meets %u waited %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u\n",
 			(now - start) / 1e6, vblanks / secs, vblanks / secs / nominal * 100.0,
 			(FrameCount - frames) / secs, (fskip - skipped) / secs,
 			presented / secs, longest / 1000.0,
@@ -193,14 +194,16 @@ static void perfVblank()
 			renders, perfTextureRenders.exchange(0), renders ? renderUs / 1000.0 / renders : 0.0, renders ? draws / renders : 0, renders ? vertices / renders : 0,
 			perfTextureUpdates.exchange(0), perfTextureBytes.exchange(0) / 1024,
 			audioUnderruns.exchange(0),
-			aica::aicaStatReads, aica::aicaStatWrites, deadcast::waitLoopTurnsSkipped,
+			aica::aicaStatReads, aica::aicaStatWrites, aica::aicaStatMeets, aica::aicaStatWaitUs / window * 100.0,
+			deadcast::waitLoopTurnsSkipped,
 			deadcast::sleepTimeslices * (double)SH4_TIMESLICE / (vblanks / secs * Frame_Cycles * secs) * 100.0,
 			bmStatCompiled, bmStatCompileUs / 1000.0, bmStatCacheResets);
 	bmStatCompiled = bmStatCacheResets = 0;
 	bmStatCompileUs = 0;
 	deadcast::waitLoopTurnsSkipped = 0;
 	deadcast::sleepTimeslices = 0;
-	aica::aicaStatReads = aica::aicaStatWrites = 0;
+	aica::aicaStatReads = aica::aicaStatWrites = aica::aicaStatMeets = 0;
+	aica::aicaStatWaitUs = 0;
 	mmuStatFullFlushes = mmuStatPartialFlushes = mmuStatMisses = 0;
 	fflush(stdout);
 	if (perfDumpRam != nullptr)
@@ -395,9 +398,10 @@ static int spg_line_sched(int tag, int cycles, int jitter, void *arg)
 				{
 					const float realMs = std::chrono::duration<float, std::milli>(real - lastReal).count();
 					const float sh4Ms = (float)(cycles - lastCycles) / (SH4_MAIN_CLOCK / 1000);
-					emulationLagMs = sh4HeldBack != 0 ? 0.f : std::clamp(emulationLagMs + realMs - sh4Ms, 0.f, 50.f);
+					emulationLagMs = sh4HeldBack != 0 ? 0.f : std::clamp(emulationLagMs + realMs - sh4WaitedMs - sh4Ms, 0.f, 50.f);
 				}
 				sh4HeldBack = 0;
+				sh4WaitedMs = 0.f;
 				lastReal = real;
 				lastCycles = cycles;
 			}

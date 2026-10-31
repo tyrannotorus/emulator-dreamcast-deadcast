@@ -17,6 +17,7 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "emulator.h"
+#include "deadcast/netplay.h"
 #include "deadcast/profiler.h"
 #include "hw/aica/aica.h"
 #include "types.h"
@@ -683,15 +684,22 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 		}
 		// reload settings so that all settings can be overridden
 		loadGameSpecificSettings();
+		// Deadcast: the AICA thread as they say (in step with the SH4 in a netplay session)
+		aica::applyThreadedAudio();
 		NetworkHandshake::init();
 		settings.input.fastForwardMode = false;
 		EventManager::event(Event::Start);
 		if (!settings.content.path.empty())
 		{
 #ifndef LIBRETRO
-			if (config::GGPOEnable)
-				dc_loadstate(-1);
-			else if (config::AutoLoadState && !naomiNetworkSupported() && !settings.naomi.multiboard)
+			// Deadcast: a two-player session starts both Bricks from the disc's start; once it is over, the
+			// game goes on alone from where it was (deadcast/netplay.h)
+			if (deadcast::netplay::takeResume())
+			{
+				dc_loadstate(-2);
+				os_notify(deadcast::netplay::takeMessage().c_str(), 5000);
+			}
+			else if (config::AutoLoadState && !config::GGPOEnable && !naomiNetworkSupported() && !settings.naomi.multiboard)
 				dc_loadstate(config::SavestateSlot);
 #endif
 		}
@@ -1005,8 +1013,9 @@ void Emulator::start()
 		// Not supported with GGPO
 		config::EmulateFramebuffer.override(false);
 	setupPtyPipe();
-
-	memwatch::protect();
+	// (Deadcast: no memwatch::protect(): it tracks the pages written for GGPO's rollback, and netplay is
+	// lockstep here, which loads no state back; it would fault on every page's first write, the AICA
+	// thread's too)
 
 	if (config::ThreadedRendering)
 	{
