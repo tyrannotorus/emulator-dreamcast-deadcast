@@ -499,13 +499,14 @@ double stream(bool out, bool& intact)
 }
 
 // Frames of input delay for a session over this link: a frame's input must reach the other Brick within
-// delay - 1 frames (the lockstep waits otherwise). The cable's ~0.1 ms each way: 1; Bluetooth's tens of
-// ms: more.
+// delay - 1 frames (the lockstep waits otherwise). 2 at least, even over the cable's ~0.1 ms each way: a
+// frame of slack for each Brick's frame times to vary (with 1, each waited 5 to 10% of the time for the
+// other, 2026-10-31); Bluetooth's tens of ms: more.
 int inputDelay(double p99RoundTripMs)
 {
 	constexpr double FrameMs = 1000.0 / 59.94;
 	const double oneWay = p99RoundTripMs / 2;
-	return std::clamp(1 + (int)std::ceil(std::max(0.0, oneWay - 1.0) / FrameMs), 1, 6);
+	return std::clamp(1 + (int)std::ceil(std::max(0.0, oneWay - 1.0) / FrameMs), 2, 6);
 }
 
 // round trips, then each way's speed; the numbers (and the input delay they call for) to both Bricks

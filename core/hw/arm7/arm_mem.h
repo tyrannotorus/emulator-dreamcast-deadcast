@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "hw/aica/aica.h"
 #include "hw/aica/aica_if.h"
 
 namespace aica::arm
@@ -37,6 +38,9 @@ static inline void DYNACALL writeMem(u32 addr, T data)
 	if (addr < 0x800000)
 	{
 		*(T *)&aica_ram[addr & (ARAM_MASK - (sizeof(T) - 1))] = data;
+		// Deadcast: a netplay session's (aica.cpp)
+		if (unlikely(aramJournal))
+			aramWritten(addr & (ARAM_MASK - (sizeof(T) - 1)), (u32)data, sizeof(T));
 	}
 	else
 	{

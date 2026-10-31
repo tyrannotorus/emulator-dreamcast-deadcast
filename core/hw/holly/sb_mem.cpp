@@ -125,8 +125,7 @@ T DYNACALL ReadMem_area0(u32 paddr)
 	case 6:
 	case 7:
 		// AICA ram
-		aica::ramAccess();
-		return ReadMemArr<T>(&aica::aica_ram[0], addr & ARAM_MASK);
+		return aica::sh4ReadRam<T>(addr & ARAM_MASK);
 
 	default:
 		// G2 Ext area
@@ -244,8 +243,7 @@ void DYNACALL WriteMem_area0(u32 paddr, T data)
 	case 6:
 	case 7:
 		// AICA ram
-		aica::ramAccess();
-		WriteMemArr(&aica::aica_ram[0], addr & ARAM_MASK, data);
+		aica::sh4WriteRam<T>(addr & ARAM_MASK, data);
 		return;
 
 	default:

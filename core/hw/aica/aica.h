@@ -13,9 +13,13 @@ void sync();
 void applyThreadedAudio();
 // Deadcast: the AICA on its own thread (else on the SH4's)
 bool threaded();
-// Deadcast: the SH4 side touches the AICA's RAM (its handlers, the G2 DMA): in step (a netplay session),
-// the AICA thread catches up first
-void ramAccess();
+// Deadcast: the SH4 side's accesses to the AICA's RAM (its handlers; the G2 DMA goes through them): in
+// step (a netplay session), to the SH4's own copy of it (aica.cpp)
+template<typename T> T sh4ReadRam(u32 addr);
+template<typename T> void sh4WriteRam(u32 addr, T data);
+// Deadcast: in step, the AICA's own writes to its RAM go to the SH4's copy as well
+extern bool aramJournal;
+void aramWritten(u32 addr, u32 data, u32 size);
 
 #define SCIEB_addr 0x289C
 #define SCIPD_addr (0x289C+4)
