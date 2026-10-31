@@ -51,8 +51,8 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 ### Controls
 
 MENU opens Deadcast's menu, drawn like NextUI's own emulators' (`core/deadcast/menu.cpp`): Continue,
-Save and Load (ten slots, with pictures), Emulator Settings (Console, Video, Audio, Controls, Local
-Multiplayer; each setting is saved as it changes), Recomp Settings and Quit. The main menu shows whether
-the Brick is connected to a network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the
+Save and Load (ten slots, with pictures), Core Settings and Quit. Core Settings holds Emulator Settings
+(Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it changes), Recomp Settings
+and Download Recomp Module. The menu shows whether the Brick is connected to a network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the
 Dreamcast's d-pad (at first) and its analog stick, for games that only read the stick. Controls remaps
 them all and the Dreamcast's buttons.

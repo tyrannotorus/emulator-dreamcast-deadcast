@@ -1,6 +1,7 @@
-// The link between two Bricks for two-player games (Emulator Settings, Local Multiplayer): the other
-// Brick found, the players' VMUs swapped, the link tested, and IP over the link (dclink0) for the session
-// (deadcast/netplay.h), which both Bricks start by themselves once linked when they play the same game.
+// The link between two Bricks for two-player games (Core Settings, Emulator Settings, Local
+// Multiplayer): the other Brick found, the players' VMUs swapped, the link tested, and IP over the link
+// (dclink0) for the session (deadcast/netplay.h), which both Bricks start by themselves once linked when
+// they play the same game.
 // One core (link.cpp, link_core.h) over each way the Bricks connect:
 //   USB (link_usb.cpp): a Brick's bottom USB-C port (usbc0) is OTG, a device by default, a host when
 //   switched; its top port (usbc1) is a host only. A cable from one Brick's top port to the other's bottom

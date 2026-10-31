@@ -310,7 +310,7 @@ struct Item
 	std::function<void(int)> change;	// Choice: a value picked
 	std::function<void()> confirm;		// A
 	std::function<void(int)> shift;		// Left/Right on an Action, -1 or 1 (Save, Load: the slot)
-	std::function<bool()> available;	// greyed while false (a session's Continue)
+	std::function<bool()> available;	// while false: greyed, and the cursor goes past it
 	bool preview = false;				// the slot's saved state beside it (Save, Load)
 	DreamcastKey key = EMU_BTN_NONE;	// Binding: what it is
 };
@@ -330,9 +330,9 @@ struct Screen
 	std::function<void()> back;			// B, and MENU on the first page; else the page before again
 };
 
-// a paused two-player session's rows (no saving or loading: the two Bricks must stay alike)
-enum SessionItem { SessionContinue, SessionLeave, SessionQuit };
-enum class Busy { None, Save, Load };
+enum class Busy { None, Save, Load, Check };
+// what plays the game: Deadcast's emulation, or a recomp module (a recompiled build of the game)
+enum class Core { Emulator, Recomp };
 
 struct State
 {
@@ -351,7 +351,8 @@ struct State
 	std::unique_ptr<Screen> leaving;	// the page left, until it is off the screen
 	std::string message;			// shown over everything until A or B
 	int awaiting = -1;				// a Binding row waiting for a control
-	Busy busy = Busy::None;			// Save or Load: its screen shown, then done (it takes seconds)
+	Busy busy = Busy::None;			// its screen shown, then done (Save and Load take seconds)
+	Core core = Core::Emulator;		// the core this process plays the game with
 	std::string biosFile;			// the missing BIOS page: the file it asks for
 	bool session = false;			// a paused two-player session's menu (openSession)
 	netplay::PauseState shownPause;	// the pause it shows
@@ -425,12 +426,26 @@ bool linkShown()
 	return !st.screens.empty() && st.screens.back().kind == Kind::Link;
 }
 
+bool enabled(const Item& item)
+{
+	return !item.available || item.available();
+}
+
+// to the next row enabled that way (around the end); none: where it is
 void move(Screen& screen, int step)
 {
 	const int count = (int)screen.items.size();
 	if (count == 0)
 		return;
-	screen.selected = (screen.selected + step + count) % count;
+	for (int i = 1; i <= count; i++)
+	{
+		const int index = ((screen.selected + step * i) % count + count) % count;
+		if (enabled(screen.items[index]))
+		{
+			screen.selected = index;
+			break;
+		}
+	}
 	if (screen.selected < screen.start)
 		screen.start = screen.selected;
 	if (screen.selected >= screen.start + MaxRows)
@@ -531,19 +546,45 @@ Screen emulatorSettingsScreen()
 	return screen;
 }
 
-// a recompiled build of this game (a recomp module), to run instead of the emulation where there is one.
-// None on this Brick yet; looked for online with a network (no catalog yet: none found)
-Screen recompSettingsScreen()
+// a recomp module for this game's disc on this Brick (none yet)
+bool moduleInstalled()
+{
+	return false;
+}
+
+// the game's core, Deadcast's emulation or a recomp module of it, and each one's settings (the other
+// core's disabled: they belong to its process); a module looked for online and downloaded
+Screen coreSettingsScreen()
 {
 	Screen screen;
-	screen.title = "Recomp Settings";
+	screen.title = "Core Settings";
 	screen.status = networkStatus;
-	Item check = entry("Check for Recomp Module", "", [] {
-		st.message = st.network ? "No recomp module for this game yet." : "No network connection.";
-	});
-	check.available = [] { return st.network; };
-	screen.items.push_back(std::move(check));
+	Item current;
+	current.name = "Current Core";
+	current.row = Row::Choice;
+	current.values = { "Emulator", "Recomp" };
+	current.value = (int)st.core;
+	current.available = moduleInstalled;
+	screen.items.push_back(std::move(current));
+	Item emulator = entry("Emulator Settings", "", [] { push(emulatorSettingsScreen()); });
+	emulator.available = [] { return st.core == Core::Emulator; };
+	screen.items.push_back(std::move(emulator));
+	Item recomp = entry("Recomp Settings", "", nullptr);
+	recomp.available = moduleInstalled;
+	screen.items.push_back(std::move(recomp));
+	screen.items.push_back(entry(moduleInstalled() ? "Check for Recomp Update" : "Download Recomp Module", "", [] {
+		if (st.network)
+			st.busy = Busy::Check;
+		else
+			st.message = "No network connection.";
+	}));
 	return screen;
+}
+
+// what the catalog has for this game's disc (nothing yet)
+void checkModule()
+{
+	st.message = "Sorry, no recomp module found.";
 }
 
 // the slot kept for the next time, and for the save and load buttons
@@ -640,11 +681,12 @@ Screen mainScreen()
 	{
 		item->shift = [](int step) { st.slot = (st.slot + step + SlotCount) % SlotCount; };
 		item->preview = true;
+		// the emulator's save states: none in a recomp
+		item->available = [] { return st.core == Core::Emulator; };
 	}
 	screen.items.push_back(std::move(save));
 	screen.items.push_back(std::move(load));
-	screen.items.push_back(entry("Emulator Settings", "", [] { push(emulatorSettingsScreen()); }));
-	screen.items.push_back(entry("Recomp Settings", "", [] { push(recompSettingsScreen()); }));
+	screen.items.push_back(entry("Core Settings", "", [] { push(coreSettingsScreen()); }));
 	screen.items.push_back(entry("Quit", "", [] { st.result = Result::Quit; }));
 	return screen;
 }
@@ -674,6 +716,7 @@ void continueSession()
 	st.result = Result::Resume;
 }
 
+// a paused two-player session's rows (no saving or loading: the two Bricks must stay alike)
 Screen sessionScreen()
 {
 	Screen screen;
@@ -685,8 +728,6 @@ Screen sessionScreen()
 	Item resume = entry("Continue", "", [] {
 		if (canContinue())
 			continueSession();
-		else
-			st.message = "The other Brick is not there.\nIt can come back while this is open.";
 	});
 	resume.available = canContinue;
 	screen.items.push_back(std::move(resume));
@@ -696,7 +737,6 @@ Screen sessionScreen()
 		st.result = Result::Resume;
 	}));
 	screen.items.push_back(entry("Quit", "", [] { st.result = Result::Quit; }));
-	screen.selected = canContinue() ? SessionContinue : SessionLeave;
 	return screen;
 }
 
@@ -1008,7 +1048,8 @@ void drawList(const Screen& screen, int ox)
 		}
 		c.text(large, name, left + ButtonPadding, baseline(large, rowTop, RowPitch), color);
 		if (!value.empty())
-			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, rowTop, RowPitch), White);
+			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, rowTop, RowPitch),
+					enabled(item) ? White : LightGray);
 	}
 	if (count > shown)
 	{
@@ -1249,12 +1290,14 @@ void draw()
 	Canvas& c = st.canvas;
 	if (!st.biosFile.empty())
 		drawBiosPage();
-	else if (st.busy != Busy::None)
+	else if (st.busy == Busy::Save || st.busy == Busy::Load)
 		drawPage(st.busy == Busy::Save ? "Saving..." : "Loading...", discName());
 	else
 	{
 		c.copy(st.background);
-		if (!st.message.empty())
+		if (st.busy == Busy::Check)
+			drawMessage(fonts->large, "Checking...", 0, 0, c.width(), c.height());
+		else if (!st.message.empty())
 		{
 			drawMessage(fonts->large, st.message, 0, 0, c.width(), c.height());
 			drawButtons({ { "A", "OKAY" } }, 0);
@@ -1469,10 +1512,12 @@ Result frame()
 	// a save or load once its screen is up
 	if (st.busy != Busy::None && !st.dirty)
 	{
-		const bool done = st.busy == Busy::Save ? saveState() : loadState();
+		const Busy busy = st.busy;
 		st.busy = Busy::None;
 		st.dirty = true;
-		if (done)
+		if (busy == Busy::Check)
+			checkModule();
+		else if (busy == Busy::Save ? saveState() : loadState())
 			st.result = Result::Resume;
 	}
 	// a session's menu: closed when the session goes on (Continue on the other Brick), drawn again when
@@ -1485,11 +1530,7 @@ Result frame()
 		else if (now.pause != st.shownPause.pause || now.peerPresent != st.shownPause.peerPresent)
 		{
 			st.shownPause = now;
-			Screen& screen = st.screens.front();
-			screen.title = sessionTitle();
-			// on Continue, which went away (the other Brick gone): on Leave instead
-			if (screen.selected == SessionContinue && !canContinue())
-				screen.selected = SessionLeave;
+			st.screens.front().title = sessionTitle();
 			st.dirty = true;
 		}
 	}
@@ -1538,6 +1579,13 @@ Result frame()
 	}
 	if (st.result == Result::Open && st.dirty)
 	{
+		// off a row disabled meanwhile (a session's Continue, the other Brick gone), or as a page opens
+		if (!st.screens.empty())
+		{
+			Screen& screen = st.screens.back();
+			if (!screen.items.empty() && !enabled(screen.items[screen.selected]))
+				move(screen, 1);
+		}
 		draw();
 		st.dirty = false;
 	}
