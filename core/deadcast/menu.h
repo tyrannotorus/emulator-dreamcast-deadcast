@@ -13,8 +13,8 @@ namespace deadcast::menu
 {
 
 // Restart: the game again from the start of its load (linked to another Brick: as two players,
-// deadcast/netplay.h); Leave: a two-player session left (the game goes on alone)
-enum class Result { Open, Resume, Quit, Restart, Leave };
+// deadcast/netplay.h)
+enum class Result { Open, Resume, Quit, Restart };
 
 // Opens the menu over the stopped game; false if there is no screen to draw on.
 bool open();

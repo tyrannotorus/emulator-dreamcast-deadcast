@@ -23,9 +23,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <functional>
-#include <map>
 #include <memory>
 #include <thread>
 
@@ -43,7 +41,8 @@ constexpr int ButtonSize = S(20);
 constexpr int ButtonMargin = S(5);
 constexpr int ButtonPadding = S(12);
 constexpr int SlotCount = 10;		// Deadcast's save state slots
-constexpr int MaxRows = 5;			// a page's rows shown at once (arrows: there are more)
+constexpr int MaxRows = 6;			// a page's rows shown at once (arrows: there are more)
+constexpr int RowPitch = S(28);		// from one row to the next (its pill, PillSize, a little taller)
 constexpr u64 SlideMs = 150;
 constexpr float BackdropBrightness = 0.4f;	// the paused game behind the menu (white: 40% grey)		// a page's rows sliding in, the ones before them out
 
@@ -109,9 +108,7 @@ struct Setting
 	const char *name;
 	const char *desc;
 	std::vector<std::pair<const char *, int>> choices;
-	config::BaseOption *option;
-	std::string section;
-	std::string key;
+	config::BaseOption *option;			// saved at every change (the game's own config, if it has one)
 	std::function<int()> get;
 	std::function<void(int)> set;
 
@@ -127,17 +124,29 @@ struct Setting
 
 Setting choice(const char *name, const char *desc, config::Option<int>& option, std::vector<std::pair<const char *, int>> choices)
 {
-	return { name, desc, std::move(choices), &option, option.getSection(), option.getName(),
-		[&option] { return option.get(); }, [&option](int v) { option.set(v); } };
+	return { name, desc, std::move(choices), &option, [&option] { return option.get(); }, [&option](int v) { option.set(v); } };
 }
 
 Setting toggle(const char *name, const char *desc, config::Option<bool>& option)
 {
-	return { name, desc, { { "Off", 0 }, { "On", 1 } }, &option, option.getSection(), option.getName(),
-		[&option] { return option.get() ? 1 : 0; }, [&option](int v) { option.set(v != 0); } };
+	return { name, desc, { { "Off", 0 }, { "On", 1 } }, &option, [&option] { return option.get() ? 1 : 0; },
+		[&option](int v) { option.set(v != 0); } };
 }
 
-std::vector<Setting>& frontendSettings()
+// Options' pages. Not shown: the TV standard and the cable, NTSC and VGA for the Brick's screen
+// (emulator.cpp; TV Composite for a game that refuses VGA)
+std::vector<Setting>& consoleSettings()
+{
+	static std::vector<Setting> list {
+		choice("Region", "The console's region. Takes effect on restart.", config::Region,
+				{ { "Japan", 0 }, { "USA", 1 }, { "Europe", 2 }, { "Default", 3 } }),
+		choice("Language", "The console's language. Takes effect on restart.", config::Language,
+				{ { "Japanese", 0 }, { "English", 1 }, { "German", 2 }, { "French", 3 }, { "Spanish", 4 }, { "Italian", 5 }, { "Default", 6 } }),
+	};
+	return list;
+}
+
+std::vector<Setting>& videoSettings()
 {
 	static std::vector<Setting> list {
 		toggle("Show FPS", "Shows the frame rate.", config::ShowFPS),
@@ -149,46 +158,13 @@ std::vector<Setting>& frontendSettings()
 	return list;
 }
 
-std::vector<Setting>& emulatorSettings()
+std::vector<Setting>& audioSettings()
 {
 	static std::vector<Setting> list {
-		choice("Region", "The console's region. Takes effect on restart.", config::Region,
-				{ { "Japan", 0 }, { "USA", 1 }, { "Europe", 2 }, { "Default", 3 } }),
-		choice("Language", "The console's language. Takes effect on restart.", config::Language,
-				{ { "Japanese", 0 }, { "English", 1 }, { "German", 2 }, { "French", 3 }, { "Spanish", 4 }, { "Italian", 5 }, { "Default", 6 } }),
-		choice("Broadcast", "The TV standard. Takes effect on restart.", config::Broadcast,
-				{ { "NTSC", 0 }, { "PAL", 1 }, { "PAL-M", 2 }, { "PAL-N", 3 }, { "Default", 4 } }),
-		choice("Cable", "The video cable. Takes effect on restart.", config::Cable,
-				{ { "VGA", 0 }, { "RGB", 2 }, { "Composite", 3 } }),
 		toggle("Audio DSP", "The sound chip's effects, such as reverb. Costs speed.", config::DSPEnabled),
 		toggle("VMU Sounds", "The VMU's beeps.", config::VmuSound),
 	};
 	return list;
-}
-
-// Deadcast's own defaults: the pak's emu.cfg (DEADCAST_DEFAULTS), as a first run copies it
-std::map<std::string, std::string> shippedDefaults()
-{
-	std::map<std::string, std::string> values;
-	const char *path = std::getenv("DEADCAST_DEFAULTS");
-	if (path == nullptr)
-		return values;
-	std::ifstream file(path);
-	std::string line, section;
-	auto trim = [](std::string s) {
-		s.erase(0, s.find_first_not_of(" \t\r"));
-		s.erase(s.find_last_not_of(" \t\r") + 1);
-		return s;
-	};
-	while (std::getline(file, line))
-	{
-		line = trim(line);
-		if (line.size() > 2 && line[0] == '[')
-			section = line.substr(1, line.find(']') - 1);
-		else if (line.find('=') != std::string::npos)
-			values[section + "/" + trim(line.substr(0, line.find('=')))] = trim(line.substr(line.find('=') + 1));
-	}
-	return values;
 }
 
 // the Dreamcast's buttons and the emulator's own, as the pad's mapping has them
@@ -335,6 +311,7 @@ struct Item
 	std::function<void(int)> shift;		// Left/Right on an Action, -1 or 1 (Save, Load: the slot)
 	std::function<bool()> available;	// greyed while false (a session's Continue)
 	bool preview = false;				// the slot's saved state beside it (Save, Load)
+	bool compact = false;				// a Choice's value after its name, in its pill (Core)
 	DreamcastKey key = EMU_BTN_NONE;	// Binding: what it is
 };
 // Every page of the menu looks like the first: its title in a pill at the top, its rows (or the link's
@@ -431,54 +408,6 @@ void move(Screen& screen, int step)
 		screen.start = screen.selected - MaxRows + 1;
 }
 
-std::string saveDesc()
-{
-	return config::Settings::instance().hasPerGameConfig() ? "Using game config." : "Using console config.";
-}
-
-void forEachSetting(const std::function<void(Setting&)>& f)
-{
-	for (std::vector<Setting> *list : { &frontendSettings(), &emulatorSettings() })
-		for (Setting& setting : *list)
-			f(setting);
-}
-
-// minarch's Save Changes: for every game (and the game's own settings dropped), or for this one (what
-// differs from every game's)
-void saveSettings(bool forGame)
-{
-	config::Settings& settings = config::Settings::instance();
-	if (forGame)
-		settings.setPerGameConfig(true);
-	else
-		settings.dropPerGameConfig();
-	config::setAutoSave(false);
-	forEachSetting([](Setting& setting) { setting.option->save(); });
-	config::setAutoSave(true);
-}
-
-std::string restoreDefaults()
-{
-	config::Settings& settings = config::Settings::instance();
-	if (settings.hasPerGameConfig())
-	{
-		settings.dropPerGameConfig();
-		forEachSetting([](Setting& setting) { setting.option->load(); });
-		return "Restored console defaults.";
-	}
-	const std::map<std::string, std::string> defaults = shippedDefaults();
-	config::setAutoSave(false);
-	forEachSetting([&defaults](Setting& setting) {
-		setting.option->reset();
-		auto it = defaults.find(setting.section + "/" + setting.key);
-		if (it != defaults.end())
-			setting.set(it->second == "yes" || it->second == "true" ? 1 : it->second == "no" || it->second == "false" ? 0 : std::atoi(it->second.c_str()));
-		setting.option->save();
-	});
-	config::setAutoSave(true);
-	return "Restored defaults.";
-}
-
 Item entry(const std::string& name, const std::string& desc, std::function<void()> confirm)
 {
 	Item item;
@@ -502,7 +431,10 @@ Screen settingsScreen(const std::string& title, std::vector<Setting>& list)
 			item.values.push_back(choice.first);
 		item.value = setting.index();
 		Setting *s = &setting;
-		item.change = [s](int i) { s->set(s->choices[i].second); };
+		item.change = [s](int i) {
+			s->set(s->choices[i].second);
+			s->option->save();
+		};
 		screen.items.push_back(std::move(item));
 	}
 	return screen;
@@ -534,37 +466,6 @@ Screen bindingsScreen()
 	return screen;
 }
 
-Screen optionsScreen();
-
-// Save Changes done: back to Options (its Save Changes says which config is used now)
-void savedSettings(const std::string& message)
-{
-	st.message = message;
-	pop();
-	const int selected = st.screens.back().selected;
-	st.screens.back() = optionsScreen();
-	st.screens.back().selected = selected;
-}
-
-Screen saveChangesScreen()
-{
-	Screen screen;
-	screen.title = "Save Changes";
-	screen.desc = saveDesc();
-	screen.items.push_back(entry("Save for console", "", [] {
-		saveSettings(false);
-		savedSettings("Saved for console.");
-	}));
-	screen.items.push_back(entry("Save for game", "", [] {
-		if (settings.content.gameId.empty())
-			return savedSettings("This game cannot have its own config.");
-		saveSettings(true);
-		savedSettings("Saved for game.");
-	}));
-	screen.items.push_back(entry("Restore defaults", "", [] { savedSettings(restoreDefaults()); }));
-	return screen;
-}
-
 // the link's page, the link looking for the other Brick
 void openLink(link::Via via)
 {
@@ -585,9 +486,6 @@ Screen localMultiplayerScreen()
 	screen.title = "Local Multiplayer";
 	screen.items.push_back(entry("USB Link", "Play with another Brick over a USB cable. In testing.", [] { openLink(link::Via::Usb); }));
 	screen.items.push_back(entry("Bluetooth", "Play with another Brick nearby, no cable. In testing.", [] { openLink(link::Via::Bluetooth); }));
-	screen.items.push_back(entry("LAN", "Play with another Brick over Wi-Fi. A future feature.", [] {
-		st.message = "LAN play is not ready yet.";
-	}));
 	return screen;
 }
 
@@ -595,10 +493,11 @@ Screen optionsScreen()
 {
 	Screen screen;
 	screen.title = "Options";
-	screen.items.push_back(entry("Frontend", "Deadcast " DEADCAST_VERSION, [] { push(settingsScreen("Frontend", frontendSettings())); }));
-	screen.items.push_back(entry("Emulator", "", [] { push(settingsScreen("Emulator", emulatorSettings())); }));
+	screen.desc = "Deadcast " DEADCAST_VERSION;
+	screen.items.push_back(entry("Console", "The Dreamcast's region and language.", [] { push(settingsScreen("Console", consoleSettings())); }));
+	screen.items.push_back(entry("Video", "", [] { push(settingsScreen("Video", videoSettings())); }));
+	screen.items.push_back(entry("Audio", "", [] { push(settingsScreen("Audio", audioSettings())); }));
 	screen.items.push_back(entry("Controls", "", [] { push(bindingsScreen()); }));
-	screen.items.push_back(entry("Save Changes", saveDesc(), [] { push(saveChangesScreen()); }));
 	screen.items.push_back(entry("Local Multiplayer", "Two players on two Bricks.", [] { push(localMultiplayerScreen()); }));
 	return screen;
 }
@@ -686,6 +585,15 @@ Screen mainScreen()
 	screen.title = displayName();
 	screen.back = [] { st.result = Result::Resume; };
 	screen.items.push_back(entry("Continue", "", [] { st.result = Result::Resume; }));
+	// what runs the game: Deadcast's emulation, or a recompiled build of it (to come: for now Emulator,
+	// whichever is picked)
+	Item core;
+	core.name = "Core";
+	core.desc = "Recomp: a recompiled build of this game, where there is one. To come.";
+	core.row = Row::Choice;
+	core.values = { "Emulator", "Recomp" };
+	core.compact = true;
+	screen.items.push_back(std::move(core));
 	Item save = entry("Save", "", [] { st.busy = Busy::Save; });
 	Item load = entry("Load", "", [] {
 		updatePreview();
@@ -713,8 +621,6 @@ std::string sessionTitle()
 		return "Paused by the other player";
 	case netplay::Pause::Lost:
 		return st.shownPause.peerPresent ? "The other player is back" : "Lost the other Brick";
-	case netplay::Pause::Left:
-		return "The other player left";
 	default:
 		return "Two players: paused";
 	}
@@ -722,7 +628,7 @@ std::string sessionTitle()
 
 bool canContinue()
 {
-	return st.shownPause.peerPresent && st.shownPause.pause != netplay::Pause::Left;
+	return st.shownPause.peerPresent;
 }
 
 void continueSession()
@@ -743,12 +649,15 @@ Screen sessionScreen()
 		if (canContinue())
 			continueSession();
 		else
-			st.message = st.shownPause.pause == netplay::Pause::Left ? "The other player left: leave, or quit."
-					: "The other Brick is not there.\nIt can come back while this is open.";
+			st.message = "The other Brick is not there.\nIt can come back while this is open.";
 	});
 	resume.available = canContinue;
 	screen.items.push_back(std::move(resume));
-	screen.items.push_back(entry("Leave two-player game", "", [] { st.result = Result::Leave; }));
+	// on alone, the game as it is (the other Brick told)
+	screen.items.push_back(entry("Leave two-player game", "", [] {
+		netplay::leave();
+		st.result = Result::Resume;
+	}));
 	screen.items.push_back(entry("Quit", "", [] { st.result = Result::Quit; }));
 	screen.selected = canContinue() ? SessionContinue : SessionLeave;
 	return screen;
@@ -1025,16 +934,17 @@ void drawDescription(const std::string& desc, int width)
 	}
 }
 
-// a page's rows: NextUI's 1x rows where the main menu's are (a shorter list from the same top, so that
-// pages sliding by line up), the selected one in a pill, a Choice's or Binding's value at the right;
-// arrows above and below when there are more
+// a page's rows, from the same top on every page (pages sliding by line up), the selected one in a pill, a
+// Choice's or Binding's value at the right; arrows above and below when there are more
 void drawList(const Screen& screen, int ox)
 {
 	Canvas& c = st.canvas;
 	Font& large = fonts->large;
 	const int count = (int)screen.items.size();
 	const int shown = std::min(count, MaxRows);
-	const int oy = ((c.height() / Scale - 5 * 2) - MaxRows * 30) / 2;
+	// MaxRows of them in the middle of the room between the title and the buttons
+	const int top = Padding + PillSize + (c.height() - 2 * (Padding + PillSize) - MaxRows * RowPitch) / 2;
+	const int overhang = (PillSize - RowPitch) / 2;
 	const int left = ox + Padding;
 	const int right = ox + c.width() - Padding;
 	for (int i = 0; i < shown; i++)
@@ -1042,26 +952,32 @@ void drawList(const Screen& screen, int ox)
 		const int index = screen.start + i;
 		const Item& item = screen.items[index];
 		const bool selected = index == screen.selected;
-		const int top = S(oy + 5 + i * 30);
+		const int rowTop = top + i * RowPitch;
 		std::string value;
 		if (item.row != Row::Action && item.value < (int)item.values.size() && !(selected && st.awaiting >= 0))
 			value = item.values[item.value];
 		// Left and Right change the selected Choice
 		if (selected && item.row == Row::Choice)
 			value = "<  " + value + "  >";
+		std::string label = item.name;
+		if (item.compact)
+		{
+			label += "  " + value;
+			value.clear();
+		}
 		const int valueWidth = value.empty() ? 0 : large.measure(value) + ButtonPadding * 2;
-		const std::string name = Canvas::fit(large, item.name, right - left - valueWidth - ButtonPadding * 2);
+		const std::string name = Canvas::fit(large, label, right - left - valueWidth - ButtonPadding * 2);
 		u32 color = item.available && !item.available() ? LightGray : White;
 		if (selected)
 		{
-			if (item.row != Row::Action)
-				c.pill(left, top, right - left, PillSize, ColorAccent);
-			c.pill(left, top, large.measure(name) + ButtonPadding * 2, PillSize, ColorMain);
+			if (item.row != Row::Action && !item.compact)
+				c.pill(left, rowTop - overhang, right - left, PillSize, ColorAccent);
+			c.pill(left, rowTop - overhang, large.measure(name) + ButtonPadding * 2, PillSize, ColorMain);
 			color = ColorSelectedText;
 		}
-		c.text(large, name, left + ButtonPadding, baseline(large, top, PillSize), color);
+		c.text(large, name, left + ButtonPadding, baseline(large, rowTop, RowPitch), color);
 		if (!value.empty())
-			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, top, PillSize), White);
+			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, rowTop, RowPitch), White);
 	}
 	if (count > shown)
 	{
@@ -1069,13 +985,13 @@ void drawList(const Screen& screen, int ox)
 		const float ax = (float)(left + ButtonPadding);
 		if (screen.start > 0)
 		{
-			const float y = (float)((Padding + PillSize + S(oy + 5)) / 2 - S(2));
+			const float y = (float)((Padding + PillSize + top - overhang) / 2 - S(2));
 			const float up[] { ax, y + S(4), ax + S(12), y, ax + S(24), y + S(4) };
 			c.polygon(up, 3, Gray);
 		}
 		if (screen.start + shown < count)
 		{
-			const float y = (float)((S(oy + 5 + shown * 30) + c.height() - Padding - PillSize) / 2 - S(2));
+			const float y = (float)((top + MaxRows * RowPitch + overhang + c.height() - Padding - PillSize) / 2 - S(2));
 			const float down[] { ax, y, ax + S(24), y, ax + S(12), y + S(4) };
 			c.polygon(down, 3, Gray);
 		}
@@ -1537,7 +1453,7 @@ Result frame()
 			st.shownPause = now;
 			Screen& screen = st.screens.front();
 			screen.title = sessionTitle();
-			// on Continue, which went away (the other Brick gone or left): on Leave instead
+			// on Continue, which went away (the other Brick gone): on Leave instead
 			if (screen.selected == SessionContinue && !canContinue())
 				screen.selected = SessionLeave;
 			st.dirty = true;

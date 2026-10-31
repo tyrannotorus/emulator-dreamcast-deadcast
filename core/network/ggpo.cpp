@@ -567,8 +567,10 @@ static void on_message(u8 *msg, int len)
 // not.
 // Pausing: MENU puts PauseBit in this Brick's next input, so both Bricks stop before the same frame and
 // show the menu; Continue on either goes on (the resume count in every packet takes the other along).
-// The other Brick silent for TimeoutMs (a cable pulled, a Brick switched off) or gone (it left): paused
-// as well, until it is back (Continue then goes on with it) or this player goes on alone.
+// The other Brick silent for TimeoutMs (a cable pulled, a Brick switched off): paused as well, until it is
+// back (Continue then goes on with it) or this player leaves. Leaving, or the other Brick gone (its
+// player left or quit), the game goes on as it is with this player alone, the other's controller as if
+// unplugged (goAlone).
 namespace lockstep
 {
 constexpr u32 Magic = 0x4b434f4c;		// "LOCK"
@@ -612,6 +614,8 @@ static std::atomic<bool> paused { false };
 static std::atomic<int> pauseReason { (int)PauseReason::None };
 static std::atomic<bool> peerPresent { true };
 static std::atomic<bool> peerLeft { false };
+static std::atomic<bool> alone { false };	// gone on alone (goAlone)
+static bool mismatch;				// the other Brick's hello: another game, or another start
 static std::atomic<bool> wantPause { false };
 static std::atomic<bool> wantResume { false };
 static std::atomic<u32> resumes { 0 };
@@ -708,7 +712,7 @@ static bool receive(int timeoutMs)
 		if (p.kind == Hello)
 		{
 			if (std::memcmp(p.verif, verif, sizeof(verif)) != 0)
-				throw FlycastException("The other Brick has another game, or another start");
+				mismatch = true;
 			continue;
 		}
 		const int oldest = p.frame - (int)p.count + 1;
@@ -737,6 +741,19 @@ static void stop()
 	if (sock >= 0)
 		closesocket(sock);
 	sock = -1;
+}
+
+// The two-player game over on this Brick, the game going on as it is: the other Brick told (stop()), this
+// player's pad on the side it played; what happened, shown
+static void goAlone(const char *why)
+{
+	if (!running)
+		return;
+	alone = true;
+	setAloneSide(localPlayerNum);
+	stopSession();
+	WARN_LOG(NETWORK, "Deadcast: %s", why);
+	os_notify(why, 4000);
 }
 
 static void start(int port, const VerificationData& verification)
@@ -779,6 +796,8 @@ static void start(int port, const VerificationData& verification)
 	pauseReason = (int)PauseReason::None;
 	peerPresent = true;
 	peerLeft = false;
+	alone = false;
+	mismatch = false;
 	wantPause = false;
 	wantResume = false;
 	resumes = 0;
@@ -789,7 +808,7 @@ static void start(int port, const VerificationData& verification)
 }
 
 // the other Brick there (its hello or its first frames): both start at frame 0. Not there within
-// HandshakeMs (it never restarted, or left): the session ends, the game goes on alone.
+// HandshakeMs (it never restarted, or left), or with another game: the game goes on alone.
 static void handshake()
 {
 	constexpr int HandshakeMs = 10000;
@@ -798,11 +817,15 @@ static void handshake()
 	{
 		send(Hello);
 		if (receive(100))
+		{
+			if (mismatch)
+				goAlone("The other Brick has another game, or other settings: one player.");
 			break;
+		}
 		if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(HandshakeMs))
 		{
-			stop();
-			throw FlycastException("The other Brick did not come");
+			goAlone("The other Brick did not come: one player.");
+			return;
 		}
 	}
 	// one more, for the other Brick to know it was heard
@@ -811,7 +834,7 @@ static void handshake()
 }
 
 // stopped before frame (a menu pause: both Bricks alike), until Continue here or on the other Brick
-// (whose resume count then comes in), or the session's end (the menu's Leave or Quit: stop())
+// (whose resume count then comes in), or this Brick on alone (the menu's Leave, the other Brick gone)
 static void pauseLoop(PauseReason reason)
 {
 	const u32 at = resumes;
@@ -827,17 +850,22 @@ static void pauseLoop(PauseReason reason)
 			heartbeat = nowMs();
 		}
 		receive(50);
-		const bool present = !peerLeft && nowMs() - lastHeardMs < TimeoutMs;
-		peerPresent = present;
 		if (peerLeft)
-			pauseReason = (int)PauseReason::Left;
-		else if (!present)
+		{
+			goAlone("The other player left: one player.");
+			break;
+		}
+		const bool present = nowMs() - lastHeardMs < TimeoutMs;
+		peerPresent = present;
+		if (!present)
 			pauseReason = (int)PauseReason::Lost;
 		if (wantResume.exchange(false) && present)
 			resumes = at + 1;
 	}
 	paused = false;
 	pauseReason = (int)PauseReason::None;
+	if (alone)
+		return;
 	if (!running)
 		throw FlycastException("The two-player game is over");
 	WARN_LOG(NETWORK, "Deadcast: two-player game goes on at frame %d", frame);
@@ -869,13 +897,14 @@ static void nextFrame()
 	const auto waitStart = std::chrono::steady_clock::now();
 	while (lastRemote < frame)
 	{
+		if (alone)
+			return;
 		if (!running)
 			throw FlycastException("The two-player game is over");
 		if (peerLeft)
 		{
-			pauseLoop(PauseReason::Left);
-			since = nowMs();
-			continue;
+			goAlone("The other player left: one player.");
+			return;
 		}
 		const int waited = (int)(nowMs() - since);
 		if (waited >= TimeoutMs)
@@ -897,6 +926,8 @@ static void nextFrame()
 	{
 		pausedBefore = frame;
 		pauseLoop(mine != 0 ? PauseReason::Menu : PauseReason::PeerMenu);
+		if (alone)
+			return;
 	}
 	receive(0);
 }
@@ -931,9 +962,14 @@ void netplayResume()
 	lockstep::wantResume = true;
 }
 
-int sessionSide()
+void netplayLeave()
 {
-	return localPlayerNum;
+	lockstep::goAlone("You left the two-player game: one player.");
+}
+
+bool netplayAlone()
+{
+	return lockstep::alone;
 }
 
 void startSession(int localPort, int localPlayerNum)
@@ -1385,7 +1421,8 @@ std::future<bool> startNetwork()
 			}
 		}
 		emu.setNetworkState(active());
-		return active();
+		// (Deadcast: or on alone: the game starts all the same)
+		return active() || lockstep::alone;
 	});
 }
 

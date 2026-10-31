@@ -45,9 +45,8 @@ MAPPING="SDL_Xbox 360 Controller.cfg"
 if [ ! -f "$DEADCAST_HOME/mappings/$MAPPING" ]; then
 	cp "$PAK_DIR/config/$MAPPING" "$DEADCAST_HOME/mappings/$MAPPING"
 fi
-# For the menu: the game's name, and the settings Restore defaults goes back to
+# For the menu: the game's name
 export DEADCAST_ROM="$ROM"
-export DEADCAST_DEFAULTS="$PAK_DIR/config/emu.cfg"
 
 cleanup() {
 	rm -f /tmp/stay_awake

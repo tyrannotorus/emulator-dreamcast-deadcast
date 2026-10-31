@@ -37,7 +37,7 @@ void sendChatMessage(int playerNum, const std::string& msg);
 void receiveChatMessages(void (*callback)(int playerNum, const std::string& msg));
 
 // Deadcast: the lockstep session's pause (MENU on either Brick; the other Brick silent or gone), for the menu
-enum class PauseReason { None, Menu, PeerMenu, Lost, Left };
+enum class PauseReason { None, Menu, PeerMenu, Lost };
 struct NetplayPause
 {
 	bool paused = false;
@@ -47,7 +47,10 @@ struct NetplayPause
 NetplayPause netplayPause();
 void netplayRequestPause();
 void netplayResume();
-int sessionSide();
+// Deadcast: this Brick leaves the two-player game, which goes on as it is with its player alone; or it did
+// (the other Brick gone)
+void netplayLeave();
+bool netplayAlone();
 // after a session: the local pad on the side it played (1: player 2's port), else 0
 void setAloneSide(int side);
 

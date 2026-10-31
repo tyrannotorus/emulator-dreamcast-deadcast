@@ -407,8 +407,6 @@ void gui_plot_render_time(int width, int height)
 }
 #endif
 
-static void netplayEnded(const std::string& why);
-
 void gui_open_settings()
 {
 	const LockGuard lock(guiMutex);
@@ -475,23 +473,7 @@ void gui_start_game(const std::string& path)
 	gameLoader.load(path);
 }
 
-// Deadcast: a two-player session over: the game stopped, and again from where it was, one player
-static void netplayEnded(const std::string& why)
-{
-	try {
-		emu.stop();
-	} catch (const FlycastException& e) {
-		WARN_LOG(NETWORK, "%s", e.what());
-	}
-	NetworkHandshake::term();
-	deadcast::netplay::end(why);
-	// a copy: unloading the game clears settings.content
-	const std::string path = settings.content.path;
-	gui_setState(GuiState::Closed);
-	gui_start_game(path);
-}
-
-// Deadcast: a two-player session paused (MENU here or on the other Brick, the other Brick silent or gone):
+// Deadcast: a two-player session paused (MENU here or on the other Brick, the other Brick silent):
 // its menu, over the game stopped where both stopped (the emulator is not stopped: the session waits)
 void gui_netplay_check()
 {
@@ -505,12 +487,6 @@ void gui_netplay_check()
 void gui_stop_game(const std::string& message)
 {
 	const LockGuard lock(guiMutex);
-	// Deadcast: the other Brick gone (or never there): no stop, the game goes on alone
-	if (deadcast::netplay::inSession())
-	{
-		netplayEnded(message.empty() ? "The two-player game is over." : message);
-		return;
-	}
 	if (!commandLineStart)
 	{
 		// Exit to main menu
@@ -1379,10 +1355,6 @@ void gui_display_ui()
 			break;
 		case deadcast::menu::Result::Quit:
 			dc_exit();
-			break;
-		case deadcast::menu::Result::Leave:
-			// Deadcast: the session menu's Leave: on alone from where the game is
-			netplayEnded("You left the two-player game.");
 			break;
 		case deadcast::menu::Result::Restart:
 		{

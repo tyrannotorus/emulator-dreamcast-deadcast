@@ -64,6 +64,10 @@ static void loadSpecialSettings()
 
 	if (settings.platform.isConsole())
 	{
+		// Deadcast: the Brick's screen: NTSC (60 Hz), and the VGA cable where the game takes it (below: TV
+		// Composite otherwise); not settings
+		config::Broadcast.override(0);
+		config::Cable.override(0);
 		// Tony Hawk's Pro Skater 2
 		if (prod_id == "T13008D 05" || prod_id == "T13006N"
 				// Tony Hawk's Pro Skater 1
@@ -692,14 +696,8 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 		if (!settings.content.path.empty())
 		{
 #ifndef LIBRETRO
-			// Deadcast: a two-player session starts both Bricks from the disc's start; once it is over, the
-			// game goes on alone from where it was (deadcast/netplay.h)
-			if (deadcast::netplay::takeResume())
-			{
-				dc_loadstate(-2);
-				os_notify(deadcast::netplay::takeMessage().c_str(), 5000);
-			}
-			else if (config::AutoLoadState && !config::GGPOEnable && !naomiNetworkSupported() && !settings.naomi.multiboard)
+			// Deadcast: a two-player session starts both Bricks from the disc's start (deadcast/netplay.h)
+			if (config::AutoLoadState && !config::GGPOEnable && !naomiNetworkSupported() && !settings.naomi.multiboard)
 				dc_loadstate(config::SavestateSlot);
 #endif
 		}

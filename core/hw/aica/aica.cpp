@@ -294,9 +294,8 @@ static int AicaUpdate(int tag, int cycles, int jitter, void *arg)
 	if (worker::inStep)
 	{
 		const u32 due = journal::due += TickSamples;
-		worker::pending += TickSamples;
-		// the AICA thread kept close behind
-		if (worker::sleeping)
+		// the AICA thread kept close behind: woken once Batch samples are due (well within Lag), as alone
+		if (worker::pending.fetch_add(TickSamples) + TickSamples >= worker::Batch && worker::sleeping)
 		{
 			std::lock_guard<std::mutex> lock(worker::mutex);
 			worker::wake.notify_one();
@@ -348,11 +347,10 @@ static void workerLoop()
 	while (true)
 	{
 		// Deadcast: polls for samples due every 2 ms; the SH4 thread only wakes it when waiting itself, or
-		// in step at every tick (TickSamples due)
+		// in step once Batch samples are due
 		worker::sleeping = true;
 		worker::wake.wait_for(lock, std::chrono::milliseconds(2), [] {
-			return worker::pending >= (worker::inStep ? TickSamples : worker::Batch) || (worker::syncing && worker::pending != 0)
-					|| worker::stopping;
+			return worker::pending >= worker::Batch || (worker::syncing && worker::pending != 0) || worker::stopping;
 		});
 		worker::sleeping = false;
 		if (worker::stopping && worker::pending == 0)
