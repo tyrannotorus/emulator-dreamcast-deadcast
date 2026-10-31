@@ -45,7 +45,8 @@ public:
 	// Deadcast: CPU-drawn pictures (the menu, the start page) between frames, at the panel's native size:
 	// fb0 in NextUI's mode, two pages of their own after ours, written then shown in turn.
 	// endPictures restores Deadcast's mode with its last frame (LastFrame), or with the next one (NextFrame,
-	// LastFrame without one yet); Stay leaves the pictures up.
+	// LastFrame without one yet); Stay leaves the last picture up, in NextUI's page too (through Deadcast's
+	// end).
 	bool beginPictures(int& width, int& height);
 	void showPicture(const u32 *bgra);
 	void endPictures(GraphicsContext::AfterPictures after);

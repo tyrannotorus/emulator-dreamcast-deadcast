@@ -3,13 +3,19 @@
 add_library(deadcast_frontend STATIC
         canvas.cpp
         canvas.h
+        catalog.h
+        download.cpp
+        download.h
         recomp.cpp
         recomp.h
+        sha256.cpp
+        sha256.h
         ui.cpp
         ui.h)
 target_include_directories(deadcast_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(deadcast_frontend PUBLIC cxx_std_17)
-target_link_libraries(deadcast_frontend PRIVATE freetype)
+# FreeType for the text; the device's libcurl and zlib for the recomp modules' downloads
+target_link_libraries(deadcast_frontend PRIVATE freetype CURL::libcurl ZLIB::ZLIB)
 
 # the menu's font, Noto Sans Bold (SIL OFL 1.1, fonts/NotoSans-OFL.txt), into the library itself
 set(DEADCAST_FONT_ZIP ${CMAKE_CURRENT_SOURCE_DIR}/../fonts/NotoSans-Bold.ttf.zip)

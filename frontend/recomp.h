@@ -50,8 +50,12 @@ bool installed(const std::string& discSha1, Module& module);
 // The core chosen for a disc in Core Settings: Recomp, its module installed, runs the module in this
 // process instead (exec: nothing of the caller stays), given the disc's path. Returns only if not.
 void runChosen(const std::string& disc);
+// A module's run ended as it should (quit, or the other core chosen): its next start runs it again.
+// One that did not end so (it died, or would not start) leaves its game emulated once.
+void runEnded();
+constexpr const char *RunMarker = "/tmp/deadcast-recomp-run";
 // The exit code that asks the launcher to start the game again, in the core now chosen
-constexpr int SwitchExit = 3;
+constexpr int SwitchExit = 86;
 
 // Deadcast's store of what the menu picks for the recomps (key = value lines in <home>/recomp.cfg), each
 // change saved at once: core.<module> (the game's core), <module>.<setting> (a module's settings)

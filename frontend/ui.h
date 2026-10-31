@@ -151,6 +151,9 @@ void startLine(const std::string& line, const std::string& under);
 void endStart();
 // a page of the host's own over everything (the BIOS page): drawn by draw while open, A or B quits
 bool showPage(std::function<void()> draw);
+// a page straight onto the screen as it is (fb0's page on show, in its mode), between two programs:
+// Deadcast handing the game to a recomp module, or back. Stays until the next one draws.
+void putPage(const std::string& line, const std::string& under);
 
 // a page's line in white and text under it in grey, centered on black
 void drawPage(const std::string& line, const std::string& under);

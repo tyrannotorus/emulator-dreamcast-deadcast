@@ -60,13 +60,13 @@ echo 1 >/tmp/stay_awake
 sh "$SYSTEM_PATH/bin/governor.sh" auto
 
 echo "Deadcast: $DISC"
-# exit 3: the game's other core chosen in Core Settings (Emulator or its recomp module): started again,
+# exit 86: the game's other core chosen in Core Settings (Emulator or its recomp module): started again,
 # deadcast running the module itself when that is the core (frontend/recomp.h); a few times at most
 for run in 1 2 3 4 5; do
 	"$PAK_DIR/deadcast" "$DISC"
 	code=$?
 	echo "Deadcast: deadcast exited with $code"
-	[ "$code" = 3 ] || break
+	[ "$code" = 86 ] || break
 done
 # NextUI's display mode again, should deadcast have been killed before restoring it
 command -v fbset > /dev/null && fbset -g 1024 768 1024 16384 32

@@ -1,13 +1,20 @@
 #include "ui.h"
+#include "download.h"
 #include "recomp.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <thread>
+
+#include <fcntl.h>
+#include <linux/fb.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -110,6 +117,16 @@ struct State
 	Host host;						// the main page's
 	bool hasModule = false;			// a recomp module installed for the disc
 	recomp::Module module;
+	std::string discSha1;			// the disc's (its CHD header's)
+	// a module being downloaded (its page up until it is done)
+	std::thread download;
+	std::atomic<uint64_t> downloaded { 0 };
+	std::atomic<uint64_t> downloadSize { 0 };
+	std::atomic<bool> cancelDownload { false };
+	std::atomic<bool> downloadDone { false };
+	std::atomic<bool> installing { false };		// fetched and checked: being unpacked
+	std::string downloadError;
+	const recomp::CatalogEntry *downloading = nullptr;
 };
 State st;
 
@@ -278,6 +295,8 @@ void drawButton(const char *button, const char *hint, int x, int y)
 // button and hint pairs in a pill at the bottom right of a page drawn at ox; the pill's width
 int drawButtons(const Buttons& pairs, int ox)
 {
+	if (pairs.empty())
+		return 0;
 	Canvas& c = st.canvas;
 	int ow = ButtonMargin;
 	for (const auto& pair : pairs)
@@ -534,11 +553,8 @@ Screen recompSettingsScreen()
 	return screen;
 }
 
-// what the catalog has for this game's disc (nothing yet)
-void checkModule()
-{
-	message("Sorry, no recomp module found.");
-}
+
+void checkModule();
 
 // the game's core, Deadcast's emulation or a recomp module of it, and each one's settings (the other
 // core's disabled: they belong to its process); a module looked for online and downloaded
@@ -576,6 +592,105 @@ Screen coreSettingsScreen()
 	return screen;
 }
 
+std::string megabytes(uint64_t bytes)
+{
+	return std::to_string((bytes + (1 << 19)) >> 20) + " MB";
+}
+
+// how far the download is
+void drawDownload(int ox)
+{
+	Canvas& c = st.canvas;
+	const recomp::CatalogEntry& e = *st.downloading;
+	const uint64_t size = st.downloadSize > 0 ? st.downloadSize.load() : e.size;
+	if (st.installing)
+		drawMessage(loaded->large, std::string("Installing ") + e.name + " " + e.version + "...", ox, 0, c.width(), c.height());
+	else
+	{
+		const std::string line = st.cancelDownload ? "Stopping..." : std::string("Downloading ") + e.name + " " + e.version;
+		drawMessage(loaded->large, line + "\n" + megabytes(st.downloaded) + " of " + megabytes(size), ox, 0, c.width(), c.height());
+	}
+}
+
+// the download over (installed, failed or stopped): its page gone, what came of it said; installed in
+// the emulator, the switch to it offered
+void downloadOver()
+{
+	st.download.join();
+	pop();
+	if (!st.downloadError.empty())
+	{
+		message(st.downloadError);
+		return;
+	}
+	st.hasModule = recomp::installed(st.discSha1, st.module);
+	if (depth() > 0 && page().title == "Core Settings")
+		page().items.back().name = "Check for Recomp Update";
+	const std::string name = st.module.name;
+	if (st.host.core == Core::Emulator)
+		ask(name + " is installed.\nSwitch to it now?\nThis will restart your game.", "RESTART", [] {
+			recomp::set("core." + st.module.id, "recomp");
+			finish(Result::Switch);
+		});
+	else
+		message(name + " is updated: it plays from your game's next start.");
+}
+
+// fetched (installed by recomp::install) on a thread of its own, its page showing how far; B stops it
+void startDownload(const recomp::CatalogEntry *entry)
+{
+	st.downloading = entry;
+	st.downloaded = 0;
+	st.downloadSize = entry->size;
+	st.cancelDownload = false;
+	st.downloadDone = false;
+	st.installing = false;
+	st.downloadError.clear();
+	st.download = std::thread([entry] {
+		st.downloadError = recomp::install(*entry, st.downloaded, st.downloadSize, st.cancelDownload, st.installing);
+		st.downloadDone = true;
+	});
+	Screen screen;
+	screen.title = "Recomp Module";
+	screen.body = drawDownload;
+	// stopped while it downloads; once unpacking, it finishes
+	screen.buttons = [] { return st.installing ? Buttons {} : Buttons { { "B", "STOP" } }; };
+	screen.back = [] { st.cancelDownload = true; };
+	screen.act = [](Button) {};
+	screen.tick = [] {
+		if (st.downloadDone)
+			downloadOver();
+		else
+			redraw();
+	};
+	push(std::move(screen));
+}
+
+// what the catalog has for this game's disc: newer than the module installed, there to fetch, then
+// fetched if the player says so
+void checkModule()
+{
+	const recomp::CatalogEntry *entry = recomp::catalogFor(st.discSha1);
+	if (entry == nullptr)
+	{
+		message("Sorry, no recomp module found.");
+		return;
+	}
+	if (st.hasModule && st.module.version == entry->version)
+	{
+		message(st.module.name + " is up to date.");
+		return;
+	}
+	const std::string why = recomp::reachable(*entry);
+	if (!why.empty())
+	{
+		message(why);
+		return;
+	}
+	ask(std::string(entry->name) + " " + entry->version + ", " + megabytes(entry->size) + ".\nDownload it?", "DOWNLOAD",
+			[entry] { startDownload(entry); });
+}
+
 }	// namespace
 
 Screen mainScreen(const std::string& title, Host host)
@@ -595,7 +710,8 @@ Screen mainScreen(const std::string& title, Host host)
 	}
 	screen.items.push_back(entry("Core Settings", "", [] { push(coreSettingsScreen()); }));
 	screen.items.push_back(entry("Quit", "", [] { finish(Result::Quit); }));
-	st.hasModule = recomp::installed(recomp::chdSha1(host.disc), st.module);
+	st.discSha1 = recomp::chdSha1(host.disc);
+	st.hasModule = recomp::installed(st.discSha1, st.module);
 	st.host = std::move(host);
 	return screen;
 }
@@ -835,6 +951,12 @@ Result frame()
 		st.dirty = false;
 	}
 	const Result result = st.result;
+	if (result == Result::Switch)
+	{
+		// the start page left up while the game starts again in the other core
+		drawPage("Loading...", st.host.disc.substr(st.host.disc.find_last_of('/') + 1));
+		st.display->show(st.canvas.data());
+	}
 	if (result != Result::Open)
 		close(result == Result::Resume);
 	return result;
@@ -884,6 +1006,27 @@ bool showPage(std::function<void()> draw)
 	return true;
 }
 
+void putPage(const std::string& line, const std::string& under)
+{
+	const int fd = ::open("/dev/fb0", O_RDWR | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	fb_var_screeninfo var {};
+	fb_fix_screeninfo fix {};
+	if (ioctl(fd, FBIOGET_VSCREENINFO, &var) == 0 && ioctl(fd, FBIOGET_FSCREENINFO, &fix) == 0
+			&& var.bits_per_pixel == 32 && loadFonts())
+	{
+		st.canvas.resize((int)var.xres, (int)var.yres);
+		drawPage(line, under);
+		// the canvas is fb0's BGRA already: row by row into the page on show
+		for (u32 y = 0; y < var.yres; y++)
+			if (pwrite(fd, st.canvas.data() + (size_t)y * var.xres, (size_t)var.xres * 4,
+					(off_t)(var.yoffset + y) * fix.line_length + (off_t)var.xoffset * 4) < 0)
+				break;
+	}
+	::close(fd);
+}
+
 void drawPage(const std::string& line, const std::string& under)
 {
 	Canvas& c = st.canvas;
@@ -910,13 +1053,15 @@ void drawPage(const std::string& line, const std::string& under)
 
 void drawMessage(Font& font, const std::string& message, int x, int y, int w, int h)
 {
+	// its lines, each broken to fit within the rectangle's padding
 	std::vector<std::string> lines;
 	for (size_t start = 0, end; start <= message.size(); start = end + 1)
 	{
 		end = message.find('\n', start);
 		if (end == std::string::npos)
 			end = message.size();
-		lines.push_back(message.substr(start, end - start));
+		for (const std::string& line : wrap(font, message.substr(start, end - start), w - (Padding + ButtonPadding) * 2))
+			lines.push_back(line);
 	}
 	int top = y + (h - font.lineHeight() * (int)lines.size()) / 2;
 	for (const std::string& line : lines)

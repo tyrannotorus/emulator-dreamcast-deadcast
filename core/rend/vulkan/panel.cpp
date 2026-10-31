@@ -312,6 +312,25 @@ void Panel::endPictures(GraphicsContext::AfterPictures after)
 	if (!pictures)
 		return;
 	pictures = false;
+	if (after == GraphicsContext::AfterPictures::Stay && pictureMode)
+	{
+		// the last picture into NextUI's page too, so that it stays up through the return to NextUI's
+		// mode and page as Deadcast ends (a core switch's start page, a quit's last picture)
+		const u32 from = pictureRow + (picturePage ^ 1) * var.yres;
+		const size_t bytes = (size_t)nativeLine * var.yres;
+		if (mapped != nullptr)
+		{
+			memmove(mapped + (size_t)nativeLine * var.yoffset, mapped + (size_t)nativeLine * from, bytes);
+			__asm__ volatile("dsb st" ::: "memory");
+		}
+		else
+		{
+			std::vector<u8> rows(bytes);
+			if (pread(fd, rows.data(), bytes, (off_t)nativeLine * from) != (ssize_t)bytes
+					|| pwrite(fd, rows.data(), bytes, (off_t)nativeLine * var.yoffset) != (ssize_t)bytes)
+				WARN_LOG(RENDERER, "Panel: the last picture not kept: %s", strerror(errno));
+		}
+	}
 	if (after == GraphicsContext::AfterPictures::Stay || !pictureMode)
 		return;
 	pictureMode = false;

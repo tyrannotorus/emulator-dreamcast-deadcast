@@ -7,5 +7,8 @@ set -e
 cd "$(dirname "$0")/../.."
 SERIAL=${1:?usage: shell/brick/devlibs.sh SERIAL}
 mkdir -p build-brick/devlibs
-adb -s "$SERIAL" pull /usr/lib/libcurl.so.4 build-brick/devlibs/libcurl.so.4 > /dev/null
-echo "devlibs: build-brick/devlibs/libcurl.so.4 ($(wc -c < build-brick/devlibs/libcurl.so.4) bytes)"
+# libcurl for Deadcast; libvulkan for the recomp modules (shell/brick/recomp.sh), which link it
+for lib in libcurl.so.4 libvulkan.so.1; do
+    adb -s "$SERIAL" pull /usr/lib/$lib build-brick/devlibs/$lib > /dev/null
+    echo "devlibs: build-brick/devlibs/$lib ($(wc -c < build-brick/devlibs/$lib) bytes)"
+done

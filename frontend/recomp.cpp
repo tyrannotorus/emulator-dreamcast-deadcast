@@ -1,4 +1,5 @@
 #include "recomp.h"
+#include "ui.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -173,11 +174,29 @@ void runChosen(const std::string& disc)
 	Module module;
 	if (!installed(chdSha1(disc), module) || get("core." + module.id) != "recomp")
 		return;
+	// the module's last run never ended (it died, or would not start): emulated this time, so the
+	// player can still reach Core Settings
+	if (access(RunMarker, F_OK) == 0)
+	{
+		std::remove(RunMarker);
+		std::printf("Deadcast: the recomp module did not end its last run: emulated instead\n");
+		return;
+	}
+	if (FILE *f = std::fopen(RunMarker, "w"))
+		std::fclose(f);
 	const std::string exec = module.dir + "/" + module.exec;
+	// the start page from now until the module's own (its window takes a moment)
+	ui::putPage("Loading...", disc.substr(disc.find_last_of('/') + 1));
 	std::printf("Deadcast: %s %s, the recomp module\n", exec.c_str(), module.version.c_str());
 	std::fflush(stdout);
 	execl(exec.c_str(), exec.c_str(), disc.c_str(), (char *)nullptr);
 	std::printf("Deadcast: %s cannot run (%s): emulated instead\n", exec.c_str(), std::strerror(errno));
+	std::remove(RunMarker);
+}
+
+void runEnded()
+{
+	std::remove(RunMarker);
 }
 
 std::string get(const std::string& key, const std::string& def)
