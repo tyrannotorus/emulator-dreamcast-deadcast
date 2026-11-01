@@ -28,6 +28,8 @@ extern unsigned perfDrawCalls;	// the renderer counts its draw calls here
 void perfTextureUpdated(u32 size);
 // the audio output's callbacks that found too few samples and played silence (audiobackend_sdl2.cpp)
 extern std::atomic<u32> audioUnderruns;
+// Deadcast perf: the audio frames the output took in (push) and played (its callback), and how full it is (per mille)
+extern std::atomic<u32> audioFramesIn, audioFramesOut, audioFillPermille;
 // Deadcast: the emulation thread waited for the renderer, from start (perfNow()) until now
 unsigned long long perfNow();
 void perfWaited(unsigned long long start);

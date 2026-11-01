@@ -79,6 +79,7 @@ static std::atomic<u64> perfRenderUs;
 static std::atomic<u32> perfRenders, perfDraws, perfVertices, perfTextureRenders;
 static std::atomic<u32> perfTextureUpdates, perfTextureBytes;
 std::atomic<u32> audioUnderruns;
+std::atomic<u32> audioFramesIn, audioFramesOut, audioFillPermille;
 unsigned perfDrawCalls;
 static std::atomic<u64> perfGpuUs[2], perfGpuMaxUs[2], perfBlockedUs[3], perfProcessUs, perfRenderMaxUs;
 static std::atomic<u32> perfGpuCount[2];
@@ -308,7 +309,7 @@ static void perfVblank()
 	printf("Deadcast perf %6.1f s: vblank %5.2f/s %5.1f%% | rendered %5.2f/s skipped %5.2f/s | presented %5.2f/s longest %5.1f ms"
 			" | emu cpu %3.0f%% waits %3.0f%% | render cpu %3.0f%% | mmu flushes %u+%u misses %u"
 			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u"
-			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms | aica cpu %.0f%%\n",
+			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms | aica cpu %.0f%% | audio in %.0f/s out %.0f/s fill %u\n",
 			(now - start) / 1e6, vblanks / secs, vblanks / secs / nominal * 100.0,
 			(FrameCount - frames) / secs, (fskip - skipped) / secs,
 			presented / secs, longest / 1000.0,
@@ -329,7 +330,8 @@ static void perfVblank()
 			perfBlockedUs[2].exchange(0) / window * 100.0,
 			framesOver, frameMaxUs / 1000.0, perfLateGaps.exchange(0),
 			perfShownFrames.exchange(0) / secs, perfShownRepeats.exchange(0), perfShownLongestUs.exchange(0) / 1000.0,
-			aicaClock && aicaCpu != 0 ? (aicaNow - aicaCpu) / window * 100.0 : 0.0);
+			aicaClock && aicaCpu != 0 ? (aicaNow - aicaCpu) / window * 100.0 : 0.0,
+			audioFramesIn.exchange(0) / secs, audioFramesOut.exchange(0) / secs, audioFillPermille.load());
 	aicaCpu = aicaNow;
 	framesOver = 0;
 	frameMaxUs = 0;
