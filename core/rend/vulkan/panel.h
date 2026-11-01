@@ -58,6 +58,8 @@ private:
 	void frameMode(u32 page);
 	void pan(u32 page);
 	void restoreMode();
+	void matchGameRate();
+	void restoreRate();
 
 	vk::Device device;
 	int fd = -1;
@@ -77,6 +79,7 @@ private:
 	bool pictureMode = false;		// fb0 in NextUI's mode for them
 	std::atomic<bool> modeAtFrame { false };	// back to Deadcast's mode with the next frame shown
 	float refresh = 60.f;
+	u32 dsiVtFound = 0;				// the DSI's frame register as found, when changed (matchGameRate)
 	vk::UniqueDeviceMemory memory;
 	std::vector<vk::UniqueImage> images;
 	std::vector<vk::UniqueImageView> views;

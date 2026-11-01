@@ -127,6 +127,7 @@ bool Panel::init(vk::PhysicalDevice physicalDevice, vk::Device device, std::stri
 		views.push_back(device.createImageViewUnique(vk::ImageViewCreateInfo(vk::ImageViewCreateFlags(), *images.back(), vk::ImageViewType::e2D,
 				format(), vk::ComponentMapping(), vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1))));
 	}
+	matchGameRate();
 	NOTICE_LOG(RENDERER, "Panel: %d x %d on %d x %d, %.2f Hz, fb0 rows %d to %d", mode.xres, mode.yres, var.xres, var.yres, refresh,
 			firstRow, firstRow + mode.yres * Pages - 1);
 	// NextUI's mode and picture until something is shown (the start page, then the first frame)
@@ -145,6 +146,80 @@ bool Panel::init(vk::PhysicalDevice physicalDevice, vk::Device device, std::stri
 	return true;
 }
 
+// Deadcast: the Brick's panel refreshes at 60.23 Hz (its MIPI-DSI controller: 51 MHz pixels, 1080 x 784
+// a frame), a Dreamcast game at 59.94 Hz, so a frame was shown twice every 3.3 s. The DSI controller's
+// frame (VT, lines) is made 788 for as long as Deadcast runs: 59.93 Hz, a hair under the game, so no frame
+// is ever shown twice. Only when the register holds exactly the Brick panel's timing (VT 784, 768 lines
+// shown); restored as found at the end. The display driver has no way to it (DISP_LCD_SET_FPS: -1).
+// DEADCAST_PANEL_HZ=0: left as it is.
+static constexpr uintptr_t DsiBase = 0x06504000;	// DSI0 (the display node's reg)
+static constexpr u32 DsiFrameReg = 0x1c;			// VT << 16 | lines shown
+static constexpr u32 BrickFrame = (784u << 16) | 768u;
+static constexpr u32 GameFrame = (788u << 16) | 768u;
+
+static volatile u32 *mapDsi(int& fd, void*& map)
+{
+	fd = open("/dev/mem", O_RDWR | O_SYNC);
+	if (fd < 0)
+		return nullptr;
+	map = mmap(nullptr, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, DsiBase);
+	if (map == MAP_FAILED)
+	{
+		::close(fd);
+		return nullptr;
+	}
+	return (volatile u32 *)((u8 *)map + DsiFrameReg);
+}
+
+static void unmapDsi(int fd, void *map)
+{
+	munmap(map, 0x1000);
+	::close(fd);
+}
+
+void Panel::matchGameRate()
+{
+	const char *env = getenv("DEADCAST_PANEL_HZ");
+	if (env != nullptr && strcmp(env, "0") == 0)
+		return;
+	int memFd;
+	void *map;
+	volatile u32 *frame = mapDsi(memFd, map);
+	if (frame == nullptr)
+	{
+		WARN_LOG(RENDERER, "Panel: the DSI's timing cannot be reached: %s", strerror(errno));
+		return;
+	}
+	const u32 found = *frame;
+	if (found == BrickFrame)
+	{
+		*frame = GameFrame;
+		dsiVtFound = found;
+		refresh = (float)(refresh * 784.0 / 788.0);
+		NOTICE_LOG(RENDERER, "Panel: 788 lines a frame (was 784): %.3f Hz, as a Dreamcast game", refresh);
+	}
+	else if (found == GameFrame)
+		refresh = (float)(refresh * 784.0 / 788.0);	// left so by a run that ended without restoring it
+	else
+		NOTICE_LOG(RENDERER, "Panel: the DSI's frame is %08x, not the Brick's: left as it is", found);
+	unmapDsi(memFd, map);
+}
+
+void Panel::restoreRate()
+{
+	if (dsiVtFound == 0)
+		return;
+	int memFd;
+	void *map;
+	if (volatile u32 *frame = mapDsi(memFd, map))
+	{
+		if (*frame == GameFrame)
+			*frame = dsiVtFound;
+		unmapDsi(memFd, map);
+	}
+	dsiVtFound = 0;
+}
+
 void Panel::term()
 {
 	if (thread.joinable())
@@ -156,6 +231,7 @@ void Panel::term()
 		changed.notify_all();
 		thread.join();
 	}
+	restoreRate();
 	views.clear();
 	images.clear();
 	if (fd >= 0)
