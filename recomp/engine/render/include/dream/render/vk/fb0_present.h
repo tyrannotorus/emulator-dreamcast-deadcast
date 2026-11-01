@@ -42,6 +42,10 @@ public:
     // Blocks until the frame last queued for `slot` has been shown, so its fence and image can be
     // used again.
     void wait_slot(std::uint32_t slot);
+    // A small BGRA picture (a frame counter, at most kCornerWidth x kCornerHeight) copied over the
+    // bottom-left corner of every frame blitted from now on, or none (null). The pixels are copied.
+    static constexpr std::uint32_t kCornerWidth = 512, kCornerHeight = 128;
+    void set_corner(const std::uint32_t* bgra, std::uint32_t width, std::uint32_t height);
 
 private:
     Fb0Presenter() = default;

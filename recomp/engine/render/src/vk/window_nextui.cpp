@@ -322,6 +322,11 @@ bool Window::poll() {
     return running_;
 }
 
+void Window::set_corner(const std::uint32_t* bgra, std::uint32_t width, std::uint32_t height) {
+    if (fb0_)
+        fb0_->set_corner(bgra, width, height);
+}
+
 float Window::refresh_rate() const noexcept {
     return fb0_ ? fb0_->refresh_hz() : 0.0f;
 }

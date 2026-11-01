@@ -137,6 +137,9 @@ public:
     // the game also acting on its input.
     void set_game_input_blocked(bool yes) noexcept { game_input_blocked_ = yes; }
     bool game_input_blocked() const noexcept { return game_input_blocked_; }
+    // A small BGRA picture over the bottom-left corner of every frame shown (a frame counter), or
+    // none (null). NextUI builds only (the fb0 presenter); elsewhere it does nothing.
+    void set_corner(const std::uint32_t* bgra, std::uint32_t width, std::uint32_t height);
     // Threaded mode: the thread that created the window pumps SDL with
     // pump_events() while another thread runs the guest and calls poll(), which then works
     // through what was pumped instead of reading SDL itself. The OS's move and resize loops block

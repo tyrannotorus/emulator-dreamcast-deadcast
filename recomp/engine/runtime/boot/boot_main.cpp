@@ -2070,6 +2070,10 @@ int main(int argc, char** argv) {
             hc.set_render_scale = [lp](unsigned sc) {
                 lp->want_scale = sc == dream::host::HostControls::kScalePanel ? sc : std::clamp(sc, 1u, 8u);
             };
+            hc.presented_frames = [lp] { return lp->presented.load(); };
+            hc.set_corner = [lp](const std::uint32_t* bgra, unsigned w, unsigned h) {
+                lp->window.set_corner(bgra, w, h);
+            };
             hc.render_size = [lp](unsigned sc, unsigned& w, unsigned& h) {
                 std::uint32_t tw = 0, th = 0;
                 lp->target_size(sc, lp->render_aspect_, tw, th);

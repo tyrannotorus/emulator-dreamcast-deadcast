@@ -641,6 +641,8 @@ bool Window::poll() {
     return running_;
 }
 
+void Window::set_corner(const std::uint32_t*, std::uint32_t, std::uint32_t) {}
+
 float Window::refresh_rate() const noexcept {
     if (!window_)
         return 0.0f;

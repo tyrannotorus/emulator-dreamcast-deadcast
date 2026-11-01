@@ -118,6 +118,11 @@ struct HostControls {
     // then calls reload_bindings so the game uses them at once.
     std::function<std::string()> bindings_path;
     std::function<void()> reload_bindings;
+    // Frames presented so far (a frame counter's), and a small BGRA picture over the bottom-left
+    // corner of every frame shown from now on, or none (null): drawn in the present itself, so the
+    // frames keep their fast path (NextUI builds; elsewhere it does nothing).
+    std::function<std::uint64_t()> presented_frames;
+    std::function<void(const std::uint32_t*, unsigned, unsigned)> set_corner;
 };
 
 inline HostControls& host_controls() {

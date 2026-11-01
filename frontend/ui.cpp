@@ -550,6 +550,20 @@ Screen recompSettingsScreen()
 		};
 		screen.items.push_back(std::move(item));
 	}
+	// every module's: the frame rate in the corner, as the emulator's Show FPS
+	Item fps;
+	fps.name = "Show FPS";
+	fps.desc = "Shows the frame rate.";
+	fps.row = Row::Choice;
+	fps.values = { "Off", "On" };
+	const std::string key = st.module.id + ".fps";
+	fps.value = recomp::get(key, "off") == "on" ? 1 : 0;
+	fps.change = [key](int i) {
+		recomp::set(key, i ? "on" : "off");
+		if (st.host.recompSetting)
+			st.host.recompSetting("fps", i ? "on" : "off");
+	};
+	screen.items.push_back(std::move(fps));
 	return screen;
 }
 
@@ -1049,6 +1063,23 @@ void drawPage(const std::string& line, const std::string& under)
 		c.text(text, l, (c.width() - text.measure(l)) / 2, y + text.ascent(), TextGray);
 		y += text.lineHeight();
 	}
+}
+
+std::vector<u32> label(const std::string& text, int& width, int& height)
+{
+	width = height = 0;
+	if (!loadFonts())
+		return {};
+	Font& font = loaded->tiny;
+	const int pad = S(2);
+	width = font.measure(text) + pad * 2;
+	height = font.lineHeight() + pad * 2;
+	Canvas c;
+	c.resize(width, height);
+	c.clear(0x202020);
+	// the emulator's: yellow at 70% over its dark box
+	c.text(font, text, pad, pad + font.ascent(), 0xbcbc0a);
+	return std::vector<u32>(c.data(), c.data() + (size_t)width * height);
 }
 
 void drawMessage(Font& font, const std::string& message, int x, int y, int w, int h)

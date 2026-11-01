@@ -73,6 +73,9 @@ public:
     void on_start(dream::System&) override {
         pad_ = openPad();
         ui::setDisplay(this);
+        // Show FPS (every module's Recomp Settings), kept in Deadcast's store
+        const PortInfo* p = port();
+        fps_ = p && p->id && deadcast::recomp::get(std::string(p->id) + ".fps", "off") == "on";
     }
 
     // MENU while the game runs: its picture taken at the next present, then the menu over it
@@ -80,6 +83,7 @@ public:
         perf();
         for (const input_event& ev : read())
             if (ev.type == EV_KEY && ev.code == BTN_MODE && ev.value == 1 && state_ == State::Closed) {
+                corner(nullptr);  // not over the menu
                 std::lock_guard<std::mutex> lock(mutex_);
                 captured_ = false;
                 state_ = State::Capturing;
@@ -181,20 +185,42 @@ private:
     enum class State { Closed, Capturing, Open };
 
     // once a second, as Deadcast's own perf lines: the game's vblanks (60 at full speed)
+    // once a second, as Deadcast's own perf lines: the game's vblanks (60 at full speed) and the
+    // frames shown, which Show FPS puts in the corner as the emulator's does
     void perf() {
         const auto now = std::chrono::steady_clock::now();
+        auto& hc = dream::host::host_controls();
+        const std::uint64_t presented = hc.presented_frames ? hc.presented_frames() : 0;
         if (vblanks_++ == 0) {
             perfStart_ = since_ = now;
+            presentedAt_ = presented;
             return;
         }
         const double s = std::chrono::duration<double>(now - since_).count();
         if (s < 1.0)
             return;
-        std::printf("Deadcast perf %6.1f s: vblank %5.2f/s\n",
-                    std::chrono::duration<double>(now - perfStart_).count(), (vblanks_ - 1) / s);
+        const double shown = static_cast<double>(presented - presentedAt_) / s;
+        std::printf("Deadcast perf %6.1f s: vblank %5.2f/s presented %5.2f/s\n",
+                    std::chrono::duration<double>(now - perfStart_).count(), (vblanks_ - 1) / s, shown);
         std::fflush(stdout);
+        if (fps_ && state_ == State::Closed) {
+            char text[32];
+            std::snprintf(text, sizeof text, "F:%4.1f", shown);
+            corner(text);
+        }
         vblanks_ = 1;
         since_ = now;
+        presentedAt_ = presented;
+    }
+
+    // the frame counter in the corner, or none
+    static void corner(const char* text) {
+        auto& hc = dream::host::host_controls();
+        if (!hc.set_corner)
+            return;
+        int w = 0, h = 0;
+        const std::vector<deadcast::u32> px = text ? ui::label(text, w, h) : std::vector<deadcast::u32>();
+        hc.set_corner(px.empty() ? nullptr : px.data(), static_cast<unsigned>(w), static_cast<unsigned>(h));
     }
 
     std::vector<input_event> read() {
@@ -231,13 +257,15 @@ private:
     }
 
     // a recomp's main page: no save states, no emulator; the module's settings applied as they change
-    ui::Host host() const {
+    ui::Host host() {
         ui::Host h;
         h.core = ui::Core::Recomp;
         h.disc = disc_;
-        h.recompSetting = [](const std::string& key, const std::string& value) {
+        h.recompSetting = [this](const std::string& key, const std::string& value) {
             if (key == "scale")
                 set_render_scale(value == "panel" ? kScalePanel : std::atoi(value.c_str()));
+            else if (key == "fps")
+                fps_ = value == "on";  // shown from the next second
         };
         return h;
     }
@@ -248,6 +276,8 @@ private:
     }
 
     std::string disc_;
+    bool fps_ = false;  // Show FPS
+    std::uint64_t presentedAt_ = 0;
     unsigned vblanks_ = 0;
     std::chrono::steady_clock::time_point perfStart_, since_;
     int pad_ = -1;

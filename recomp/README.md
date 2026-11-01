@@ -57,6 +57,11 @@ setting = scale | Resolution | 1=640x480, panel=1024x768 | 1
 The port layer applies `scale` (the resolution) itself, live. Any other setting a module declares,
 it reads from Deadcast's store (`deadcast::recomp::get("<id>.<key>")`, `frontend/recomp.h`).
 
+Every module's Recomp Settings also has **Show FPS**, which a module does not declare: the frame
+rate in the bottom-left corner, as Deadcast's emulator shows it (`F:59.9`). The port layer draws it
+the same way for every module, copied into each frame as it is presented, so the frames keep the
+engine's fast path.
+
 ## How Deadcast runs a module
 
 Deadcast keeps installed modules in `<DEADCAST_HOME>/recomp/<id>/`. When a game's core is Recomp,

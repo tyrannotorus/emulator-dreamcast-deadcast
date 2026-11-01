@@ -155,6 +155,10 @@ bool showPage(std::function<void()> draw);
 // Deadcast handing the game to a recomp module, or back. Stays until the next one draws.
 void putPage(const std::string& line, const std::string& under);
 
+// a small label as BGRA pixels, its size in width and height (none without the font): the frame
+// counter, as the emulator's Show FPS draws it (its colour on a dark box)
+std::vector<u32> label(const std::string& text, int& width, int& height);
+
 // a page's line in white and text under it in grey, centered on black
 void drawPage(const std::string& line, const std::string& under);
 // lines of text centered in a rectangle
