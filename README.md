@@ -8,6 +8,9 @@ A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the T
 ## Recomp Features
 - Optional downloadable recomp modules for game mods.
 
+## Current Supported Devices
+- Trimui Brick/Hammer
+
 ## AI Slop Section
 
 Deadcast runs on the TrimUI Brick (NextUI, tg5040) only, as `Emus/tg5040/DC-DEADCAST.pak`. It renders
