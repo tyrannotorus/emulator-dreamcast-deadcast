@@ -271,6 +271,9 @@ public:
             args.push_back("--disc");
             args.push_back(disc);
         }
+        // Deadcast's start page stays up until the game's first picture
+        if (!disc.empty() && !has_flag(args, "--hold-until-render"))
+            args.push_back("--hold-until-render");
 #endif
         // `--set` is parsed after this, but the texture keys decide which engine flags to add
         // here, so those two are applied now. parse_arg sets them again to the same value, and a

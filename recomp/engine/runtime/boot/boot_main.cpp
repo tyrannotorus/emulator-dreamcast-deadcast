@@ -868,12 +868,20 @@ public:
         // --scale visible: the window gets the full rendered resolution.
         // Not while a rebuilt target waits for its first render: its image is not drawn yet.
         from_renderer = described && fb.enabled && rendered_into(fb.address) && !await_render;
+        // --hold-until-render: the guest's framebuffer decoded from video memory is not shown before
+        // the renderer's first picture (5 s at most): at a game's start it can hold textures already
+        // uploaded there, shown as a picture for a frame or two (Rez on the Brick, 2026-10-31).
+        const auto now = std::chrono::steady_clock::now();
+        if (held_since.time_since_epoch().count() == 0)
+            held_since = now;
+        const bool holding = hold_until_render && !rendered_once && now - held_since < std::chrono::seconds(5);
         if (from_renderer) {
+            rendered_once = true;
             shown = fb;
             shown.width = offscreen.width();
             shown.height = offscreen.height();
             have_frame = true;
-        } else if (described && fb.enabled &&
+        } else if (described && fb.enabled && !holding &&
                    dream::render::decode_framebuffer(fb, memory_.vram(),
                                                      dream::mem::DcMemory::kVramSize, pixels)) {
             shown = fb;
@@ -1366,6 +1374,9 @@ public:
     double fps_guest_at_mark = 0;
     double fps_shown = 0, speed_shown = 0;
     bool have_frame = false, from_renderer = false, reported_error = false;
+    bool hold_until_render = false;    // --hold-until-render
+    bool rendered_once = false;        // the renderer's first picture shown
+    std::chrono::steady_clock::time_point held_since{};
     bool threaded() const noexcept { return threaded_; }
 
     ~Live() { stop_render_thread(); }
@@ -1444,6 +1455,8 @@ void usage(const char* argv0, std::FILE* out) {
         "  --interpolate-auto     the same, only when the window's display is above 60 Hz\n"
         "  --sync-display         pace at the display's rate when it is within 0.5%% of the\n"
         "                         game's (60 Hz for a 59.94 Hz game: +0.1%% speed, no repeats)\n"
+        "  --hold-until-render    keep the screen as it is (a launcher's start page) until the\n"
+        "                         renderer's first picture, 5 s at most\n"
         "  --fps                  start with the on-screen frame-rate counter showing\n"
         "  --present-path P       vulkan (default) or dxgi (Windows: flip model, lower latency)\n"
         "  --present-mode M       vsync (default), mailbox or immediate\n"
@@ -1548,6 +1561,8 @@ int main(int argc, char** argv) {
     bool interpolate_frames = false;      // --interpolate: a blended frame between renders
     bool interpolate_auto = false;        // --interpolate-auto: only on displays above 60 Hz
     bool sync_display = false;            // --sync-display: pace at the display's rate
+    bool hold_until_render = false;       // --hold-until-render: no guest framebuffer shown before
+                                          // the renderer's first picture
     std::string vmu;                  // --vmu FILE: a 128 KB memory-card image in the standard
                                       // layout, as any Dreamcast tool or emulator writes. Writes
                                       // go back to the file.
@@ -1679,6 +1694,8 @@ int main(int argc, char** argv) {
             interpolate_auto = true;
         else if (!std::strcmp(argv[i], "--sync-display"))
             sync_display = true;
+        else if (!std::strcmp(argv[i], "--hold-until-render"))
+            hold_until_render = true;
         else if (!std::strcmp(argv[i], "--scale") && i + 1 < argc) {
             ++i;
             scale = !std::strcmp(argv[i], "panel") ? dream::host::HostControls::kScalePanel
@@ -1999,6 +2016,7 @@ int main(int argc, char** argv) {
         live->interpolate_only_above_60 = interpolate_auto && !interpolate_frames;
         live->pace_interpolation = !unthrottled;
         live->sync.enabled = sync_display;
+        live->hold_until_render = hold_until_render;
         // A frame is copied to the host only when something reads it (a screenshot).
         live->offscreen.readback = false;
         live->show_fps = start_with_fps;
