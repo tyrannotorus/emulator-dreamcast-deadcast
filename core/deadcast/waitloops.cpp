@@ -27,20 +27,33 @@ static bool codeIs(u32 addr, const u16 *code, size_t count)
 // maxTurns. The loop runs on by itself from there: an interrupt is taken at the next timeslice, as it
 // would have been, a timeslice late at most. And no more than 10 ms of the SH4's time a call, so the
 // emulator can stop meanwhile.
+// holds() is asked again only after the scheduler ran its events: while the SH4 waits, nothing else
+// writes main RAM (DMA and the rest land in those events, and interrupts stop the loop), so it could not
+// have changed in between.
 template<typename Holds>
 static u32 passTurns(u32 turn, u32 maxTurns, Holds holds)
 {
 	Sh4Context& ctx = Sh4cntx;
 	u32 done = 0;
 	u32 cycles = 0;
-	while (done < maxTurns && cycles < SH4_MAIN_CLOCK / 100 && !ctx.interrupt_pend && holds())
+	bool ask = true;
+	while (done < maxTurns && cycles < SH4_MAIN_CLOCK / 100 && !ctx.interrupt_pend)
 	{
+		if (ask)
+		{
+			if (!holds())
+				break;
+			ask = false;
+		}
 		if (ctx.cycle_counter <= 0)
 		{
 			ctx.cycle_counter += SH4_TIMESLICE;
 			ctx.sh4_sched_next -= SH4_TIMESLICE;
 			if (ctx.sh4_sched_next < 0)
+			{
 				sh4_sched_tick(SH4_TIMESLICE);
+				ask = true;
+			}
 			continue;
 		}
 		u32 turns = std::min<u32>(maxTurns - done, ctx.cycle_counter / turn + 1);
@@ -245,11 +258,13 @@ static constexpr std::array<u16, 21> Nba2k2ConvertCode {
 };
 
 // the word at a, if it is in main RAM
+// a word of main RAM, read straight from it (not through the address space's handlers: this is asked
+// many times a second while a game waits)
 static bool mainRamWord(u32 a, u32& value)
 {
 	if ((a & 3) != 0 || (a & 0x1C000000) != 0x0C000000)
 		return false;
-	value = ReadMem32_nommu(a);
+	value = *(const u32 *)&mem_b[a & RAM_MASK];
 	return true;
 }
 
