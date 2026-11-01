@@ -257,9 +257,8 @@ static constexpr std::array<u16, 21> Nba2k2ConvertCode {
 	0xf128, 0xf010, 0x4501, 0x4425, 0x2558, 0x8b00, 0x2448, 0x7204, 0x8bf2, 0x000b, 0x0009,
 };
 
-// the word at a, if it is in main RAM
-// a word of main RAM, read straight from it (not through the address space's handlers: this is asked
-// many times a second while a game waits)
+// the word at a, if it is in main RAM: read straight from it, not through the address space's handlers
+// (asked many times a second while a game waits)
 static bool mainRamWord(u32 a, u32& value)
 {
 	if ((a & 3) != 0 || (a & 0x1C000000) != 0x0C000000)

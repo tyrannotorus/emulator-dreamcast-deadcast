@@ -644,9 +644,7 @@ VulkanContext::~VulkanContext() {
 bool VulkanContext::GetLastFrame(std::vector<u8>& data, int& width, int& height)
 {
 	// Deadcast: what the screen shows, from fb0 (Panel::readShown), at its own size whatever size is
-	// asked: the picture the player saw. Never lastFrameView's image, which by then can hold other
-	// images' memory (NBA 2K2's and Skies of Arcadia's save state pictures, asked 640 wide through it,
-	// came out as tiles of the games' textures).
+	// asked. Never lastFrameView's image: by then its memory can hold other images (garbled pictures).
 	return panel.readShown(data, width, height);
 }
 

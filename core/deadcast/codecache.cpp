@@ -11,8 +11,6 @@
 
 #include <chrono>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <string>
 #include <vector>
 
@@ -33,13 +31,6 @@ struct Entry
 bool usable()
 {
 	return config::DynarecEnabled && !mmu_enabled();
-}
-
-// the list compiled at state loads (DEADCAST_CODECACHE=0: not, for comparisons; it is still kept)
-bool warming()
-{
-	const char *env = std::getenv("DEADCAST_CODECACHE");
-	return (env == nullptr || std::strcmp(env, "0") != 0) && usable();
 }
 
 std::string file()
@@ -104,15 +95,14 @@ void save()
 
 void warm()
 {
-	if (!warming())
+	if (!usable())
 		return;
 	FILE *f = std::fopen(file().c_str(), "r");
 	if (f == nullptr)
 		return;
 	const auto start = std::chrono::steady_clock::now();
-	// compiled as while the SH4 runs: with the CPU stopped (as at a state load) a block's exits are made to
-	// go back to the main loop for good instead of to the stubs that link them on first use (RelinkBlock),
-	// and every exit then went through the dispatcher (+14% of the SH4 thread)
+	// compiled as while the SH4 runs: with the CPU stopped (as at a state load) a block's exits go back to
+	// the main loop for good instead of to the stubs that link them on first use (RelinkBlock)
 	const u32 running = Sh4cntx.CpuRunning;
 	Sh4cntx.CpuRunning = 1;
 	u32 compiled = 0, skipped = 0;

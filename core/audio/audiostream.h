@@ -14,8 +14,6 @@ public:
 
 	virtual bool init() = 0;
 	virtual u32 push(const void *data, u32 frames, bool wait) = 0;
-	// Deadcast: how full the output's buffer is, 0 to 1; negative if not known (deadcast/pacer.h)
-	virtual float fill() const { return -1.f; }
 	virtual void term() {}
 
 	struct Option {
@@ -132,6 +130,3 @@ public:
 		writeCursor = 0;
 	}
 };
-
-// Deadcast: how full the audio output's buffer is, 0 to 1; negative if not known
-float audioFill();

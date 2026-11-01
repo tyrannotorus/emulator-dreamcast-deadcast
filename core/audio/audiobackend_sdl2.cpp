@@ -6,7 +6,6 @@
 #include "cfg/option.h"
 #include "stdclass.h"
 
-#include <cstring>
 #include <algorithm>
 #include <atomic>
 #include <mutex>
@@ -21,10 +20,8 @@ class SDLAudioBackend : AudioBackend
 	unsigned sample_buffer_size = 0;
 	unsigned sample_count = 0;
 	SDL_AudioCVT audioCvt;
-	// Deadcast: the buffer holds at least OutputFrames (100 ms): room above the 1024 frames the device takes at
-	// a time for the bursts the AICA thread makes (the SH4 runs in steps the display paces), so the AICA thread
-	// does not wait on a full buffer (at 64 ms it did, 23 s of a minute in NBA 2K2) and the SH4 is not held
-	// behind it. Played as made, at the device's rate.
+	// Deadcast: at least 100 ms: room above the 1024 frames the device takes at a time for the bursts the
+	// AICA thread makes, so it never waits on a full buffer and the SH4 is never held behind it
 	static constexpr u32 OutputFrames = 4410;
 
 	SDL_AudioDeviceID recorddev {};
@@ -134,11 +131,6 @@ public:
 		return audiodev != 0;
 	}
 
-	float fill() const override
-	{
-		return sample_buffer_size != 0 ? (float)sample_count / (float)sample_buffer_size : -1.f;
-	}
-
 	u32 push(const void* frame, u32 samples, bool wait) override
 	{
 		// Unpause the device shall it be paused.
@@ -151,7 +143,7 @@ public:
 			bool waited = false;
 			while (sample_count + samples > sample_buffer_size) {
 				if (!waited)
-					perfTrace('o');	// Deadcast: the output full: the AICA thread waits for the device (spg.h)
+					perfTrace('o');	// Deadcast: the AICA thread waits for room (spg.h)
 				waited = true;
 				stream_mutex.unlock();
 				read_wait.Wait();

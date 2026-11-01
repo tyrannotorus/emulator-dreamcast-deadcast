@@ -20,8 +20,7 @@
 class Panel
 {
 public:
-	// Deadcast: one on the screen, one being drawn, and room for up to three waiting for their vblank
-	// (waitWritable: two by default)
+	// Deadcast: one on the screen, up to two waiting for their vblank (waitWritable), the rest being drawn
 	static constexpr u32 Pages = 5;
 
 	~Panel() { term(); }

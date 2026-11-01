@@ -1,5 +1,4 @@
 #include <vector>
-#include <string>
 #include "spg.h"
 #include "hw/holly/holly_intc.h"
 #include "hw/holly/sb.h"
@@ -15,7 +14,7 @@
 extern u32 bmStatCompiled, bmStatCacheResets;
 extern u64 bmStatCompileUs;
 
-namespace aica { extern u32 aicaStatReads, aicaStatWrites, aicaStatMeets; extern u64 aicaStatWaitUs; void aicaWriteLogDump(); }
+namespace aica { extern u32 aicaStatReads, aicaStatWrites, aicaStatMeets; extern u64 aicaStatWaitUs; }
 #include <string>
 #include "stdclass.h"
 #include <array>
@@ -142,7 +141,6 @@ void perfTrace(char what)
 
 void perfTraceDump()
 {
-	aica::aicaWriteLogDump();
 	if (!perfTraceOn)
 		return;
 	const std::string path = std::string(perfShots != nullptr ? perfShots : "/tmp") + "/trace.txt";

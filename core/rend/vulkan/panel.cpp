@@ -3,8 +3,6 @@
 #include "log/Log.h"
 #include "oslib/oslib.h"
 
-#include <cstdlib>
-#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -146,12 +144,10 @@ bool Panel::init(vk::PhysicalDevice physicalDevice, vk::Device device, std::stri
 	return true;
 }
 
-// Deadcast: the Brick's panel refreshes at 60.23 Hz (its MIPI-DSI controller: 51 MHz pixels, 1080 x 784
-// a frame), a Dreamcast game at 59.94 Hz, so a frame was shown twice every 3.3 s. The DSI controller's
-// frame (VT, lines) is made 788 for as long as Deadcast runs: 59.93 Hz, a hair under the game, so no frame
-// is ever shown twice. Only when the register holds exactly the Brick panel's timing (VT 784, 768 lines
-// shown); restored as found at the end. The display driver has no way to it (DISP_LCD_SET_FPS: -1).
-// DEADCAST_PANEL_HZ=0: left as it is.
+// Deadcast: the Brick's panel refreshes at about 60.2 Hz, a Dreamcast game at 59.94 Hz, so a frame was shown
+// twice every few seconds. While Deadcast runs, the DSI controller's frame is 788 lines instead of 784,
+// about 0.5% slower: close to the game's rate. Only when the register holds exactly the Brick panel's
+// timing; restored as found at the end. The display driver offers no way to it (DISP_LCD_SET_FPS fails).
 static constexpr uintptr_t DsiBase = 0x06504000;	// DSI0 (the display node's reg)
 static constexpr u32 DsiFrameReg = 0x1c;			// VT << 16 | lines shown
 static constexpr u32 BrickFrame = (784u << 16) | 768u;
@@ -179,9 +175,6 @@ static void unmapDsi(int fd, void *map)
 
 void Panel::matchGameRate()
 {
-	const char *env = getenv("DEADCAST_PANEL_HZ");
-	if (env != nullptr && strcmp(env, "0") == 0)
-		return;
 	int memFd;
 	void *map;
 	volatile u32 *frame = mapDsi(memFd, map);
@@ -196,7 +189,7 @@ void Panel::matchGameRate()
 		*frame = GameFrame;
 		dsiVtFound = found;
 		refresh = (float)(refresh * 784.0 / 788.0);
-		NOTICE_LOG(RENDERER, "Panel: 788 lines a frame (was 784): %.3f Hz, as a Dreamcast game", refresh);
+		NOTICE_LOG(RENDERER, "Panel: 788 lines a frame (was 784): about %.2f Hz", refresh);
 	}
 	else if (found == GameFrame)
 		refresh = (float)(refresh * 784.0 / 788.0);	// left so by a run that ended without restoring it
@@ -248,12 +241,8 @@ void Panel::term()
 
 void Panel::waitWritable(u32 page)
 {
-	// DEADCAST_PANEL_QUEUE=<n>: at most n frames waiting to be shown (2 by default, as with 4 pages: 3 is an
-	// experiment that did not change the screen)
-	static const u32 maxQueued = std::getenv("DEADCAST_PANEL_QUEUE") != nullptr
-			? (u32)std::clamp(std::atoi(std::getenv("DEADCAST_PANEL_QUEUE")), 1, (int)Pages - 2) : 2;
 	std::unique_lock<std::mutex> lock(mutex);
-	changed.wait(lock, [this] { return queuedCount - shownCount < maxQueued; });
+	changed.wait(lock, [this] { return queuedCount - shownCount < 2; });
 }
 
 void Panel::queue(u32 page, vk::Fence fence)

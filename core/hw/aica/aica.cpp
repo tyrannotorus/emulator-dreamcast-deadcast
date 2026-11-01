@@ -15,7 +15,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstdlib>
 #include <deque>
 #include <condition_variable>
 #include <mutex>
@@ -309,9 +308,7 @@ static void applyAcks(u64 at)
 
 bool acknowledgeSh4Irq(u32 bits)
 {
-	// DEADCAST_AICA_ACKSYNC=1: synced as before (for comparisons)
-	static const bool synced = std::getenv("DEADCAST_AICA_ACKSYNC") != nullptr;
-	if (synced || !worker::running() || worker::onWorker || worker::inStep)
+	if (!worker::running() || worker::onWorker || worker::inStep)
 		return false;
 	const u64 at = worker::dueTotal.load();
 	bits &= 0x7ff;

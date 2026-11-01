@@ -9,8 +9,6 @@ target_sources(${PROJECT_NAME} PRIVATE
         menu.cpp
         menu.h
         netplay.cpp
-        pacer.cpp
-        pacer.h
         netplay.h
         profiler.cpp
         profiler.h

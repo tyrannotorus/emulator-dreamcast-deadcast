@@ -4,9 +4,6 @@
 	arm7 is handled on a separate arm plugin now
 */
 
-#include <map>
-#include <cstdio>
-#include <cstdlib>
 #include "aica_if.h"
 #include "aica_mem.h"
 #include "hw/holly/sb.h"
@@ -150,27 +147,11 @@ static void ArmSetRST()
 	arm::enable(ARMRST == 0);
 }
 
-// Deadcast: DEADCAST_AICA_LOG: the SH4's AICA register writes counted by address and size, printed as the
-// game ends (aicaWriteLogDump), to see what a game's syncs are for
-static const bool aicaWriteLog = std::getenv("DEADCAST_AICA_LOG") != nullptr;
-static std::map<u32, u32> aicaWriteCounts;
-
-void aicaWriteLogDump()
-{
-	if (!aicaWriteLog)
-		return;
-	for (const auto& kv : aicaWriteCounts)
-		printf("Deadcast: AICA write %04x size %u: %u times\n", kv.first & 0xffff, kv.first >> 16, kv.second);
-	fflush(stdout);
-}
-
 template<typename T>
 void writeAicaReg(u32 addr, T data)
 {
 	aicaStatWrites++;
 	addr &= 0x7FFF;
-	if (aicaWriteLog)
-		aicaWriteCounts[addr | (u32)(sizeof(T) << 16)]++;
 	// Deadcast: the SH4 acknowledging the AICA's interrupt: no sync (acknowledgeSh4Irq)
 	if (sizeof(T) != 1 && addr == MCIRE_addr && acknowledgeSh4Irq((u32)data))
 		return;

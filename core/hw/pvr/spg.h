@@ -28,7 +28,7 @@ extern unsigned perfDrawCalls;	// the renderer counts its draw calls here
 void perfTextureUpdated(u32 size);
 // the audio output's callbacks that found too few samples and played silence (audiobackend_sdl2.cpp)
 extern std::atomic<u32> audioUnderruns;
-// Deadcast perf: the audio frames the output took in (push) and played (its callback), and how full it is (per mille)
+// the audio output's frames taken in and played, and how full it is (per mille)
 extern std::atomic<u32> audioFramesIn, audioFramesOut, audioFillPermille;
 // Deadcast: the emulation thread waited for the renderer, from start (perfNow()) until now
 unsigned long long perfNow();
@@ -40,7 +40,7 @@ void perfShown();
 // the AICA thread's: its CPU clock, for its share of a core in the perf line
 void perfAicaThread();
 // DEADCAST_TRACE (with DEADCAST_PERF): an event of a frame's way through the threads, with its time; written
-// to <DEADCAST_SHOTS or /tmp>/trace.txt by perfTraceDump() as the game ends (local/brick/trace.py)
+// to <DEADCAST_SHOTS or /tmp>/trace.txt by perfTraceDump() as the game ends
 void perfTrace(char what);
 void perfTraceDump();
 // the GPU's time over a frame's work (vulkan/gputimer.h): kind 0 the renderer's submission (scene, renders
