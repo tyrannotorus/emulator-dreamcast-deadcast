@@ -45,10 +45,12 @@ struct Status
 	std::string error;
 };
 
-// Looks for the other Brick. stop() waits for everything to be as it was (USB: ADB alone on the bottom
-// port, a device again; Bluetooth: off again if it was).
+// Looks for the other Brick. stop() returns at once; the link ends on its own thread, putting everything
+// as it was (USB: ADB alone on the bottom port, a device again; Bluetooth: off again if it was). A start
+// meanwhile waits for that on its own thread; finish() waits for it, and runs at Deadcast's exit.
 void start(Via via);
 void stop();
+void finish();
 // Kept: the link stays up when the menu that started it closes (a netplay session uses it).
 void setKept(bool kept);
 bool kept();

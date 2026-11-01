@@ -66,7 +66,9 @@ std::mutex statusMutex;
 Status current;
 std::mutex logMutex;
 // never destroyed: a joinable std::thread at exit would abort
-std::thread *worker;
+std::thread *worker;				// the link's thread, while it runs
+std::thread *ending;				// a stopped link's thread, still ending (Bluetooth off, USB as it was)
+std::mutex threadMutex;
 Transport *transport;
 Pipe *led;							// the pipe this Brick leads over, while it does
 std::atomic<bool> wantTest { false };	// the leader runs it; the follower asks the leader at its next ping
@@ -870,50 +872,82 @@ void follow(Pipe& pipe, const std::atomic<bool>& running)
 
 using namespace core;
 
-void start(Via via)
+// a link's status before it starts, or once stopped (via: the way it goes)
+void resetStatus(Via via, State state)
 {
-	if (worker != nullptr)
-		return;
-	stopping = false;
-	wantTest = false;
-	transport = via == Via::Bluetooth ? bluetoothTransport() : usbTransport();
-	update([via](Status& s) {
+	update([via, state](Status& s) {
 		const u32 version = s.version;
 		s = Status();
 		s.version = version;
 		s.via = via;
-		s.state = State::Waiting;
+		s.state = state;
 	});
-	worker = new std::thread(run);
+}
+
+void start(Via via)
+{
+	std::lock_guard<std::mutex> lock(threadMutex);
+	if (worker != nullptr)
+		return;
+	// a link stopped a moment ago may still be ending: the new one waits for it on its own thread, so
+	// the menu never does
+	std::thread *previous = ending;
+	ending = nullptr;
+	resetStatus(via, State::Waiting);
+	worker = new std::thread([via, previous] {
+		if (previous != nullptr)
+		{
+			previous->join();
+			delete previous;
+		}
+		stopping = false;
+		wantTest = false;
+		transport = via == Via::Bluetooth ? bluetoothTransport() : usbTransport();
+		resetStatus(via, State::Waiting);
+		run();
+	});
+	// whatever stops it, it ends before Deadcast does (stop() alone does not wait)
+	static bool atExit;
+	if (!atExit)
+	{
+		atExit = true;
+		std::atexit(finish);
+	}
 }
 
 void stop()
 {
+	std::lock_guard<std::mutex> lock(threadMutex);
 	if (worker == nullptr)
 		return;
 	stopping = true;
-	worker->join();
-	delete worker;
+	ending = worker;
 	worker = nullptr;
-	update([](Status& s) {
-		const u32 version = s.version;
-		s = Status();
-		s.version = version;
-	});
+	resetStatus(Via::Usb, State::Off);
+}
+
+void finish()
+{
+	stop();
+	std::thread *last;
+	{
+		std::lock_guard<std::mutex> lock(threadMutex);
+		last = ending;
+		ending = nullptr;
+	}
+	if (last != nullptr)
+	{
+		last->join();
+		delete last;
+	}
 }
 
 std::atomic<bool> keptUp { false };
 
 void setKept(bool kept)
 {
+	// kept until Deadcast exits: then stopped (start() has finish() run at exit)
 	keptUp = kept;
-	// kept until Deadcast exits: then stopped (USB as it was, Bluetooth off again if it was off)
-	static bool atExit;
-	if (kept && !atExit)
-	{
-		atExit = true;
-		std::atexit(stop);
-	}
 }
 
 bool kept()

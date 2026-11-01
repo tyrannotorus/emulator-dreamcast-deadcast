@@ -338,7 +338,7 @@ std::string linkHeadline(const link::Status& s)
 	return "Locating device";
 }
 
-// how to connect, under Locating device
+// how to connect, under the headline until connected
 std::string linkHint(link::Via via)
 {
 	if (via == link::Via::Bluetooth)
@@ -347,7 +347,7 @@ std::string linkHint(link::Via via)
 			"or bottom to bottom (not top to top). Open USB Link on both.";
 }
 
-// the link's page: a headline (how to connect under Locating device), or Connection failed and why;
+// the link's page: a headline (how to connect under it), or Connection failed and why;
 // everything else the link finds goes to link.log
 void drawLink(int ox)
 {
@@ -355,8 +355,12 @@ void drawLink(int ox)
 	Font& large = ui::fonts().large;
 	Font& small = ui::fonts().small;
 	const link::Status s = link::status();
-	const std::string title = st.linkFailure.empty() ? linkHeadline(s) : "Connection failed";
-	const std::string under = !st.linkFailure.empty() ? st.linkFailure : title == "Locating device" ? linkHint(s.via) : "";
+	const bool failed = !st.linkFailure.empty();
+	const std::string title = failed ? "Connection failed" : linkHeadline(s);
+	// under it: why it failed; else how to connect, its room kept under Connected too (left empty), so
+	// the headline stays in place as the link goes on
+	const std::string under = failed ? st.linkFailure : linkHint(s.via);
+	const bool shown = failed || title != "Connected";
 	// left-aligned with the pages' rows, in the middle of the room between the title and the buttons
 	const int x = ox + ui::Padding + ui::ButtonPadding;
 	const int width = c.width() - (ui::Padding + ui::ButtonPadding) * 2;
@@ -382,7 +386,8 @@ void drawLink(int ox)
 	y += gap;
 	for (const std::string& l : wrapped)
 	{
-		c.text(small, l, x, y + small.ascent(), ui::TextGray);
+		if (shown)
+			c.text(small, l, x, y + small.ascent(), ui::TextGray);
 		y += small.lineHeight();
 	}
 }
