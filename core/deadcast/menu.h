@@ -1,4 +1,4 @@
-// The in-game menu (MENU button), styled after NextUI's minarch: Continue, Save, Load, Core Settings, Quit.
+// The in-game menu (MENU button), styled after NextUI's minarch: Continue, Save, Load, Options, Quit.
 // Every page of it looks like that first one (its title in a pill, its rows, the buttons at the bottom
 // right) over the paused game blurred; a page opened slides its rows in from the right, the ones before
 // them out to the left (the other way back), while the pills stay in place. Drawn on the CPU by the
@@ -13,7 +13,7 @@ namespace deadcast::menu
 {
 
 // Restart: the game again from the start of its load (linked to another Brick: as two players,
-// deadcast/netplay.h). Switch: the game again in the other core (Core Settings): Deadcast ends and the
+// deadcast/netplay.h). Switch: the game again in the other core (Options): Deadcast ends and the
 // launcher starts it again (switching()).
 enum class Result { Open, Resume, Quit, Restart, Switch };
 
@@ -23,7 +23,7 @@ bool open();
 // why it is paused on top. The emulator is not stopped (the session waits); Continue there closes it here.
 bool openSession();
 bool isOpen();
-// Core Settings switched the game's core: Deadcast ends with recomp::SwitchExit (frontend/recomp.h)
+// Options switched the game's core: Deadcast ends with recomp::SwitchExit (frontend/recomp.h)
 bool switching();
 // Raw pad input (SDL button and axis codes) while the menu is open.
 void button(u32 code, bool pressed);

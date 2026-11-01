@@ -2,11 +2,11 @@
 
 A recomp module is a recompiled build of one Dreamcast game: the game's SH-4 code translated to C++
 and compiled for the TrimUI Brick, played instead of Deadcast's emulation. Where a module exists for
-the disc being played, Deadcast's menu offers it under **Core Settings**:
+the disc being played, Deadcast's menu offers it under **Options**:
 
 - **Current Core** picks Emulator or Recomp for that game. Changing it restarts the game in the
   other core.
-- **Recomp Settings** shows the module's settings.
+- **Recomp Options** shows the module's settings.
 - **Download Recomp Module** (or **Check for Recomp Update** once installed) fetches the module.
 
 Modules live in this repository. A module is added by a pull request and reviewed like any other
@@ -17,11 +17,11 @@ Deadcast build already knows. It never downloads from anyone else's repository.
 
 1. **No in-game settings, and no in-game menu changes.** A module leaves the game's own menus
    exactly as the original game has them. Everything a module lets the player choose is a setting it
-   declares in its manifest. Deadcast's Recomp Settings page shows and saves those settings, and the
+   declares in its manifest. Deadcast's Recomp Options page shows and saves those settings, and the
    module reads them from Deadcast's store.
 2. **Deadcast's menu, not one of its own.** MENU opens Deadcast's menu over the held game, through
    the shared port layer (`src/framework/deadcast.cpp`, built on `../frontend`). Save and Load (the
-   emulator's save states) and Emulator Settings are shown disabled.
+   emulator's save states) and Emulator Options are shown disabled.
 3. **No game data in git.** No disc images, nothing extracted from them, and no translated code.
    The translation is generated at build time from the builder's own disc (`<module>/game/extracted`
    is git-ignored).
@@ -57,7 +57,7 @@ setting = scale | Resolution | 1=640x480, panel=1024x768 | 1
 The port layer applies `scale` (the resolution) itself, live. Any other setting a module declares,
 it reads from Deadcast's store (`deadcast::recomp::get("<id>.<key>")`, `frontend/recomp.h`).
 
-Every module's Recomp Settings also has **Show FPS**, which a module does not declare: the frame
+Every module's Recomp Options also has **Show FPS**, which a module does not declare: the frame
 rate in the bottom-left corner, as Deadcast's emulator shows it (`F:59.9`). The port layer draws it
 the same way for every module, copied into each frame as it is presented, so the frames keep the
 engine's fast path.

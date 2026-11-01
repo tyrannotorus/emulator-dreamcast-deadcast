@@ -51,9 +51,9 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 ### Controls
 
 MENU opens Deadcast's menu, drawn like NextUI's own emulators' (`frontend/`, `core/deadcast/menu.cpp`):
-Continue, Save and Load (ten slots, with pictures), Core Settings and Quit. Core Settings holds Current
-Core, Emulator Settings (Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it
-changes), Recomp Settings and Download Recomp Module. The menu shows whether the Brick is connected to a
+Continue, Save and Load (ten slots, with pictures), Options and Quit. Options holds Current
+Core, Emulator Options (Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it
+changes), Recomp Options and Download Recomp Module. The menu shows whether the Brick is connected to a
 network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the
 Dreamcast's d-pad (at first) and its analog stick, for games that only read the stick. Controls remaps
 them all and the Dreamcast's buttons.
@@ -61,5 +61,5 @@ them all and the Dreamcast's buttons.
 ### Recomp modules
 
 Some games can be played as a recompiled build instead of emulated: a recomp module, chosen per game in
-Core Settings. Modules live in `recomp/` (Rez Recompiled is the first); `recomp/README.md` describes
+Options. Modules live in `recomp/` (Rez Recompiled is the first); `recomp/README.md` describes
 what a module is, how one is built from its builder's own disc, and the rules every module follows.

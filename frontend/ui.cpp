@@ -115,6 +115,7 @@ struct State
 	u64 networkAt = 0;
 	bool starting = false;			// the start page up
 	Host host;						// the main page's
+	Core chosen = Core::Emulator;	// the core picked in Options: the game's only once the menu is left
 	bool hasModule = false;			// a recomp module installed for the disc
 	recomp::Module module;
 	std::string discSha1;			// the disc's (its CHD header's)
@@ -513,6 +514,7 @@ void reset()
 	st.result = Result::Open;
 	st.dirty = true;
 	st.held = Button::None;
+	st.chosen = st.host.core;
 	st.network = checkNetwork();
 	st.networkAt = nowMs() + 1000;
 }
@@ -523,10 +525,10 @@ bool moduleInstalled()
 }
 
 // the module's settings, as its manifest declares them, kept in Deadcast's store
-Screen recompSettingsScreen()
+Screen recompOptionsScreen()
 {
 	Screen screen;
-	screen.title = "Recomp Settings";
+	screen.title = "Recomp Options";
 	screen.desc = st.module.name + " " + st.module.version;
 	for (const recomp::Setting& setting : st.module.settings)
 	{
@@ -572,29 +574,24 @@ void checkModule();
 
 // the game's core, Deadcast's emulation or a recomp module of it, and each one's settings (the other
 // core's disabled: they belong to its process); a module looked for online and downloaded
-Screen coreSettingsScreen()
+Screen optionsScreen()
 {
 	Screen screen;
-	screen.title = "Core Settings";
+	screen.title = "Options";
 	screen.status = networkStatus;
 	Item current;
 	current.name = "Current Core";
 	current.row = Row::Choice;
 	current.values = { "Emulator", "Recomp" };
-	current.value = (int)st.host.core;
+	current.value = (int)st.chosen;
 	current.available = moduleInstalled;
-	// the other core: the game starts again in it, asked first
-	current.change = [](int value) {
-		ask("This will restart your game.", "RESTART", [value] {
-			recomp::set("core." + st.module.id, value == (int)Core::Recomp ? "recomp" : "emulator");
-			finish(Result::Switch);
-		}, [] { page().items[0].value = (int)st.host.core; });
-	};
+	// only picked here: leaving the menu for the game asks before it restarts in it (frame())
+	current.change = [](int value) { st.chosen = (Core)value; };
 	screen.items.push_back(std::move(current));
-	Item emulator = entry("Emulator Settings", "", [] { push(st.host.emulatorSettings()); });
-	emulator.available = [] { return st.host.core == Core::Emulator && st.host.emulatorSettings != nullptr; };
+	Item emulator = entry("Emulator Options", "", [] { push(st.host.emulatorOptions()); });
+	emulator.available = [] { return st.host.core == Core::Emulator && st.host.emulatorOptions != nullptr; };
 	screen.items.push_back(std::move(emulator));
-	Item settings = entry("Recomp Settings", "", [] { push(recompSettingsScreen()); });
+	Item settings = entry("Recomp Options", "", [] { push(recompOptionsScreen()); });
 	settings.available = moduleInstalled;
 	screen.items.push_back(std::move(settings));
 	screen.items.push_back(entry(moduleInstalled() ? "Check for Recomp Update" : "Download Recomp Module", "", [] {
@@ -638,14 +635,12 @@ void downloadOver()
 		return;
 	}
 	st.hasModule = recomp::installed(st.discSha1, st.module);
-	if (depth() > 0 && page().title == "Core Settings")
+	if (depth() > 0 && page().title == "Options")
 		page().items.back().name = "Check for Recomp Update";
+	// in the emulator, Current Core picks it from now on
 	const std::string name = st.module.name;
 	if (st.host.core == Core::Emulator)
-		ask(name + " is installed.\nSwitch to it now?\nThis will restart your game.", "RESTART", [] {
-			recomp::set("core." + st.module.id, "recomp");
-			finish(Result::Switch);
-		});
+		message(name + " is installed.");
 	else
 		message(name + " is updated: it plays from your game's next start.");
 }
@@ -722,7 +717,7 @@ Screen mainScreen(const std::string& title, Host host)
 		item->available = [] { return st.host.core == Core::Emulator; };
 		screen.items.push_back(*item);
 	}
-	screen.items.push_back(entry("Core Settings", "", [] { push(coreSettingsScreen()); }));
+	screen.items.push_back(entry("Options", "", [] { push(optionsScreen()); }));
 	screen.items.push_back(entry("Quit", "", [] { finish(Result::Quit); }));
 	st.discSha1 = recomp::chdSha1(host.disc);
 	st.hasModule = recomp::installed(st.discSha1, st.module);
@@ -908,10 +903,32 @@ void finish(Result result)
 	st.result = result;
 }
 
+// the core picked in Options stored as the game's (from its next start)
+static void keepChosen()
+{
+	recomp::set("core." + st.module.id, st.chosen == Core::Recomp ? "recomp" : "emulator");
+}
+
 Result frame()
 {
 	if (!st.open)
 		return Result::Resume;
+	// leaving for the game with another core picked in Options: asked first, as the game restarts in
+	// it; B keeps the core the game has. Quitting keeps the one picked for the game's next start.
+	if (st.result == Result::Resume && st.chosen != st.host.core)
+	{
+		st.result = Result::Open;
+		ask(std::string("Switching to ") + (st.chosen == Core::Recomp ? "Recomp" : "Emulator")
+				+ "\nwill restart your game.", "RESTART", [] {
+			keepChosen();
+			finish(Result::Switch);
+		}, [] {
+			st.chosen = st.host.core;
+			finish(Result::Resume);
+		});
+	}
+	if (st.result == Result::Quit && st.chosen != st.host.core)
+		keepChosen();
 	// work once its screen is up
 	if (st.work && !st.dirty)
 	{

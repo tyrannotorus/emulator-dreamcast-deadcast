@@ -23,7 +23,7 @@
 #include <memory>
 #include <thread>
 
-// Deadcast's side of the menu (frontend/ui.h draws it): its pages (Emulator Settings, Controls, Local
+// Deadcast's side of the menu (frontend/ui.h draws it): its pages (Emulator Options, Controls, Local
 // Multiplayer and the link, a two-player session's), its save states, the BIOS page, and the screen and
 // pad it is shown with.
 namespace deadcast::menu
@@ -118,7 +118,7 @@ Setting toggle(const char *name, const char *desc, config::Option<bool>& option)
 		[&option](int v) { option.set(v != 0); } };
 }
 
-// Emulator Settings' pages. Not shown: the TV standard and the cable, NTSC and VGA for the Brick's screen
+// Emulator Options' pages. Not shown: the TV standard and the cable, NTSC and VGA for the Brick's screen
 // (emulator.cpp; TV Composite for a game that refuses VGA)
 std::vector<Setting>& consoleSettings()
 {
@@ -493,10 +493,10 @@ Screen localMultiplayerScreen()
 	return screen;
 }
 
-Screen emulatorSettingsScreen()
+Screen emulatorOptionsScreen()
 {
 	Screen screen;
-	screen.title = "Emulator Settings";
+	screen.title = "Emulator Options";
 	screen.desc = "Deadcast " DEADCAST_VERSION;
 	screen.items.push_back(entry("Console", "The Dreamcast's region and language.", [] { ui::push(settingsScreen("Console", consoleSettings())); }));
 	screen.items.push_back(entry("Video", "", [] { ui::push(settingsScreen("Video", videoSettings())); }));
@@ -644,7 +644,7 @@ ui::Host host()
 		item->shift = [](int step) { st.slot = (st.slot + step + SlotCount) % SlotCount; };
 		item->aside = drawPreview;
 	}
-	host.emulatorSettings = emulatorSettingsScreen;
+	host.emulatorOptions = emulatorOptionsScreen;
 	return host;
 }
 

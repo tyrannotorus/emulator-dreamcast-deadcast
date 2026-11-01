@@ -102,18 +102,18 @@ struct Screen
 
 // what plays the game: Deadcast's emulation, or a recomp module (a recompiled build of the game)
 enum class Core { Emulator, Recomp };
-// what the host brings to the main page and Core Settings
+// what the host brings to the main page and Options
 struct Host
 {
 	Core core = Core::Emulator;					// the core this process plays the game with
 	std::string disc;							// the disc played (its recomp module found by it)
 	Item save;									// the emulator's save states (a module: none, disabled)
 	Item load;
-	std::function<Screen()> emulatorSettings;	// the emulator's pages (a module: none, disabled)
+	std::function<Screen()> emulatorOptions;	// the emulator's pages (a module: none, disabled)
 	// a recomp setting changed (key, value): a module applies it, if it can while playing
 	std::function<void(const std::string&, const std::string&)> recompSetting;
 };
-// the first page: Continue, Save, Load, Core Settings, Quit, the network's status at the bottom left
+// the first page: Continue, Save, Load, Options, Quit, the network's status at the bottom left
 Screen mainScreen(const std::string& title, Host host);
 
 // the menu over the paused game: its picture (RGB24, the backdrop, blurred and darkened) and the first page

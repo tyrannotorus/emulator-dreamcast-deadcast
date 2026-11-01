@@ -250,7 +250,7 @@ public:
             file = config_dir / "settings.ini";
         g_settings.load(file);
 #ifdef DREAMCOMP_NEXTUI
-        // What Deadcast's Recomp Settings keeps for the module, as its manifest declares
+        // What Deadcast's Recomp Options keeps for the module, as its manifest declares
         g_settings.set("scale", deadcast::recomp::get(id + ".scale", g_settings.get("scale", "1")));
 #endif
 

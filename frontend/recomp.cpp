@@ -175,7 +175,7 @@ void runChosen(const std::string& disc)
 	if (!installed(chdSha1(disc), module) || get("core." + module.id) != "recomp")
 		return;
 	// the module's last run never ended (it died, or would not start): emulated this time, so the
-	// player can still reach Core Settings
+	// player can still reach Options
 	if (access(RunMarker, F_OK) == 0)
 	{
 		std::remove(RunMarker);

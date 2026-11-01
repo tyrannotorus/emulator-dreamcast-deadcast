@@ -2,8 +2,8 @@
 // the game (../../frontend/ui.h), the same menu as Deadcast's own, drawn into the engine's overlay
 // (an image the size of the screen, blended over the game on the GPU). While the menu is open the
 // guest is held at its vblank (clock, sound and game logic stopped) and the menu reads the pad itself;
-// its pages are Deadcast's: Save and Load (the emulator's) and Emulator Settings disabled, Recomp
-// Settings the module's. A module has no menu of its own: its settings are Recomp Settings', declared
+// its pages are Deadcast's: Save and Load (the emulator's) and Emulator Options disabled, Recomp
+// Options the module's. A module has no menu of its own: its settings are Recomp Options', declared
 // in its manifest (frontend/recomp.h).
 #include "dream/runtime/host_ext.h"
 #include "dreamcomp/port.h"
@@ -73,7 +73,7 @@ public:
     void on_start(dream::System&) override {
         pad_ = openPad();
         ui::setDisplay(this);
-        // Show FPS (every module's Recomp Settings), kept in Deadcast's store
+        // Show FPS (every module's Recomp Options), kept in Deadcast's store
         const PortInfo* p = port();
         fps_ = p && p->id && deadcast::recomp::get(std::string(p->id) + ".fps", "off") == "on";
     }
@@ -113,7 +113,7 @@ public:
         case ui::Result::Open:
             return;
         case ui::Result::Switch:
-            // the other core chosen (Core Settings stored it): Deadcast starts the game again in it,
+            // the other core chosen (Options stored it): Deadcast starts the game again in it,
             // the start page up from when the window gives the screen back until Deadcast's own
             dream::host::exit_code() = deadcast::recomp::SwitchExit;
             g_leaving = disc_.substr(disc_.find_last_of('/') + 1);

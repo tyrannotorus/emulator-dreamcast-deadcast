@@ -8,9 +8,9 @@
 //   exec = rez                      the executable, beside the manifest
 //   disc = 9711a0d0...              each disc it plays, by the SHA-1 its CHD's header records
 //   setting = scale | Resolution | 1=640x480, panel=1024x768 | 1
-//                                   each setting, shown in Recomp Settings: key | name | value=label, ... | default
+//                                   each setting, shown in Recomp Options: key | name | value=label, ... | default
 //
-// A module has no settings of its own in the game: it declares them here, Deadcast's Recomp Settings
+// A module has no settings of its own in the game: it declares them here, Deadcast's Recomp Options
 // shows them, and the store below keeps them (the module reads them from it).
 #pragma once
 #include <string>
@@ -47,7 +47,7 @@ bool readManifest(const std::string& file, Module& module);
 // the module installed for a disc (its CHD's SHA-1); false if none
 bool installed(const std::string& discSha1, Module& module);
 
-// The core chosen for a disc in Core Settings: Recomp, its module installed, runs the module in this
+// The core chosen for a disc in Options: Recomp, its module installed, runs the module in this
 // process instead (exec: nothing of the caller stays), given the disc's path. Returns only if not.
 void runChosen(const std::string& disc);
 // A module's run ended as it should (quit, or the other core chosen): its next start runs it again.
