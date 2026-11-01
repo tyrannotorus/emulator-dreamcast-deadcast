@@ -132,19 +132,19 @@ struct Bluetooth : Transport
 	std::mt19937 rng;
 	double nextLook = 0;
 	std::map<u64, double> triedAt;	// a connection to it failed then
-	std::string lastActivity;
+	Activity lastActivity = Activity::None;
 	ChannelPipe leadPipe;
 	ChannelPipe followPipe;
 	std::thread *follower = nullptr;
 	std::atomic<bool> followRunning { false };
 	std::atomic<bool> followDone { false };
 
-	void activity(const std::string& what)
+	void activity(Activity what)
 	{
 		if (what == lastActivity)
 			return;
 		lastActivity = what;
-		update([&what](Status& s) { s.activity = what; });
+		update([what](Status& s) { s.activity = what; });
 	}
 
 	void fail(const std::string& why)
@@ -152,7 +152,7 @@ struct Bluetooth : Transport
 		log("bluetooth: %s", why.c_str());
 		update([&why](Status& s) {
 			s.state = State::Failed;
-			s.activity.clear();
+			s.activity = Activity::None;
 			s.error = why;
 		});
 	}
@@ -194,15 +194,15 @@ struct Bluetooth : Transport
 		script = -1;
 		hci = listener = -1;
 		triedAt.clear();
-		lastActivity.clear();
+		lastActivity = Activity::None;
 		followDone = false;
 		rng.seed((unsigned)std::hash<std::string>()(ownSerial) ^ (unsigned)std::chrono::steady_clock::now().time_since_epoch().count());
 		log("start: Brick %s, Bluetooth", ownSerial.c_str());
 		if (access(Adapter, F_OK) != 0)
 		{
 			if (access(BtInit, X_OK) != 0)
-				return fail("This Brick has no Bluetooth to use.");
-			activity("Turning Bluetooth on...");
+				return fail("This Brick has no Bluetooth.");
+			activity(Activity::TurningOn);
 			script = runScript("start", false);
 			startedIt = true;
 		}
@@ -215,14 +215,14 @@ struct Bluetooth : Transport
 		hci = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
 		if (hci < 0)
 		{
-			fail("Bluetooth did not start.");
+			fail("Bluetooth did not start. Please try again.");
 			return false;
 		}
 		hci_dev_info info {};
 		info.dev_id = 0;
 		if (ioctl(hci, HCIGETDEVINFO, &info) != 0)
 		{
-			fail("Bluetooth did not start.");
+			fail("Bluetooth did not start. Please try again.");
 			return false;
 		}
 		if (!(info.flags & (1u << HCI_UP)))
@@ -240,7 +240,7 @@ struct Bluetooth : Transport
 		if (listener < 0 || bind(listener, (sockaddr *)&self, sizeof(self)) != 0 || listen(listener, 1) != 0)
 		{
 			log("bluetooth: cannot listen on PSM 0x%x: %s", Psm, std::strerror(errno));
-			fail("Bluetooth could not be used.");
+			fail("Bluetooth did not start. Please try again.");
 			return false;
 		}
 		fcntl(listener, F_SETFL, O_NONBLOCK);
@@ -377,7 +377,7 @@ struct Bluetooth : Transport
 			else if (startedAt > 0 && now() - startedAt > StartSeconds)
 			{
 				startedAt = -1;
-				fail("Bluetooth did not start.");
+				fail("Bluetooth did not start. Please try again.");
 			}
 			return;
 		}
@@ -390,10 +390,10 @@ struct Bluetooth : Transport
 		}
 		if (follower != nullptr || leading())
 		{
-			activity("");
+			activity(Activity::None);
 			return;
 		}
-		activity("Looking for the other Brick nearby...");
+		activity(Activity::Looking);
 		if (now() < nextLook)
 			return;
 		// Looking, a few seconds; then visible again for a few (the other Brick looks too). Of two Bricks
@@ -411,7 +411,8 @@ struct Bluetooth : Transport
 			const auto tried = triedAt.find(them);
 			if (tried != triedAt.end() && now() - tried->second < 10)
 				continue;
-			activity("Found " + text(found) + ": connecting...");
+			log("bluetooth: found %s, connecting", text(found).c_str());
+			activity(Activity::Connecting);
 			if (connectTo(found))
 				break;
 			triedAt[them] = now();
@@ -451,7 +452,7 @@ struct Bluetooth : Transport
 			log("bluetooth: turning it off again");
 			runScript("stop", true);
 		}
-		update([](Status& s) { s.activity.clear(); });
+		update([](Status& s) { s.activity = Activity::None; });
 	}
 };
 

@@ -2,6 +2,7 @@
 // the test, IP up and down), the follower's answers, IP over the link (dclink0) and the status the menu
 // shows.
 #include "link_core.h"
+#include "version.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -57,6 +58,7 @@ struct Message
 	u32 hash = 0;
 	u32 flags = 0;			// Ping's reply: 1 = the follower wants a test
 	char text[64] {};		// Hello (and its reply): the sender's serial number, a line break, its game
+							// (and hash: its build of Deadcast, versionHash(); 0 before 1.1.0)
 };
 static_assert(sizeof(Message) == 104, "Message is on the wire");
 
@@ -297,16 +299,28 @@ bool command(Message& m, Message& reply, u32 timeoutMs)
 	return send(m) && receive(reply, timeoutMs) && reply.op == m.op;
 }
 
-// Hello's text both ways: this Brick's serial number and game
+// this Brick's build of Deadcast (GIT_VERSION, 1.1.0-abcdef0), hashed (FNV-1a): two Bricks play
+// together only on the same build, whose emulation and link they share
+u32 versionHash()
+{
+	u32 hash = FirstHash;
+	for (const char *c = GIT_VERSION; *c != '\0'; c++)
+		hash = (hash ^ (u8)*c) * 16777619u;
+	return hash;
+}
+
+// Hello both ways: this Brick's serial number and game, and its build
 void sayHello(Message& m)
 {
 	std::lock_guard<std::mutex> lock(gameMutex);
 	std::snprintf(m.text, sizeof(m.text), "%s\n%s", ownSerial.c_str(), ownGame.c_str());
+	m.hash = versionHash();
 }
 
-// and the other Brick's, in Status: whether it plays the same game as this one
+// and the other Brick's, in Status: whether it plays the same game as this one, on the same build
 void heardHello(Message& m, Status& s)
 {
+	s.sameVersion = m.hash == versionHash();
 	m.text[sizeof(m.text) - 1] = '\0';
 	const std::string text = m.text;
 	const size_t newline = text.find('\n');
@@ -408,7 +422,8 @@ bool leaderHello(Pipe& pipe)
 		s.error.clear();
 	});
 	const Status s = status();
-	log("leader: linked to %s over %s%s", s.peer.c_str(), pipe.where.c_str(), s.sameGame ? "" : ", another game");
+	log("leader: linked to %s over %s%s%s", s.peer.c_str(), pipe.where.c_str(), s.sameGame ? "" : ", another game",
+			s.sameVersion ? "" : ", another build of Deadcast");
 	transport->linked();
 	return true;
 }
@@ -576,8 +591,9 @@ void lead()
 {
 	if (led == nullptr)
 	{
+		// another build or another game: linked, but no further (no session to start); the menu says why
 		if (Pipe *pipe = transport->lead())
-			if (leaderHello(*pipe) && swapVmus())
+			if (leaderHello(*pipe) && status().sameVersion && status().sameGame && swapVmus())
 			{
 				runTest();
 				if (led != nullptr)
@@ -759,7 +775,8 @@ void follow(Pipe& pipe, const std::atomic<bool>& running)
 				s.error.clear();
 			});
 			const Status s = status();
-			log("follower: linked to %s over %s%s", s.peer.c_str(), pipe.where.c_str(), s.sameGame ? "" : ", another game");
+			log("follower: linked to %s over %s%s%s", s.peer.c_str(), pipe.where.c_str(), s.sameGame ? "" : ", another game",
+			s.sameVersion ? "" : ", another build of Deadcast");
 			// a leader linking afresh brings IP up again after its test
 			tunnelStop();
 			break;

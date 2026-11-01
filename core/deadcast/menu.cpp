@@ -81,6 +81,9 @@ struct State
 	netplay::PauseState shownPause;	// a session's menu: the pause it shows
 	bool link = false;				// the link's page open
 	u32 linkVersion = 0;			// the link's status it shows
+	std::string linkFailure;		// why the link cannot go on, once it cannot (kept until the page closes)
+	std::chrono::steady_clock::time_point connectedAt;	// Connected shown since (the game restarts after)
+	bool connected = false;
 	std::string biosFile;			// the missing BIOS page: the file it asks for
 	bool startingTwoPlayers = false;	// the start page says so
 	bool switching = false;			// the other core chosen
@@ -303,126 +306,132 @@ void bindAwaited(const InputMapping::InputDef& input)
 // Local Multiplayer: the link's page
 //
 
-bool canTest(const link::Status& status)
-{
-	return status.role != link::Role::None && status.state != link::State::Testing;
-}
-
-// linked, tested, IP up, the same game on both: both start it again as two players
+// linked, tested, IP up, the same game and build on both: both start it again as two players
 bool canStart(const link::Status& status)
 {
 	return status.state == link::State::Tested && status.role != link::Role::None && !status.address.empty()
-			&& status.sameGame;
+			&& status.sameGame && status.sameVersion;
 }
 
-// what the link is doing, and the last test's numbers
+// why the link cannot go on (empty while it can): the other Brick on another build or game, or Bluetooth
+// not starting. A link lost while connecting is not one: it looks again (link.log says why).
+std::string linkFailure(const link::Status& s)
+{
+	if (s.state == link::State::Failed)
+		return s.error;
+	if (s.role != link::Role::None && !s.sameVersion)
+		return "Both Bricks require the same Deadcast version.\nPlease update Deadcast to the latest version.";
+	if (s.role != link::Role::None && !s.sameGame)
+		return "Both Bricks must be playing the same game.";
+	return "";
+}
+
+// what the link is doing, in a word or two
+std::string linkHeadline(const link::Status& s)
+{
+	if (s.role != link::Role::None)
+		return canStart(s) ? "Connected" : "Connecting to device";
+	if (s.activity == link::Activity::TurningOn)
+		return "Turning on Bluetooth";
+	if (s.activity == link::Activity::Connecting)
+		return "Connecting to device";
+	return "Locating device";
+}
+
+// how to connect, under Locating device
+std::string linkHint(link::Via via)
+{
+	if (via == link::Via::Bluetooth)
+		return "Open Bluetooth on both Bricks and keep them close.";
+	return "Connect the Bricks with a USB-C cable: the top port of one to the bottom port of the other, "
+			"or bottom to bottom (not top to top). Open USB Link on both.";
+}
+
+// the link's page: a headline (how to connect under Locating device), or Connection failed and why;
+// everything else the link finds goes to link.log
 void drawLink(int ox)
 {
 	Canvas& c = ui::canvas();
 	Font& large = ui::fonts().large;
 	Font& small = ui::fonts().small;
 	const link::Status s = link::status();
-	std::string title;
-	std::vector<std::string> unders;
-	switch (s.state)
-	{
-	case link::State::Off:
-	case link::State::Waiting:
-		title = "Looking for the other Brick";
-		if (!s.activity.empty())
-			unders.push_back(s.activity);
-		if (s.via == link::Via::Bluetooth)
-			unders.push_back("Open Local Multiplayer, Bluetooth on the other Brick too, and keep the two close.");
-		else if (s.topPortInUse)
-			unders.push_back("Something is on this Brick's top port: this Brick hosts there.");
-		else
-			unders.push_back("Cable the two Bricks: top port to bottom port, or bottom to bottom. Open USB Link on both.");
-		break;
-	case link::State::Testing:
-		title = "Testing the link...";
-		break;
-	case link::State::Tested:
-		title = canStart(s) ? "Starting two players..." : "Linked";
-		if (!s.sameGame)
-			unders.push_back("The other Brick is playing another game. Start the same game on both.");
-		break;
-	case link::State::Failed:
-		title = "The link failed";
-		break;
-	}
-	if (s.role != link::Role::None)
-		unders.push_back("To Brick " + s.peer + " over " + s.port + ": this Brick is player "
-				+ (s.role == link::Role::Host ? "1" : "2"));
-	if (s.state == link::State::Tested)
-		for (size_t start = 0, end; start < s.result.size(); start = end + 1)
-		{
-			end = s.result.find('\n', start);
-			if (end == std::string::npos)
-				end = s.result.size();
-			unders.push_back(s.result.substr(start, end - start));
-		}
-	if (!s.address.empty())
-		unders.push_back("IP over the link: " + s.address + " to " + s.peerAddress);
-	if (!s.error.empty())
-		unders.push_back(s.error);
-
-	// left-aligned with the pages' rows, in the middle of the room between the title and the buttons
-	const int x = ox + ui::Padding + ui::ButtonPadding;
+	const std::string title = st.linkFailure.empty() ? linkHeadline(s) : "Connection failed";
+	const std::string under = !st.linkFailure.empty() ? st.linkFailure : title == "Locating device" ? linkHint(s.via) : "";
 	const int width = c.width() - (ui::Padding + ui::ButtonPadding) * 2;
 	const std::vector<std::string> lines = ui::wrap(large, title, width);
 	std::vector<std::string> wrapped;
-	for (const std::string& under : unders)
-		for (const std::string& l : ui::wrap(small, under, width))
+	for (size_t start = 0, end; !under.empty() && start <= under.size(); start = end + 1)
+	{
+		end = under.find('\n', start);
+		if (end == std::string::npos)
+			end = under.size();
+		for (const std::string& l : ui::wrap(small, under.substr(start, end - start), width))
 			wrapped.push_back(l);
+	}
+	// centred in the room between the title and the buttons
 	const int gap = wrapped.empty() ? 0 : S(4);
 	const int height = (int)lines.size() * large.lineHeight() + gap + (int)wrapped.size() * small.lineHeight();
 	const int top = ui::Padding + ui::PillSize;
 	int y = top + (c.height() - ui::Padding - ui::PillSize - top - height) / 2;
 	for (const std::string& l : lines)
 	{
-		c.text(large, l, x, y + large.ascent(), ui::White);
+		c.text(large, l, ox + (c.width() - large.measure(l)) / 2, y + large.ascent(), ui::White);
 		y += large.lineHeight();
 	}
 	y += gap;
 	for (const std::string& l : wrapped)
 	{
-		c.text(small, l, x, y + small.ascent(), ui::TextGray);
+		c.text(small, l, ox + (c.width() - small.measure(l)) / 2, y + small.ascent(), ui::TextGray);
 		y += small.lineHeight();
 	}
 }
 
-// the link's page, the link looking for the other Brick: B leaves (the link down, unless a session keeps
-// it), A tests again; drawn again whenever the link's status changes
+// the link's page closed: the link down, unless a session keeps it
+void closeLink()
+{
+	if (!link::kept())
+		link::stop();
+	st.link = false;
+	ui::pop();
+}
+
+// the link's page, the link looking for the other Brick: B leaves; failed, A (OKAY) leaves. Drawn again
+// whenever the link's status changes; Connected shown a moment, then the game starts again as two players
 void openLink(link::Via via)
 {
 	Screen screen;
 	screen.title = via == link::Via::Bluetooth ? "Bluetooth" : "USB Link";
 	screen.body = drawLink;
 	screen.buttons = [] {
-		ui::Buttons buttons { { "B", "BACK" } };
-		if (canTest(link::status()))
-			buttons.push_back({ "A", "TEST" });
-		return buttons;
+		return st.linkFailure.empty() ? ui::Buttons { { "B", "BACK" } } : ui::Buttons { { "A", "OKAY" } };
 	};
-	screen.back = [] {
-		if (!link::kept())
-			link::stop();
-		st.link = false;
-		ui::pop();
-	};
+	screen.back = closeLink;
 	screen.act = [](ui::Button code) {
-		if (code == ui::Button::A && canTest(link::status()))
-			link::test();
+		if (code == ui::Button::A && !st.linkFailure.empty())
+			closeLink();
 	};
 	screen.tick = [] {
+		using namespace std::chrono;
 		const link::Status s = link::status();
 		if (s.version != st.linkVersion)
 		{
 			st.linkVersion = s.version;
+			if (st.linkFailure.empty())
+				st.linkFailure = linkFailure(s);
 			ui::redraw();
 		}
 		// linked: the game again on both, as two players, from its start
-		if (canStart(s))
+		if (!st.linkFailure.empty() || !canStart(s))
+		{
+			st.connected = false;
+			return;
+		}
+		if (!st.connected)
+		{
+			st.connected = true;
+			st.connectedAt = steady_clock::now();
+		}
+		else if (steady_clock::now() - st.connectedAt > seconds(1))
 		{
 			netplay::begin(s.role == link::Role::Host, s.peerAddress, s.inputDelay);
 			ui::finish(ui::Result::Restart);
@@ -431,6 +440,8 @@ void openLink(link::Via via)
 	ui::push(std::move(screen));
 	st.link = true;
 	st.linkVersion = ~0u;
+	st.linkFailure.clear();
+	st.connected = false;
 	// for the other Brick to check (two players only in the same game), and this player's VMU to swap
 	link::setGame(settings.content.gameId, hostfs::getVmuPath("A1", false));
 	link::start(via);

@@ -21,6 +21,8 @@ namespace deadcast::link
 
 enum class Via { Usb, Bluetooth };
 enum class State { Off, Waiting, Testing, Tested, Failed };
+// what the link does while it looks for the other Brick (Bluetooth: turning on, looking, connecting)
+enum class Activity { None, TurningOn, Looking, Connecting };
 // Host: this Brick leads the link (the USB host; over Bluetooth, the Brick that connected) and is player 1
 enum class Role { None, Host, Device };
 
@@ -31,10 +33,11 @@ struct Status
 	State state = State::Off;
 	Role role = Role::None;
 	bool topPortInUse = false;	// USB: something on the top port: this Brick is the host there
-	std::string activity;		// what the link does while it looks (Bluetooth starting...)
+	Activity activity = Activity::None;
 	std::string port;			// what the link is over: "the top port", "the bottom port", "Bluetooth"
 	std::string peer;			// the other Brick's serial number
 	bool sameGame = false;		// it plays this Brick's game (setGame)
+	bool sameVersion = false;	// it runs this Brick's build of Deadcast (GIT_VERSION): else no session
 	std::string result;			// the last test's, in lines
 	std::string address;		// IP over the link (dclink0), once up: this Brick's
 	std::string peerAddress;	// and the other Brick's
