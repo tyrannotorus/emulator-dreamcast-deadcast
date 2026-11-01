@@ -662,30 +662,29 @@ std::string megabytes(uint64_t bytes)
 	return std::to_string((bytes + (1 << 19)) >> 20) + " MB";
 }
 
-// how far the download is, then its unpacking (install()'s bytes of the archive read): a line and a bar
+// how far the download is, then its unpacking (install()'s bytes of the archive read): what is being
+// done, the module, a bar, and under it the megabytes while downloading
 void drawDownload(int ox)
 {
 	Canvas& c = st.canvas;
 	const recomp::CatalogEntry& e = *st.downloading;
 	const uint64_t size = st.downloadSize > 0 ? st.downloadSize.load() : e.size;
-	const std::string name = moduleName(e.name) + " " + e.version;
-	std::string text;
-	if (st.installing)
-		text = "Installing " + name;
-	else
-		text = (st.cancelDownload ? std::string("Stopping...") : "Downloading " + name) + "\n"
-				+ megabytes(st.downloaded) + " of " + megabytes(size);
+	const std::string doing = st.installing ? "Installing" : st.cancelDownload ? "Stopping" : "Downloading";
 	Font& font = loaded->large;
-	const int lines = st.installing ? 1 : 2;
-	const int barHeight = S(6), gap = S(10);
-	const int block = font.lineHeight() * lines + gap + barHeight;
+	Font& small = loaded->small;
+	const bool counted = !st.installing;
+	const int lines = font.lineHeight() * 2, barHeight = S(6), gap = S(10);
+	const int block = lines + gap + barHeight + (counted ? gap / 2 + small.lineHeight() : 0);
 	const int top = (c.height() - block) / 2;
-	drawMessage(font, text, ox, top, c.width(), font.lineHeight() * lines);
-	const int barWidth = c.width() / 2, barX = ox + (c.width() - barWidth) / 2, barY = top + block - barHeight;
+	drawMessage(font, doing + "\n" + moduleName(e.name) + " " + e.version, ox, top, c.width(), lines);
+	const int barWidth = c.width() / 2, barX = ox + (c.width() - barWidth) / 2, barY = top + lines + gap;
 	const double done = size > 0 ? std::min(1.0, (double)st.downloaded / (double)size) : 0.0;
 	c.pill(barX, barY, barWidth, barHeight, ColorAccent);
 	if (done > 0)
 		c.pill(barX, barY, std::max(barHeight, (int)(barWidth * done)), barHeight, ColorMain);
+	if (counted)
+		drawMessage(small, megabytes(st.downloaded) + " of " + megabytes(size), ox, barY + barHeight + gap / 2,
+				c.width(), small.lineHeight());
 }
 
 // the download over (installed, failed or stopped): its page gone, what came of it said; installed,
@@ -762,7 +761,7 @@ void checkModule()
 		message(why);
 		return;
 	}
-	ask(moduleName(entry->name) + " " + entry->version + ", " + megabytes(entry->size) + ".\nDownload it?", "DOWNLOAD",
+	ask("Download\n" + moduleName(entry->name) + " " + entry->version + "?", "DOWNLOAD",
 			[entry] { startDownload(entry); });
 }
 
