@@ -450,17 +450,15 @@ void setRole(const std::string& want)
 	if (readText(OtgRole) != want)
 	{
 		if (want == "usb_host")
-		{
 			if (FILE *f = fopen(HostMark, "w"))
 				fclose(f);
-			// off before (the driver turns it on as it makes the port a host) and after
-			writeText(Axp5v, "0");
-		}
 		const std::string said = readText(want == "usb_host" ? OtgHost : want == "usb_device" ? OtgDevice : OtgNull);
+		// the driver turns the 5 V on as it makes the port a host (written 0 before, it still does: seen
+		// 2026-11-01): off again at once, on a few milliseconds
 		if (want == "usb_host")
 		{
-			log("bottom port: a host, its 5 V out %s before it was switched off", bottomPower().c_str());
 			writeText(Axp5v, "0");
+			log("bottom port: a host, its 5 V out switched off: %s", bottomPower().c_str());
 		}
 		for (int i = 0; i < 20 && readText(OtgRole) != want; i++)
 			sleepMs(100);
