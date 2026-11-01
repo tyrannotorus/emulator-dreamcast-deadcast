@@ -2,6 +2,7 @@
 #include "recomp.h"
 #include "sha256.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -94,8 +95,8 @@ uint64_t octal(const char *s, size_t n)
 }
 
 // a .tar.gz's regular files and folders into dir; nothing outside it (no absolute paths, no "..",
-// nothing but files and folders)
-std::string unpack(const std::string& archive, const std::string& dir)
+// nothing but files and folders). done: the archive's bytes read so far.
+std::string unpack(const std::string& archive, const std::string& dir, std::atomic<uint64_t>& done)
 {
 	gzFile gz = gzopen(archive.c_str(), "rb");
 	if (gz == nullptr)
@@ -147,6 +148,7 @@ std::string unpack(const std::string& archive, const std::string& dir)
 			if (n <= 0 || std::fwrite(buf.data(), 1, (size_t)n, out) != (size_t)n)
 				error = n <= 0 ? "The download is cut short." : "The module cannot be written.";
 			left -= n > 0 ? (uint64_t)n : left;
+			done = (uint64_t)std::max<z_off_t>(gzoffset(gz), 0);
 		}
 		const bool written = std::fflush(out) == 0 && fsync(fileno(out)) == 0;
 		std::fclose(out);
@@ -242,7 +244,9 @@ std::string install(const CatalogEntry& entry, std::atomic<uint64_t>& done, std:
 		return "The download is not the module it should be. Nothing was installed.";
 	}
 
-	// unpacked beside the one installed, then in its place at once
+	// unpacked beside the one installed, then in its place at once; done counts the archive read again
+	done = 0;
+	total = entry.size;
 	unpacking = true;
 	removeTree(unpacked);
 	if (mkdir(unpacked.c_str(), 0755) != 0)
@@ -250,7 +254,7 @@ std::string install(const CatalogEntry& entry, std::atomic<uint64_t>& done, std:
 		std::remove(archive.c_str());
 		return "The module cannot be written.";
 	}
-	std::string error = unpack(archive, unpacked);
+	std::string error = unpack(archive, unpacked, done);
 	std::remove(archive.c_str());
 	Module module;
 	if (error.empty() && (!readManifest(unpacked + "/module.cfg", module) || module.id != entry.id))

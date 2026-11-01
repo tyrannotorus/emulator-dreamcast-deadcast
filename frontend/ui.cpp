@@ -524,6 +524,12 @@ bool moduleInstalled()
 	return st.hasModule;
 }
 
+// a module as the player is told of it: never the game's title alone, which reads as the game
+std::string moduleName(const std::string& title)
+{
+	return title + " recomp module";
+}
+
 void checkModule();
 
 // the game's recomp module: with none installed, Download Recomp Module alone; installed, Check for
@@ -543,7 +549,7 @@ Screen recompOptionsScreen()
 	}));
 	if (!st.hasModule)
 		return screen;
-	screen.desc = st.module.name + " " + st.module.version;
+	screen.desc = moduleName(st.module.name) + " " + st.module.version;
 	// the frame rate in the corner, as the emulator's Show FPS
 	Item fps;
 	fps.name = "Show FPS";
@@ -656,23 +662,34 @@ std::string megabytes(uint64_t bytes)
 	return std::to_string((bytes + (1 << 19)) >> 20) + " MB";
 }
 
-// how far the download is
+// how far the download is, then its unpacking (install()'s bytes of the archive read): a line and a bar
 void drawDownload(int ox)
 {
 	Canvas& c = st.canvas;
 	const recomp::CatalogEntry& e = *st.downloading;
 	const uint64_t size = st.downloadSize > 0 ? st.downloadSize.load() : e.size;
+	const std::string name = moduleName(e.name) + " " + e.version;
+	std::string text;
 	if (st.installing)
-		drawMessage(loaded->large, std::string("Installing ") + e.name + " " + e.version + "...", ox, 0, c.width(), c.height());
+		text = "Installing " + name;
 	else
-	{
-		const std::string line = st.cancelDownload ? "Stopping..." : std::string("Downloading ") + e.name + " " + e.version;
-		drawMessage(loaded->large, line + "\n" + megabytes(st.downloaded) + " of " + megabytes(size), ox, 0, c.width(), c.height());
-	}
+		text = (st.cancelDownload ? std::string("Stopping...") : "Downloading " + name) + "\n"
+				+ megabytes(st.downloaded) + " of " + megabytes(size);
+	Font& font = loaded->large;
+	const int lines = st.installing ? 1 : 2;
+	const int barHeight = S(6), gap = S(10);
+	const int block = font.lineHeight() * lines + gap + barHeight;
+	const int top = (c.height() - block) / 2;
+	drawMessage(font, text, ox, top, c.width(), font.lineHeight() * lines);
+	const int barWidth = c.width() / 2, barX = ox + (c.width() - barWidth) / 2, barY = top + block - barHeight;
+	const double done = size > 0 ? std::min(1.0, (double)st.downloaded / (double)size) : 0.0;
+	c.pill(barX, barY, barWidth, barHeight, ColorAccent);
+	if (done > 0)
+		c.pill(barX, barY, std::max(barHeight, (int)(barWidth * done)), barHeight, ColorMain);
 }
 
-// the download over (installed, failed or stopped): its page gone, what came of it said; installed in
-// the emulator, the switch to it offered
+// the download over (installed, failed or stopped): its page gone, what came of it said; installed,
+// Recomp Options again with the module's rows
 void downloadOver()
 {
 	st.download.join();
@@ -687,7 +704,7 @@ void downloadOver()
 	if (depth() > 0 && page().title == "Recomp Options")
 		page() = recompOptionsScreen();
 	// in the emulator, Current Core picks it from now on
-	const std::string name = st.module.name;
+	const std::string name = moduleName(st.module.name);
 	if (st.host.core == Core::Emulator)
 		message(name + " is installed.");
 	else
@@ -736,7 +753,7 @@ void checkModule()
 	}
 	if (st.hasModule && st.module.version == entry->version)
 	{
-		message(st.module.name + " is up to date.");
+		message(moduleName(st.module.name) + " is up to date.");
 		return;
 	}
 	const std::string why = recomp::reachable(*entry);
@@ -745,7 +762,7 @@ void checkModule()
 		message(why);
 		return;
 	}
-	ask(std::string(entry->name) + " " + entry->version + ", " + megabytes(entry->size) + ".\nDownload it?", "DOWNLOAD",
+	ask(moduleName(entry->name) + " " + entry->version + ", " + megabytes(entry->size) + ".\nDownload it?", "DOWNLOAD",
 			[entry] { startDownload(entry); });
 }
 

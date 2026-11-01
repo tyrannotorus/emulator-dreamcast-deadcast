@@ -20,7 +20,7 @@ std::string reachable(const CatalogEntry& entry);
 
 // fetched, checked, unpacked and installed, replacing the module installed before in one rename;
 // done and total (bytes) as it goes, stopped when cancel turns true (until it is checked: then unpacking
-// says so). Empty when installed, else what went wrong.
+// says so, and done and total count the archive unpacked). Empty when installed, else what went wrong.
 std::string install(const CatalogEntry& entry, std::atomic<uint64_t>& done, std::atomic<uint64_t>& total,
 		const std::atomic<bool>& cancel, std::atomic<bool>& unpacking);
 

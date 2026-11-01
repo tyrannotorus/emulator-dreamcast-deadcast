@@ -1,4 +1,4 @@
-# Rez
+# Rez recomp module
 
 Rez (United Game Artists, 2001), recompiled for the TrimUI Brick. Deadcast plays it in place of its
 emulator when the game's Current Core is Recomp.

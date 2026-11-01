@@ -106,7 +106,7 @@ carries a binary or anything from the disc. Release binaries are built by the ma
 reviewed source and the maintainer's own disc: a binary from a pull request cannot be checked without
 building it again. With the same disc and the pinned toolchain, both builds come out the same.
 
-Rez Recompiled (`modules/rez/`) is the first module. Its engine came from the standalone Rez Recompiled
+The Rez recomp module (`modules/rez/`) is the first. Its engine came from the standalone Rez Recompiled
 port, which owes much to
 [dream-recomp](https://github.com/phobos665/dream-recomp), [dreamcomp](https://github.com/cherryduck/dreamcomp)
 and [flycast](https://github.com/flyinghead/flycast).
