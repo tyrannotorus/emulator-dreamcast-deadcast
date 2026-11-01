@@ -35,6 +35,8 @@ void perfWaited(unsigned long long start);
 bool perfOn();
 // a frame on the screen, its pan done (the display's vblank: vulkan/panel.cpp)
 void perfShown();
+// the AICA thread's: its CPU clock, for its share of a core in the perf line
+void perfAicaThread();
 // DEADCAST_TRACE (with DEADCAST_PERF): an event of a frame's way through the threads, with its time; written
 // to <DEADCAST_SHOTS or /tmp>/trace.txt by perfTraceDump() as the game ends (local/brick/trace.py)
 void perfTrace(char what);

@@ -18,6 +18,8 @@
     You should have received a copy of the GNU General Public License
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
+#include <string>
+#include <cstdlib>
 #include "drawer.h"
 #include "hw/pvr/spg.h"
 #include "hw/pvr/pvr_mem.h"
@@ -420,10 +422,35 @@ bool Drawer::Draw(const Texture *fogTexture, const Texture *paletteTexture)
 	pushedConstants = pushConstants;
 	boundPipeline = vk::Pipeline();
 
+	// Deadcast: DEADCAST_SKIP_DRAWS=op,pt,mv,tr or all: those lists not drawn (a measure of what the GPU's
+	// work costs, the SH4's included through the shared memory; not for playing)
+	static const unsigned skip = [] {
+		const char *env = std::getenv("DEADCAST_SKIP_DRAWS");
+		if (env == nullptr)
+			return 0u;
+		const std::string s(env);
+		if (s == "all")
+			return 15u;
+		return (s.find("op") != std::string::npos ? 1u : 0u) | (s.find("pt") != std::string::npos ? 2u : 0u)
+				| (s.find("mv") != std::string::npos ? 4u : 0u) | (s.find("tr") != std::string::npos ? 8u : 0u);
+	}();
 	RenderPass previous_pass{};
-    for (int render_pass = 0; render_pass < (int)rendContext->render_passes.size(); render_pass++)
+    for (int render_pass = 0; render_pass < (int)rendContext->render_passes.size() && skip != 15; render_pass++)
     {
         const RenderPass& current_pass = rendContext->render_passes[render_pass];
+        if (skip != 0)
+        {
+			if ((skip & 1) == 0)
+				DrawList(cmdBuffer, ListType_Opaque, false, rendContext->global_param_op, previous_pass.op_count, current_pass.op_count);
+			if ((skip & 2) == 0)
+				DrawList(cmdBuffer, ListType_Punch_Through, false, rendContext->global_param_pt, previous_pass.pt_count, current_pass.pt_count);
+			if ((skip & 4) == 0)
+				DrawModVols(cmdBuffer, previous_pass.mvo_count, current_pass.mvo_count - previous_pass.mvo_count);
+			if ((skip & 8) == 0)
+				DrawList(cmdBuffer, ListType_Translucent, current_pass.autosort, rendContext->global_param_tr, previous_pass.tr_count, current_pass.tr_count);
+			previous_pass = current_pass;
+			continue;
+        }
 
         DEBUG_LOG(RENDERER, "Render pass %d OP %d PT %d TR %d MV %d autosort %d", render_pass + 1,
         		current_pass.op_count - previous_pass.op_count,

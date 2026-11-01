@@ -395,6 +395,7 @@ static void workerLoop()
 {
 	ThreadName _("deadcast-aica");
 	profilerStartThread("deadcast-aica");
+	perfAicaThread();
 	worker::onWorker = true;
 	std::unique_lock<std::mutex> lock(worker::mutex);
 	while (true)

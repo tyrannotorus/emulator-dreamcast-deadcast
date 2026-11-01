@@ -85,6 +85,16 @@ static std::atomic<u32> perfGpuCount[2];
 static std::atomic<u32> perfLateGaps, perfShownFrames, perfShownRepeats, perfShownLongestUs;
 static std::atomic<bool> perfRenderClockSet;
 static clockid_t perfRenderClock;
+static std::atomic<bool> perfAicaClockSet;
+static clockid_t perfAicaClock;
+
+void perfAicaThread()
+{
+	if (!perfEnabled)
+		return;
+	pthread_getcpuclockid(pthread_self(), &perfAicaClock);
+	perfAicaClockSet.store(true, std::memory_order_release);
+}
 
 static u64 perfNowUs()
 {
@@ -247,7 +257,7 @@ void perfPresented()
 
 static void perfVblank()
 {
-	static u64 start, windowStart, emuCpu, renderCpu;
+	static u64 start, windowStart, emuCpu, renderCpu, aicaCpu;
 	static u32 vblanks, frames, skipped;
 	// the wall time between two emulated vblanks: over 17.5 ms (a frame is 16.68), that frame was late
 	static u64 lastVblank, frameMaxUs;
@@ -273,6 +283,7 @@ static void perfVblank()
 		perfWaitUs = 0;
 		emuCpu = perfCpuUs(CLOCK_THREAD_CPUTIME_ID);
 		renderCpu = renderClock ? perfCpuUs(perfRenderClock) : 0;
+		aicaCpu = perfAicaClockSet.load(std::memory_order_acquire) ? perfCpuUs(perfAicaClock) : 0;
 		return;
 	}
 	vblanks++;
@@ -289,13 +300,15 @@ static void perfVblank()
 	u32 vertices = perfVertices.exchange(0);
 	u64 emuNow = perfCpuUs(CLOCK_THREAD_CPUTIME_ID);
 	u64 renderNow = renderClock ? perfCpuUs(perfRenderClock) : 0;
+	const bool aicaClock = perfAicaClockSet.load(std::memory_order_acquire);
+	const u64 aicaNow = aicaClock ? perfCpuUs(perfAicaClock) : 0;
 	double window = (double)(now - windowStart);
 	const u32 gpuScene = perfGpuCount[0].exchange(0), gpuPage = perfGpuCount[1].exchange(0);
 	const u64 gpuSceneUs = perfGpuUs[0].exchange(0), gpuPageUs = perfGpuUs[1].exchange(0);
 	printf("Deadcast perf %6.1f s: vblank %5.2f/s %5.1f%% | rendered %5.2f/s skipped %5.2f/s | presented %5.2f/s longest %5.1f ms"
 			" | emu cpu %3.0f%% waits %3.0f%% | render cpu %3.0f%% | mmu flushes %u+%u misses %u"
 			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u"
-			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms\n",
+			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms | aica cpu %.0f%%\n",
 			(now - start) / 1e6, vblanks / secs, vblanks / secs / nominal * 100.0,
 			(FrameCount - frames) / secs, (fskip - skipped) / secs,
 			presented / secs, longest / 1000.0,
@@ -315,7 +328,9 @@ static void perfVblank()
 			perfBlockedUs[0].exchange(0) / window * 100.0, perfBlockedUs[1].exchange(0) / window * 100.0,
 			perfBlockedUs[2].exchange(0) / window * 100.0,
 			framesOver, frameMaxUs / 1000.0, perfLateGaps.exchange(0),
-			perfShownFrames.exchange(0) / secs, perfShownRepeats.exchange(0), perfShownLongestUs.exchange(0) / 1000.0);
+			perfShownFrames.exchange(0) / secs, perfShownRepeats.exchange(0), perfShownLongestUs.exchange(0) / 1000.0,
+			aicaClock && aicaCpu != 0 ? (aicaNow - aicaCpu) / window * 100.0 : 0.0);
+	aicaCpu = aicaNow;
 	framesOver = 0;
 	frameMaxUs = 0;
 	bmStatCompiled = bmStatCacheResets = 0;
