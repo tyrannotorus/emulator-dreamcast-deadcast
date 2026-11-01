@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #include "types.h"
 #include "decoder.h"
@@ -83,6 +84,10 @@ std::vector<RuntimeBlockInfoPtr> bm_AllBlocks();
 RuntimeBlockInfoPtr DYNACALL bm_GetBlock(u32 addr);
 
 void bm_AddBlock(RuntimeBlockInfo* blk);
+// Deadcast: every block in the cache (deadcast/codecache.cpp)
+void bm_ForEachBlock(const std::function<void(const RuntimeBlockInfo&)>& fn);
+// whether a block is compiled for this address
+bool bm_HasBlock(u32 addr);
 void bm_DiscardBlock(RuntimeBlockInfo* block);
 void bm_Reset();
 void bm_ResetCache();

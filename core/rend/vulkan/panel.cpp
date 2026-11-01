@@ -3,6 +3,8 @@
 #include "log/Log.h"
 #include "oslib/oslib.h"
 
+#include <cstdlib>
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -170,8 +172,12 @@ void Panel::term()
 
 void Panel::waitWritable(u32 page)
 {
+	// DEADCAST_PANEL_QUEUE=<n>: at most n frames waiting to be shown (2 by default, as with 4 pages: 3 is an
+	// experiment that did not change the screen)
+	static const u32 maxQueued = std::getenv("DEADCAST_PANEL_QUEUE") != nullptr
+			? (u32)std::clamp(std::atoi(std::getenv("DEADCAST_PANEL_QUEUE")), 1, (int)Pages - 2) : 2;
 	std::unique_lock<std::mutex> lock(mutex);
-	changed.wait(lock, [this] { return queuedCount - shownCount < 2; });
+	changed.wait(lock, [this] { return queuedCount - shownCount < maxQueued; });
 }
 
 void Panel::queue(u32 page, vk::Fence fence)

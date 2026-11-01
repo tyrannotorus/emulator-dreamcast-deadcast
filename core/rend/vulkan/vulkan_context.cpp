@@ -391,6 +391,7 @@ void VulkanContext::NewFrame()
 		throw InvalidVulkanContext();
 	currentImage = (currentImage + 1) % GetSwapChainSize();
 	const unsigned long long waitStart = pageTimer.active() ? perfNow() : 0;
+	perfTrace('n');
 	panel.waitWritable(currentImage);
 	try {
 		vk::Result res = device->waitForFences(*drawFences[currentImage], true, UINT64_MAX);
@@ -400,6 +401,7 @@ void VulkanContext::NewFrame()
 		WARN_LOG(RENDERER, "vk:SystemError: %s", e.what());
 		throw FlycastException("Vulkan system error");
 	}
+	perfTrace('N');
 	if (pageTimer.active())
 	{
 		perfRenderBlocked(1, waitStart);
@@ -440,6 +442,7 @@ void VulkanContext::EndFrame(vk::CommandBuffer overlayCmdBuffer)
 	allCmdBuffers.push_back(commandBuffer);
 	device->resetFences(*drawFences[currentImage]);
 	graphicsQueue.submit(vk::SubmitInfo(nullptr, nullptr, allCmdBuffers), *drawFences[currentImage]);
+	perfTrace('E');
 	assert(rendering);
 	rendering = false;
 	renderDone = true;

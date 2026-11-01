@@ -77,6 +77,11 @@ static void dumpAudio(const void *frames, u32 count)
 	}
 }
 
+float audioFill()
+{
+	return currentBackend != nullptr ? currentBackend->fill() : -1.f;
+}
+
 void WriteSample(s16 r, s16 l)
 {
 	Buffer[writePtr].r = r * config::AudioVolume.dbPower();

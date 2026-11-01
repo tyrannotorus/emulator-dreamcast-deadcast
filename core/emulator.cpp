@@ -43,15 +43,23 @@
 #include "network/net_handshake.h"
 #include "serialize.h"
 #include "hw/pvr/pvr.h"
+#include "hw/pvr/spg.h"
 #include "profiler/fc_profiler.h"
 #include "oslib/storage.h"
 #include "wsi/context.h"
 #include <chrono>
+#include <cerrno>
+#include <cstring>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #ifndef LIBRETRO
 #include "ui/gui.h"
 #endif
 #include "hw/sh4/sh4_interpreter.h"
 #include "hw/sh4/dyna/ngen.h"
+#include "deadcast/codecache.h"
+#include "deadcast/pacer.h"
 #include "oslib/i18n.h"
 
 settings_t settings;
@@ -771,6 +779,10 @@ void Emulator::unloadGame()
 			gui_saveState(false);
 #endif
 		profilerDump();
+		perfTraceDump();
+		// Deadcast: the blocks it ran, for the next state load (deadcast/codecache.h)
+		if (state == Loaded)
+			deadcast::codecache::save();
 		try {
 			dc_reset(true);
 		} catch (const FlycastException& e) {
@@ -935,6 +947,8 @@ void Emulator::loadstate(Deserializer& deser)
 
 	mmu_set_state();
 	getSh4Executor()->ResetCache();
+	// Deadcast: the blocks this game ran before, compiled now rather than in its first seconds
+	deadcast::codecache::warm();
 	EventManager::event(Event::LoadState);
 }
 
@@ -1022,6 +1036,15 @@ void Emulator::start()
 		threadResult = std::async(std::launch::async, [this] {
 				ThreadName _("deadcast-emu");
 				profilerStartThread("deadcast-emu");
+				// Deadcast: DEADCAST_EMU_NICE=<n>: the SH4 thread's nice value, so the helper threads waking
+				// up (AICA, parse, render) do not take its core from it (an experiment; root on the Brick)
+				if (const char *nice = std::getenv("DEADCAST_EMU_NICE"))
+				{
+					if (setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), atoi(nice)) != 0)
+						WARN_LOG(COMMON, "DEADCAST_EMU_NICE: %s", strerror(errno));
+					else
+						NOTICE_LOG(COMMON, "deadcast-emu at nice %s", nice);
+				}
 				InitAudio();
 
 				try {
@@ -1107,6 +1130,9 @@ bool Emulator::render()
 
 void Emulator::vblank()
 {
+	// Deadcast: kept to real time by the clock (deadcast/pacer.h)
+	if (config::ThreadedRendering)
+		deadcast::pacer::vblank();
 	EventManager::event(Event::VBlank);
 	runner.execTasks();
 	// Time out if a frame hasn't been rendered for 50 ms

@@ -75,7 +75,9 @@ bool QueueRender(TA_context* ctx)
 			// the queue instead (the SH4 waiting for the renderer: perf's waits)
 		{
 			const auto waitStart = perfNow();
+			perfTrace('q');
 			frame_finished.Wait();
+			perfTrace('Q');
 			perfWaited(waitStart);
 		}
 	}

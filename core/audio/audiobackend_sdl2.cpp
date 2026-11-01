@@ -126,6 +126,11 @@ public:
 		return audiodev != 0;
 	}
 
+	float fill() const override
+	{
+		return sample_buffer_size != 0 ? (float)sample_count / (float)sample_buffer_size : -1.f;
+	}
+
 	u32 push(const void* frame, u32 samples, bool wait) override
 	{
 		// Unpause the device shall it be paused.

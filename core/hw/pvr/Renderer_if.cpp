@@ -336,6 +336,7 @@ private:
 		TA_context *taContext = DequeueRender();
 		if (taContext == nullptr)
 			return;
+		perfTrace(taContext->rend.isRTT ? 'd' : 'D');
 		auto renderStart = perfNow();
 		perfDrawCalls = 0;
 
@@ -355,7 +356,9 @@ private:
 		if (offThread)
 		{
 			const auto parseStart = perfNow();
+			perfTrace('p');
 			parseWait();
+			perfTrace('P');
 			perfRenderBlocked(2, parseStart);
 		}
 		{
@@ -379,7 +382,10 @@ private:
 		rend_allow_rollback();
 		// Deadcast: the next frame may be queued, and parsed, while this one is drawn
 		if (offThread)
+		{
 			ReleaseRender(taContext);
+			perfTrace('X');
+		}
 		{
 			// Deadcast: the polygons of this frame, after a shot (spg.cpp, DEADCAST_DUMP_POLYS)
 			const int dumpAt = polyDumpAt.load();
@@ -402,6 +408,7 @@ private:
 			}
 		}
 
+		perfTrace('R');
 		perfRendered(renderStart, perfDrawCalls, (unsigned)taContext->rend.verts.size(), taContext->rend.isRTT);
 		if (!renderToScreen && !taContext->endSignaled)
 			renderEnd.Set();
@@ -431,7 +438,10 @@ private:
 	{
 		FC_PROFILE_SCOPE;
 
-		if (renderer->Present())
+		perfTrace('S');
+		const bool shown = renderer->Present();
+		perfTrace('T');
+		if (shown)
 		{
 			presented = true;
 			if (!config::ThreadedRendering && !config::VblankPacing && !ggpo::active())
@@ -712,6 +722,7 @@ void rend_start_render()
 		palette_update();
 		pend_rend = true;
 		parseQueued(ctx);
+		perfTrace(ctx->rend.isRTT ? 'r' : 'e');
 		pvrQueue.enqueue(PvrMessageQueue::Render);
 		if (!config::DelayFrameSwapping && !ctx->rend.isRTT && !config::EmulateFramebuffer)
 			pvrQueue.enqueue(PvrMessageQueue::Present);
@@ -796,7 +807,10 @@ void rend_set_fb_write_addr(u32 fb_w_sof1)
 void rend_swap_frame(u32 fb_r_sof)
 {
 	if (!config::EmulateFramebuffer && fb_r_sof == fb_w_cur && rend_is_enabled())
+	{
+		perfTrace('f');
 		pvrQueue.enqueue(PvrMessageQueue::Present);
+	}
 }
 
 void rend_disable_rollback()

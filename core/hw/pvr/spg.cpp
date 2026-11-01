@@ -1,3 +1,5 @@
+#include <vector>
+#include <string>
 #include "spg.h"
 #include "hw/holly/holly_intc.h"
 #include "hw/holly/sb.h"
@@ -13,7 +15,7 @@
 extern u32 bmStatCompiled, bmStatCacheResets;
 extern u64 bmStatCompileUs;
 
-namespace aica { extern u32 aicaStatReads, aicaStatWrites, aicaStatMeets; extern u64 aicaStatWaitUs; }
+namespace aica { extern u32 aicaStatReads, aicaStatWrites, aicaStatMeets; extern u64 aicaStatWaitUs; void aicaWriteLogDump(); }
 #include <string>
 #include "stdclass.h"
 #include <array>
@@ -107,6 +109,39 @@ bool perfOn()
 	return perfEnabled;
 }
 
+static const bool perfTraceOn = perfEnabled && std::getenv("DEADCAST_TRACE") != nullptr;
+struct PerfTraceEvent
+{
+	u64 us;
+	char what;
+};
+static std::vector<PerfTraceEvent> perfTraceEvents(perfTraceOn ? 1 << 20 : 0);
+static std::atomic<u32> perfTraceCount;
+
+void perfTrace(char what)
+{
+	if (!perfTraceOn)
+		return;
+	const u32 i = perfTraceCount.fetch_add(1, std::memory_order_relaxed);
+	if (i < perfTraceEvents.size())
+		perfTraceEvents[i] = { perfNowUs(), what };
+}
+
+void perfTraceDump()
+{
+	aica::aicaWriteLogDump();
+	if (!perfTraceOn)
+		return;
+	const std::string path = std::string(perfShots != nullptr ? perfShots : "/tmp") + "/trace.txt";
+	if (FILE *f = fopen(path.c_str(), "w"))
+	{
+		const u32 n = std::min<u32>(perfTraceCount.load(), (u32)perfTraceEvents.size());
+		for (u32 i = 0; i < n; i++)
+			fprintf(f, "%llu %c\n", (unsigned long long)perfTraceEvents[i].us, perfTraceEvents[i].what);
+		fclose(f);
+	}
+}
+
 void perfShown()
 {
 	if (!perfEnabled)
@@ -124,6 +159,7 @@ void perfShown()
 			;
 	}
 	last = now;
+	perfTrace('V');
 	perfShownFrames.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -225,6 +261,7 @@ static void perfVblank()
 			framesOver++;
 	}
 	lastVblank = now;
+	perfTrace('v');
 	bool renderClock = perfRenderClockSet.load(std::memory_order_acquire);
 	if (start == 0)
 	{

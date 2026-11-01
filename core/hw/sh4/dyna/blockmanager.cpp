@@ -266,6 +266,17 @@ void bm_AddBlock(RuntimeBlockInfo* blk)
 
 }
 
+void bm_ForEachBlock(const std::function<void(const RuntimeBlockInfo&)>& fn)
+{
+	for (const auto& it : blkmap)
+		fn(*it.second);
+}
+
+bool bm_HasBlock(u32 addr)
+{
+	return (void*)bm_GetCode(addr) != (void*)ngen_FailedToFindBlock;
+}
+
 void bm_DiscardBlock(RuntimeBlockInfo* block)
 {
 	// Remove from block map

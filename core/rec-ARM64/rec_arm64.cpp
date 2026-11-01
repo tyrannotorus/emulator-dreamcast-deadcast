@@ -881,7 +881,12 @@ public:
 
 			case shop_pref:
 				{
-					Label not_sqw;
+					Label not_sqw, sqw_done;
+					// Deadcast: DEADCAST_PREF=1: a pref elsewhere than the store queues (the game's own hint
+					// that it will read there) becomes the host's prefetch, without the MMU (an experiment)
+					static const bool hostPrefetch = std::getenv("DEADCAST_PREF") != nullptr
+							&& std::strcmp(std::getenv("DEADCAST_PREF"), "0") != 0;
+					const bool prefetch = hostPrefetch && !op.rs1.is_imm() && !mmu_enabled();
 					if (op.rs1.is_imm())
 						Mov(w0, op.rs1._imm);
 					else
@@ -920,7 +925,18 @@ public:
 						Ldr(x3, sh4_context_mem_operand(&sh4ctx.doSqWrite));
 						Blr(x3);
 					}
-					Bind(&not_sqw);
+					if (prefetch)
+					{
+						B(&sqw_done);
+						Bind(&not_sqw);
+						if (regalloc.IsAllocg(op.rs1))
+							Prfm(PLDL1KEEP, MemOperand(x27, regalloc.MapRegister(op.rs1), UXTW));
+						else
+							Prfm(PLDL1KEEP, MemOperand(x27, w0, UXTW));
+						Bind(&sqw_done);
+					}
+					else
+						Bind(&not_sqw);
 				}
 				break;
 

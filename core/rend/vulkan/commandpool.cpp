@@ -75,7 +75,11 @@ void CommandPool::BeginFrame()
 	frameStarted = true;
 	index = (index + 1) % chainSize;
 	const unsigned long long waitStart = gpuKind >= 0 ? perfNow() : 0;
+	if (gpuKind >= 0)
+		perfTrace('g');
 	vk::Result res = device.waitForFences(fences[index].get(), true, UINT64_MAX);
+	if (gpuKind >= 0)
+		perfTrace('G');
 	if (res != vk::Result::eSuccess)
 		WARN_LOG(RENDERER, "CommandPool::BeginFrame: waitForFences failed %d", (int)res);
 	if (gpuKind >= 0)

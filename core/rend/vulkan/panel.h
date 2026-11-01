@@ -20,7 +20,9 @@
 class Panel
 {
 public:
-	static constexpr u32 Pages = 4;
+	// Deadcast: one on the screen, one being drawn, and room for up to three waiting for their vblank
+	// (waitWritable: two by default)
+	static constexpr u32 Pages = 5;
 
 	~Panel() { term(); }
 	// false, with the reason in error, without fb0 or its import

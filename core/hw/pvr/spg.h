@@ -35,6 +35,10 @@ void perfWaited(unsigned long long start);
 bool perfOn();
 // a frame on the screen, its pan done (the display's vblank: vulkan/panel.cpp)
 void perfShown();
+// DEADCAST_TRACE (with DEADCAST_PERF): an event of a frame's way through the threads, with its time; written
+// to <DEADCAST_SHOTS or /tmp>/trace.txt by perfTraceDump() as the game ends (local/brick/trace.py)
+void perfTrace(char what);
+void perfTraceDump();
 // the GPU's time over a frame's work (vulkan/gputimer.h): kind 0 the renderer's submission (scene, renders
 // to texture, texture uploads), 1 the frame drawn into the screen's page
 void perfGpu(int kind, unsigned long long us);
