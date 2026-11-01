@@ -253,7 +253,9 @@ static bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, 
 int main(int argc, char* argv[])
 {
 	selfPath = argv[0];
-	// Deadcast: the disc's recomp module instead, if that is its chosen core (no emulator started)
+	// Deadcast: recomp modules marked for deletion deleted, an install cut short tidied away; then the
+	// disc's recomp module instead, if that is its chosen core (no emulator started)
+	deadcast::recomp::tidy();
 	if (argc > 1)
 		deadcast::recomp::runChosen(argv[1]);
 #if defined(USE_BREAKPAD)

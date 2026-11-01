@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <map>
 
 #include <dirent.h>
@@ -59,6 +60,16 @@ std::vector<std::pair<std::string, std::string>> readLines(const std::string& fi
 std::string storeFile()
 {
 	return home() + "/recomp.cfg";
+}
+
+std::string modulesDir()
+{
+	return home() + "/recomp";
+}
+
+bool gone(const std::string& path)
+{
+	return access(path.c_str(), F_OK) != 0 && errno == ENOENT;
 }
 
 std::map<std::string, std::string>& store()
@@ -142,7 +153,7 @@ bool installed(const std::string& discSha1, Module& module)
 {
 	if (discSha1.empty())
 		return false;
-	const std::string dir = home() + "/recomp";
+	const std::string dir = modulesDir();
 	DIR *d = opendir(dir.c_str());
 	if (d == nullptr)
 		return false;
@@ -155,7 +166,8 @@ bool installed(const std::string& discSha1, Module& module)
 		if (e->d_name[0] == '.')
 			continue;
 		Module m;
-		if (!readManifest(dir + "/" + e->d_name + "/module.cfg", m) || access((m.dir + "/" + m.exec).c_str(), X_OK) != 0)
+		if (!readManifest(dir + "/" + e->d_name + "/module.cfg", m) || m.id != e->d_name
+				|| access((m.dir + "/" + m.exec).c_str(), X_OK) != 0)
 			continue;
 		for (const std::string& disc : m.discs)
 			if (disc == discSha1)
@@ -205,10 +217,12 @@ std::string get(const std::string& key, const std::string& def)
 	return it != store().end() ? it->second : def;
 }
 
-void set(const std::string& key, const std::string& value)
+namespace
 {
-	store()[key] = value;
-	// all of it again, through a new file: never half written
+
+// all of the store again, through a new file: never half written
+void save()
+{
 	const std::string file = storeFile();
 	const std::string temp = file + ".new";
 	FILE *f = std::fopen(temp.c_str(), "w");
@@ -222,6 +236,94 @@ void set(const std::string& key, const std::string& value)
 		std::rename(temp.c_str(), file.c_str());
 	else
 		std::remove(temp.c_str());
+}
+
+// what the store keeps for a module dropped: its core and its settings
+void forget(const std::string& id)
+{
+	std::map<std::string, std::string>& values = store();
+	for (auto it = values.begin(); it != values.end(); )
+		it = it->first == "core." + id || it->first.rfind(id + ".", 0) == 0 ? values.erase(it) : std::next(it);
+	save();
+}
+
+}	// namespace
+
+void set(const std::string& key, const std::string& value)
+{
+	store()[key] = value;
+	save();
+}
+
+bool removeTree(const std::string& path)
+{
+	DIR *d = opendir(path.c_str());
+	if (d == nullptr)
+		return std::remove(path.c_str()) == 0 || gone(path);
+	while (const dirent *e = readdir(d))
+	{
+		if (std::strcmp(e->d_name, ".") == 0 || std::strcmp(e->d_name, "..") == 0)
+			continue;
+		removeTree(path + "/" + e->d_name);
+	}
+	closedir(d);
+	return rmdir(path.c_str()) == 0 || gone(path);
+}
+
+void markForDeletion(const std::string& id)
+{
+	const std::string mark = modulesDir() + "/" + id + ".delete";
+	if (FILE *f = std::fopen(mark.c_str(), "w"))
+	{
+		fsync(fileno(f));
+		std::fclose(f);
+	}
+}
+
+bool deleteModule(const std::string& id)
+{
+	if (id.empty() || id.find('/') != std::string::npos || id[0] == '.')
+		return false;
+	markForDeletion(id);
+	// out of sight first (installed() reads <id>/ only), then removed
+	const std::string dir = modulesDir() + "/" + id;
+	const std::string old = dir + ".old";
+	removeTree(old);
+	std::rename(dir.c_str(), old.c_str());
+	const std::string data = home() + "/recomp-data/" + id;
+	const bool all = removeTree(old) && removeTree(dir) && removeTree(data);
+	forget(id);
+	if (all)
+		std::remove((dir + ".delete").c_str());
+	sync();
+	std::printf("Deadcast: recomp module %s %s\n", id.c_str(), all ? "deleted" : "not all deleted");
+	return all;
+}
+
+void tidy()
+{
+	const std::string dir = modulesDir();
+	DIR *d = opendir(dir.c_str());
+	if (d == nullptr)
+		return;
+	std::vector<std::string> names;
+	while (const dirent *e = readdir(d))
+		names.push_back(e->d_name);
+	closedir(d);
+	for (const std::string& name : names)
+	{
+		const size_t dot = name.find_last_of('.');
+		if (dot == std::string::npos || dot == 0)
+			continue;
+		const std::string kind = name.substr(dot);
+		if (kind == ".delete")
+			deleteModule(name.substr(0, dot));
+		else if (kind == ".download" || kind == ".new" || kind == ".old")
+		{
+			removeTree(dir + "/" + name);
+			std::printf("Deadcast: %s/%s left by an install cut short: removed\n", dir.c_str(), name.c_str());
+		}
+	}
 }
 
 }

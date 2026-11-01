@@ -10,7 +10,6 @@
 #include <vector>
 
 #include <curl/curl.h>
-#include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <zlib.h>
@@ -69,21 +68,6 @@ int progress(void *context, curl_off_t total, curl_off_t done, curl_off_t, curl_
 		*f.total = (uint64_t)total;
 	*f.done = (uint64_t)done;
 	return *f.cancel ? 1 : 0;
-}
-
-bool removeTree(const std::string& path)
-{
-	DIR *d = opendir(path.c_str());
-	if (d == nullptr)
-		return std::remove(path.c_str()) == 0 || access(path.c_str(), F_OK) != 0;
-	while (const dirent *e = readdir(d))
-	{
-		if (std::strcmp(e->d_name, ".") == 0 || std::strcmp(e->d_name, "..") == 0)
-			continue;
-		removeTree(path + "/" + e->d_name);
-	}
-	closedir(d);
-	return rmdir(path.c_str()) == 0;
 }
 
 uint64_t octal(const char *s, size_t n)

@@ -10,7 +10,8 @@ the disc being played, Deadcast's menu offers it under **Options**:
 - **Emulator Options** and **Recomp Options** hold each core's settings. Both can be set from either
   core: each core reads its settings when it starts.
 - **Recomp Options** offers only **Download Recomp Module** until the module is installed. Then it
-  starts with **Check for Update** and **Show FPS**, followed by the module's own settings.
+  starts with **Check for Update** and **Show FPS**, followed by the module's own settings, and ends
+  with **Delete Recomp Module**.
 
 Modules live in this repository. A module is added by a pull request and reviewed like any other
 code. Deadcast downloads modules only from Deadcast's own releases, and only files whose SHA-256 the
@@ -89,6 +90,12 @@ Deadcast's first act is to `exec` the module, `<exec> <disc>`, so the emulator n
 keeps its own files (its settings file, memory card, caches) in `<DEADCAST_HOME>/recomp-data/<id>/`.
 Restarting in the other core (Current Core, then Restart) ends the process with exit code 86, and
 Deadcast's `launch.sh` starts the game again in the core now chosen.
+
+A module keeps nothing outside those two folders: **Delete Recomp Module** removes both, saves
+included, and the store's keys for the module. Deleted from inside the module, the module only marks
+itself (`recomp/<id>.delete`) and restarts the game emulated (exit code 86); Deadcast deletes it as it
+starts, along with anything an install cut short left behind. Only a folder named as its manifest's
+`id` counts as an installed module.
 
 ## Building and contributing
 

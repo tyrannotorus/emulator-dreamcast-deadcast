@@ -531,9 +531,17 @@ std::string moduleName(const std::string& title)
 }
 
 void checkModule();
+void removeModule();
+
+// the core picked in Options stored as the game's (from its next start)
+void keepChosen()
+{
+	recomp::set("core." + st.module.id, st.chosen == Core::Recomp ? "recomp" : "emulator");
+}
 
 // the game's recomp module: with none installed, Download Recomp Module alone; installed, Check for
-// Update, Show FPS, then the module's settings, as its manifest declares them, kept in Deadcast's store
+// Update, Show FPS, the module's settings, as its manifest declares them, kept in Deadcast's store,
+// and last Delete Recomp Module
 Screen recompOptionsScreen()
 {
 	Screen screen;
@@ -586,7 +594,41 @@ Screen recompOptionsScreen()
 		};
 		screen.items.push_back(std::move(item));
 	}
+	// the module and everything of it, its saves too: asked first; in the module, the game restarts
+	// in the emulator
+	screen.items.push_back(entry("Delete Recomp Module", "", [] {
+		std::string question = "Delete\n" + moduleName(st.module.name) + " " + st.module.version + "\nand its saves?";
+		if (st.host.core == Core::Recomp)
+			question += "\nYour game restarts in the emulator.";
+		ask(question, "DELETE", removeModule);
+	}));
 	return screen;
+}
+
+// the module deleted. From the emulator: at once, then Recomp Options again without it (and the
+// emulator the core again, were Recomp picked but not restarted into). From the module itself: only
+// marked, and the game started again emulated; Deadcast deletes it as it starts (recomp::tidy).
+void removeModule()
+{
+	const std::string name = moduleName(st.module.name);
+	if (st.host.core == Core::Recomp)
+	{
+		recomp::markForDeletion(st.module.id);
+		st.chosen = Core::Emulator;
+		keepChosen();
+		finish(Result::Switch);
+		return;
+	}
+	const bool deleted = recomp::deleteModule(st.module.id);
+	st.module = recomp::Module();
+	st.hasModule = recomp::installed(st.discSha1, st.module);
+	st.chosen = st.host.core;
+	st.screens.front().items.front().name = "Continue";
+	for (Screen& screen : st.screens)
+		if (screen.title == "Options" && !screen.items.empty())
+			screen.items.front().value = (int)st.chosen;
+	page() = recompOptionsScreen();
+	message(deleted ? name + " is deleted." : name + "\ncould not be fully deleted.\nDeadcast retries at its next start.");
 }
 
 
@@ -766,12 +808,6 @@ void checkModule()
 }
 
 }	// namespace
-
-// the core picked in Options stored as the game's (from its next start)
-static void keepChosen()
-{
-	recomp::set("core." + st.module.id, st.chosen == Core::Recomp ? "recomp" : "emulator");
-}
 
 Screen mainScreen(const std::string& title, Host host)
 {

@@ -44,8 +44,22 @@ struct Module
 	std::vector<Setting> settings;
 };
 bool readManifest(const std::string& file, Module& module);
-// the module installed for a disc (its CHD's SHA-1); false if none
+// the module installed for a disc (its CHD's SHA-1); false if none. Only a folder named as its manifest's
+// id counts: never what an install or a deletion left half done (<id>.new, <id>.old)
 bool installed(const std::string& discSha1, Module& module);
+
+// a file, or a folder and everything in it; true if gone
+bool removeTree(const std::string& path);
+
+// Deleting a module takes everything of it: its folder, its data (<home>/recomp-data/<id>/: saves,
+// settings, cache) and what the store keeps for it. It is marked first (<home>/recomp/<id>.delete) and
+// the mark goes last, so a deletion cut short is finished by tidy(). A module deleting itself while it
+// runs only marks itself: tidy() deletes it at Deadcast's next start, once it has ended.
+void markForDeletion(const std::string& id);
+bool deleteModule(const std::string& id);	// true if all of it is gone
+// At Deadcast's start, before anything: the deletions marked done, and what an install cut short left
+// behind (<id>.download, <id>.new, <id>.old) removed
+void tidy();
 
 // The core chosen for a disc in Options: Recomp, its module installed, runs the module in this
 // process instead (exec: nothing of the caller stays), given the disc's path. Returns only if not.
