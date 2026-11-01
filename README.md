@@ -1,10 +1,12 @@
 ## Deadcast
 A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the Trimui Brick/Hammer.
 
-## Features
+## Emulator Features
 - Many games play well, or close to full speed on the TrimUI Brick/Hammer.
-- Optional downloadable recomp modules for game mods.
 - USB-C / Bluetooth device-to-device co-op play.
+
+## Recomp Features
+- Optional downloadable recomp modules for game mods.
 
 ## AI Slop Section
 
