@@ -7,10 +7,10 @@ Module `rez`, version 1.0.1.
 
 ## Supported Formats
 
-| Disc | Release | Format | SHA-1 |
-|---|---|---|---|
-| `Rez (Japan) (En,Ja,Fr,De,Es,It).chd` | Japan, HDR-0178 | CHD | `9711a0d0c21af3685672b9a42c72abf999fc7150` |
-| `Rez (Europe) (En,Ja,Fr,De,Es,It).chd` | Europe, MK-5119250 | CHD | `01b7c1cc29a840b141a4ae713037eb1224fac233` |
+| Region | Format | SHA-1 |
+|---|---|---|
+| Japan | CHD | `9711a0d0c21af3685672b9a42c72abf999fc7150` |
+| Europe | CHD | `01b7c1cc29a840b141a4ae713037eb1224fac233` |
 
 The SHA-1 is the CHD header's, shown by `chdman info` as **SHA1**. Other images, including GDI, CDI
 and BIN/CUE, are refused.

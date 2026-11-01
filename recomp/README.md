@@ -54,8 +54,8 @@ module. Each module is added to the build in `CMakeLists.txt` (`add_subdirectory
 A module's README follows `modules/rez/README.md`, kept short: the game in a line or two, then these
 sections, in this order:
 
-- **Supported Formats:** every disc the module plays: file name, release (region and product
-  number), format and the CHD header's SHA-1 (as in `module.cfg`).
+- **Supported Formats:** every disc the module plays: region, format and the CHD header's SHA-1
+  (as in `module.cfg`). Not the file name: a disc can be named anything.
 - **Features:** what the module adds to the game, a line each: the settings it declares in
   `module.cfg` and anything built in (60 fps, a higher resolution, ...). Show FPS is every module's,
   so it is not listed.
