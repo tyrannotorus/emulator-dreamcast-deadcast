@@ -1,4 +1,4 @@
-## Deadcast
+# Deadcast
 A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the Trimui Brick/Hammer.
 
 ## Emulator Features
