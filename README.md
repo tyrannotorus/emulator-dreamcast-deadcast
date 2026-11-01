@@ -1,15 +1,18 @@
 # Deadcast
 A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the Trimui Brick/Hammer.
 
-## Emulator Features
+# Emulator Features
 - Many games play well or close to full speed on the TrimUI Brick/Hammer.
 - USB-C / Bluetooth device-to-device co-op play.
 
-## Recomp Features
+# Recomp Features
 - Optional downloadable recomp modules for game mods.
 
-## Current Supported Devices
-- Trimui Brick/Hammer
+# Supported Devices
+## Trimui Brick/Hammer
+1. Install Deadcast via the NextUI Pak Store
+2. Put Dreamcast roms in a `Roms/Dreamcast (DC-DEADCAST)/` folder in the root of your SD Card.
+3. Put Dreamcast bios (naomi.zip) in a `Emus/tg5040/DC-DEADCAST.pak/bios/` folder in the root of your SD Card.
 
 ## AI Slop Section
 
