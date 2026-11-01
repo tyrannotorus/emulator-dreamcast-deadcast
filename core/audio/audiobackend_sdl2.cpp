@@ -6,7 +6,6 @@
 #include "cfg/option.h"
 #include "stdclass.h"
 
-#include <cstdlib>
 #include <cstring>
 #include <algorithm>
 #include <atomic>
@@ -22,18 +21,11 @@ class SDLAudioBackend : AudioBackend
 	unsigned sample_buffer_size = 0;
 	unsigned sample_count = 0;
 	SDL_AudioCVT audioCvt;
-	// Deadcast: the output plays its buffer a hair faster or slower to keep it at DrcFill (at most 0.2%, a few
-	// hundredths of a percent in practice: the device's clock against the game's, which the display paces), so
-	// the AICA thread never waits on a full output and the audio never holds the SH4 back.
-	// DEADCAST_AUDIO_DRC=0: off (the output paces the game as well, in its 23 ms steps).
-	bool drc = true;
-	// the level aimed at, with room above it for the bursts the AICA thread makes (the SH4 runs in steps,
-	// paced by the display), in a buffer of at least DrcFrames (100 ms; ~45 ms of it held on average, less than
-	// the 55-60 ms a 64 ms buffer that stayed nearly full held)
-	static constexpr double DrcFill = 0.45;
-	static constexpr u32 DrcFrames = 4410;
-	double drcRate = 1.0;	// input frames per output frame
-	double drcFrac = 0.0;	// where between two input frames the next output one falls
+	// Deadcast: the buffer holds at least OutputFrames (100 ms): room above the 1024 frames the device takes at
+	// a time for the bursts the AICA thread makes (the SH4 runs in steps the display paces), so the AICA thread
+	// does not wait on a full buffer (at 64 ms it did, 23 s of a minute in NBA 2K2) and the SH4 is not held
+	// behind it. Played as made, at the device's rate.
+	static constexpr u32 OutputFrames = 4410;
 
 	SDL_AudioDeviceID recorddev {};
 	u8 recordbuf[480 * 4];
@@ -62,42 +54,6 @@ class SDLAudioBackend : AudioBackend
 			return;
 		}
 
-		if (!backend->needs_resampling && backend->drc) {
-			// as far from half full, as much faster or slower, smoothed; the input frames this takes
-			const double fill = (double)backend->sample_count / backend->sample_buffer_size;
-			const double want = 1.0 + std::clamp((fill - DrcFill) * 0.008, -0.002, 0.002);
-			backend->drcRate += (want - backend->drcRate) * 0.1;
-			const double rate = backend->drcRate;
-			const double end = backend->drcFrac + oslen * rate;
-			const unsigned need = (unsigned)end + 1;
-			if (backend->sample_count < need) {
-				audioUnderruns.fetch_add(1, std::memory_order_relaxed);
-				memset(stream, 0, len);
-				backend->stream_mutex.unlock();
-				backend->read_wait.Set();
-				return;
-			}
-			const s16 *in = (const s16 *)&backend->sample_buffer[0];
-			s16 *out = (s16 *)stream;
-			double pos = backend->drcFrac;
-			for (unsigned i = 0; i < oslen; i++, pos += rate)
-			{
-				const unsigned i0 = (unsigned)pos;
-				const int t = (int)((pos - i0) * 65536.0);
-				for (int c = 0; c < 2; c++)
-				{
-					const int a = in[i0 * 2 + c], b = in[i0 * 2 + 2 + c];
-					out[i * 2 + c] = (s16)(a + (((b - a) * t) >> 16));
-				}
-			}
-			const unsigned used = (unsigned)end;
-			backend->drcFrac = end - used;
-			memmove(&backend->sample_buffer[0], &backend->sample_buffer[used], (backend->sample_count - used) * sizeof(uint32_t));
-			backend->sample_count -= used;
-			backend->stream_mutex.unlock();
-			backend->read_wait.Set();
-			return;
-		}
 		if (!backend->needs_resampling) {
 			// Just copy bytes for this case.
 			memcpy(stream, &backend->sample_buffer[0], len);
@@ -133,13 +89,7 @@ public:
 			}
 		}
 	
-		const char *drcEnv = std::getenv("DEADCAST_AUDIO_DRC");
-		drc = drcEnv == nullptr || strcmp(drcEnv, "0") != 0;
-		drcRate = 1.0;
-		drcFrac = 0.0;
-		sample_buffer_size = std::max<u32>(SAMPLE_COUNT * 2, config::AudioBufferSize);
-		if (drc)
-			sample_buffer_size = std::max<u32>(sample_buffer_size, DrcFrames);
+		sample_buffer_size = std::max<u32>({ SAMPLE_COUNT * 2, (u32)config::AudioBufferSize, OutputFrames });
 		sample_buffer = new uint32_t[sample_buffer_size]();
 		sample_count = 0;
 
