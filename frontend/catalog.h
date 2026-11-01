@@ -23,7 +23,7 @@ struct CatalogEntry
 constexpr const char *Release = "https://github.com/tyrannotorus/emulator-dreamcast-deadcast/releases/download/1.1.0/";
 
 constexpr CatalogEntry Catalog[] = {
-	{ "rez", "Rez", "1.0.1", "recomp-rez-1.0.1.tar.gz", 44279418, "43567da49a635152bbf3cd9bcf57e2b6294fdc6afe1399c654c5347dd067be6c",
+	{ "rez", "Rez", "1.0.1", "recomp-rez-1.0.1.tar.gz", 44282356, "295e8b020dafa65134ff7db59056800c8421034772eee12a15034b307d4e926a",
 		{ "9711a0d0c21af3685672b9a42c72abf999fc7150", "01b7c1cc29a840b141a4ae713037eb1224fac233" } },
 };
 
