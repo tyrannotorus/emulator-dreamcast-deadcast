@@ -9,7 +9,8 @@ the disc being played, Deadcast's menu offers it under **Options**:
   other way puts the game's own core back.
 - **Emulator Options** and **Recomp Options** hold each core's settings. Both can be set from either
   core: each core reads its settings when it starts.
-- **Download Recomp Module** (or **Check for Recomp Update** once installed) fetches the module.
+- **Recomp Options** offers only **Download Recomp Module** until the module is installed. Then it
+  starts with **Check for Update** and **Show FPS**, followed by the module's own settings.
 
 Modules live in this repository. A module is added by a pull request and reviewed like any other
 code. Deadcast downloads modules only from Deadcast's own releases, and only files whose SHA-256 the
@@ -76,9 +77,9 @@ setting = scale | Resolution | 1=640x480, panel=1024x768 | 1
 The port layer applies `scale` (the resolution) itself, live. Any other setting a module declares,
 it reads from Deadcast's store (`deadcast::recomp::get("<id>.<key>")`, `frontend/recomp.h`).
 
-Every module's Recomp Options starts with **Show FPS**, which a module does not declare: the frame
-rate in the bottom-left corner, as Deadcast's emulator shows it (`F:59.9`). The settings a module
-declares follow it, in the manifest's order. The port layer draws the counter the same way for every
+Every module's Recomp Options starts with **Check for Update** and **Show FPS**, which a module does
+not declare. Show FPS is the frame rate in the bottom-left corner, as Deadcast's emulator shows it
+(`F:59.9`). The settings a module declares follow them, in the manifest's order. The port layer draws the counter the same way for every
 module, copied into each frame as it is presented, so the frames keep the engine's fast path.
 
 ## How Deadcast runs a module

@@ -524,15 +524,27 @@ bool moduleInstalled()
 	return st.hasModule;
 }
 
-// the module's settings, as its manifest declares them, kept in Deadcast's store
+void checkModule();
+
+// the game's recomp module: with none installed, Download Recomp Module alone; installed, Check for
+// Update, Show FPS, then the module's settings, as its manifest declares them, kept in Deadcast's store
 Screen recompOptionsScreen()
 {
 	Screen screen;
 	screen.title = "Recomp Options";
+	// Check for Update is always Recomp Options' first row and Show FPS its second, in every module,
+	// whatever settings it declares: keep them first. Neither is declared by a module; the module's own
+	// settings (module.cfg) follow them, in the order declared.
+	screen.items.push_back(entry(st.hasModule ? "Check for Update" : "Download Recomp Module", "", [] {
+		if (st.network)
+			busy("Checking...", checkModule);
+		else
+			message("No network connection.");
+	}));
+	if (!st.hasModule)
+		return screen;
 	screen.desc = st.module.name + " " + st.module.version;
-	// Show FPS is always Recomp Options' first row, in every module: keep it first. It is the frame
-	// rate in the corner, as the emulator's Show FPS, and no module declares it; the module's own
-	// settings (module.cfg) follow it, in the order declared.
+	// the frame rate in the corner, as the emulator's Show FPS
 	Item fps;
 	fps.name = "Show FPS";
 	fps.desc = "Shows the frame rate.";
@@ -614,10 +626,8 @@ Screen emulatorOptionsScreen()
 	return screen;
 }
 
-void checkModule();
-
 // the game's core, Deadcast's emulation or a recomp module of it, and each core's options, set from
-// either core; a module looked for online and downloaded
+// either core
 Screen optionsScreen()
 {
 	Screen screen;
@@ -637,15 +647,7 @@ Screen optionsScreen()
 	};
 	screen.items.push_back(std::move(current));
 	screen.items.push_back(entry("Emulator Options", "", [] { push(emulatorOptionsScreen()); }));
-	Item settings = entry("Recomp Options", "", [] { push(recompOptionsScreen()); });
-	settings.available = moduleInstalled;
-	screen.items.push_back(std::move(settings));
-	screen.items.push_back(entry(moduleInstalled() ? "Check for Recomp Update" : "Download Recomp Module", "", [] {
-		if (st.network)
-			busy("Checking...", checkModule);
-		else
-			message("No network connection.");
-	}));
+	screen.items.push_back(entry("Recomp Options", "", [] { push(recompOptionsScreen()); }));
 	return screen;
 }
 
@@ -681,8 +683,9 @@ void downloadOver()
 		return;
 	}
 	st.hasModule = recomp::installed(st.discSha1, st.module);
-	if (depth() > 0 && page().title == "Options")
-		page().items.back().name = "Check for Recomp Update";
+	// Recomp Options again, now with the module's rows
+	if (depth() > 0 && page().title == "Recomp Options")
+		page() = recompOptionsScreen();
 	// in the emulator, Current Core picks it from now on
 	const std::string name = st.module.name;
 	if (st.host.core == Core::Emulator)

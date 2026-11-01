@@ -64,7 +64,8 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 MENU opens Deadcast's menu, drawn like NextUI's own emulators' (`frontend/`, `core/deadcast/menu.cpp`):
 Continue, Save and Load (ten slots, with pictures), Options and Quit. Options holds Current
 Core, Emulator Options (Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it
-changes), Recomp Options and Download Recomp Module. Picking the other core turns Continue into Restart,
+changes) and Recomp Options (Download Recomp Module, or Check for Update and the module's settings once
+it is installed). Picking the other core turns Continue into Restart,
 which starts the game again in it; each core's options can be set from either core. The menu shows
 whether the Brick is connected to a network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the
 Dreamcast's d-pad (at first) and its analog stick, for games that only read the stick. Controls remaps
