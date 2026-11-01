@@ -33,6 +33,8 @@ unsigned long long perfNow();
 void perfWaited(unsigned long long start);
 // Deadcast perf: whether DEADCAST_PERF is on
 bool perfOn();
+// a frame on the screen, its pan done (the display's vblank: vulkan/panel.cpp)
+void perfShown();
 // the GPU's time over a frame's work (vulkan/gputimer.h): kind 0 the renderer's submission (scene, renders
 // to texture, texture uploads), 1 the frame drawn into the screen's page
 void perfGpu(int kind, unsigned long long us);

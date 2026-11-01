@@ -1,4 +1,5 @@
 #include "panel.h"
+#include "hw/pvr/spg.h"
 #include "log/Log.h"
 #include "oslib/oslib.h"
 
@@ -206,6 +207,7 @@ void Panel::showLoop()
 		if (modeAtFrame.exchange(false))
 			frameMode(frame.page);
 		pan(frame.page);
+		perfShown();
 		shownPage = (int)frame.page;
 		lock.lock();
 		frames.pop_front();

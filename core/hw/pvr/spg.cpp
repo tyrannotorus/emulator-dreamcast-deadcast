@@ -80,7 +80,7 @@ std::atomic<u32> audioUnderruns;
 unsigned perfDrawCalls;
 static std::atomic<u64> perfGpuUs[2], perfGpuMaxUs[2], perfBlockedUs[3], perfProcessUs, perfRenderMaxUs;
 static std::atomic<u32> perfGpuCount[2];
-static std::atomic<u32> perfLateGaps;
+static std::atomic<u32> perfLateGaps, perfShownFrames, perfShownRepeats, perfShownLongestUs;
 static std::atomic<bool> perfRenderClockSet;
 static clockid_t perfRenderClock;
 
@@ -105,6 +105,26 @@ static void perfMax(std::atomic<u64>& max, u64 value)
 bool perfOn()
 {
 	return perfEnabled;
+}
+
+void perfShown()
+{
+	if (!perfEnabled)
+		return;
+	static u64 last;
+	const u64 now = perfNowUs();
+	if (last != 0)
+	{
+		const u32 gap = (u32)(now - last);
+		// a vblank or more went by on the old frame
+		if (gap > 25000)
+			perfShownRepeats.fetch_add(1, std::memory_order_relaxed);
+		u32 longest = perfShownLongestUs.load(std::memory_order_relaxed);
+		while (gap > longest && !perfShownLongestUs.compare_exchange_weak(longest, gap, std::memory_order_relaxed))
+			;
+	}
+	last = now;
+	perfShownFrames.fetch_add(1, std::memory_order_relaxed);
 }
 
 void perfGpu(int kind, unsigned long long us)
@@ -238,7 +258,7 @@ static void perfVblank()
 	printf("Deadcast perf %6.1f s: vblank %5.2f/s %5.1f%% | rendered %5.2f/s skipped %5.2f/s | presented %5.2f/s longest %5.1f ms"
 			" | emu cpu %3.0f%% waits %3.0f%% | render cpu %3.0f%% | mmu flushes %u+%u misses %u"
 			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u"
-			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u\n",
+			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms\n",
 			(now - start) / 1e6, vblanks / secs, vblanks / secs / nominal * 100.0,
 			(FrameCount - frames) / secs, (fskip - skipped) / secs,
 			presented / secs, longest / 1000.0,
@@ -257,7 +277,8 @@ static void perfVblank()
 			perfRenderMaxUs.exchange(0) / 1000.0, perfProcessUs.exchange(0) / 1000.0 / std::max(renders, 1u),
 			perfBlockedUs[0].exchange(0) / window * 100.0, perfBlockedUs[1].exchange(0) / window * 100.0,
 			perfBlockedUs[2].exchange(0) / window * 100.0,
-			framesOver, frameMaxUs / 1000.0, perfLateGaps.exchange(0));
+			framesOver, frameMaxUs / 1000.0, perfLateGaps.exchange(0),
+			perfShownFrames.exchange(0) / secs, perfShownRepeats.exchange(0), perfShownLongestUs.exchange(0) / 1000.0);
 	framesOver = 0;
 	frameMaxUs = 0;
 	bmStatCompiled = bmStatCacheResets = 0;
