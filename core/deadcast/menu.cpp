@@ -357,6 +357,8 @@ void drawLink(int ox)
 	const link::Status s = link::status();
 	const std::string title = st.linkFailure.empty() ? linkHeadline(s) : "Connection failed";
 	const std::string under = !st.linkFailure.empty() ? st.linkFailure : title == "Locating device" ? linkHint(s.via) : "";
+	// left-aligned with the pages' rows, in the middle of the room between the title and the buttons
+	const int x = ox + ui::Padding + ui::ButtonPadding;
 	const int width = c.width() - (ui::Padding + ui::ButtonPadding) * 2;
 	const std::vector<std::string> lines = ui::wrap(large, title, width);
 	std::vector<std::string> wrapped;
@@ -368,20 +370,19 @@ void drawLink(int ox)
 		for (const std::string& l : ui::wrap(small, under.substr(start, end - start), width))
 			wrapped.push_back(l);
 	}
-	// centred in the room between the title and the buttons
 	const int gap = wrapped.empty() ? 0 : S(4);
 	const int height = (int)lines.size() * large.lineHeight() + gap + (int)wrapped.size() * small.lineHeight();
 	const int top = ui::Padding + ui::PillSize;
 	int y = top + (c.height() - ui::Padding - ui::PillSize - top - height) / 2;
 	for (const std::string& l : lines)
 	{
-		c.text(large, l, ox + (c.width() - large.measure(l)) / 2, y + large.ascent(), ui::White);
+		c.text(large, l, x, y + large.ascent(), ui::White);
 		y += large.lineHeight();
 	}
 	y += gap;
 	for (const std::string& l : wrapped)
 	{
-		c.text(small, l, ox + (c.width() - small.measure(l)) / 2, y + small.ascent(), ui::TextGray);
+		c.text(small, l, x, y + small.ascent(), ui::TextGray);
 		y += small.lineHeight();
 	}
 }
