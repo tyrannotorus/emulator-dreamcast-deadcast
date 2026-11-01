@@ -159,6 +159,7 @@ public:
 	void ComputeHash();
 	bool Update();
 	u64 dataHash();
+	void noteTextureData(u64 hash, u32 bytes);	// Deadcast perf
 	virtual void UploadToGPU(int width, int height, const u8 *temp_tex_buffer, bool mipmapped, bool mipmapsIncluded = false) = 0;
 	virtual bool Force32BitTexture(TextureType type) const { return false; }
 	void CheckCustomTexture();

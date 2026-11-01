@@ -26,6 +26,8 @@ void perfRendered(unsigned long long start, unsigned draws, unsigned vertices, b
 extern unsigned perfDrawCalls;	// the renderer counts its draw calls here
 // a texture decoded and uploaded again (size: its bytes in VRAM)
 void perfTextureUpdated(u32 size);
+// of those, data a texture there had before (in the last 10 s), not at its last upload
+void perfTextureRecurring();
 // the audio output's callbacks that found too few samples and played silence (audiobackend_sdl2.cpp)
 extern std::atomic<u32> audioUnderruns;
 // the audio output's frames taken in and played, and how full it is (per mille)

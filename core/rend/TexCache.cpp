@@ -21,6 +21,8 @@
 #include "hw/pvr/spg.h"
 
 #include <mutex>
+#include <unordered_map>
+#include <cstdlib>
 #include <xxhash.h>
 
 #ifdef _OPENMP
@@ -496,6 +498,28 @@ void BaseTextureCacheData::ComputeHash()
 	}
 }
 
+// Deadcast perf: whether a texture's new data is data it had in the last 600 frames (the hash includes its
+// address), not at its last upload. DEADCAST_TEXLOG=1 prints each update.
+void BaseTextureCacheData::noteTextureData(u64 hash, u32 bytes)
+{
+	static const bool log = [] { const char *e = std::getenv("DEADCAST_TEXLOG"); return e != nullptr && *e == '1'; }();
+	static std::mutex mutex;
+	static std::unordered_map<u64, u32> seen;	// data hash -> the frame it was last uploaded at
+	std::lock_guard<std::mutex> lock(mutex);
+	auto it = seen.find(hash);
+	const bool again = it != seen.end() && FrameCount - it->second < 600;
+	if (again)
+		perfTextureRecurring();
+	seen[hash] = FrameCount;
+	if (seen.size() > 20000)
+		for (auto i = seen.begin(); i != seen.end(); )
+			i = FrameCount - i->second >= 600 ? seen.erase(i) : std::next(i);
+	if (log)
+		printf("Deadcast texlog %u addr %06x %ux%u fmt %u vq %u mip %u pal %u size %u hash %016llx %s\n", FrameCount,
+				startAddress, width, height, (u32)tcw.PixelFmt, (u32)tcw.VQ_Comp, (u32)tcw.MipMapped,
+				IsPaletted() ? 1u : 0u, bytes, (unsigned long long)hash, again ? "again" : "new");
+}
+
 bool BaseTextureCacheData::Update()
 {
 	//texture state tracking stuff
@@ -578,6 +602,7 @@ bool BaseTextureCacheData::Update()
 		return true;
 	}
 	perfTextureUpdated(size);
+	noteTextureData(newDataHash, size);
 	if (custom_texture.enabled())
 	{
 		u32 oldHash = texture_hash;

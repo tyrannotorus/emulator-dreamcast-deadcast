@@ -76,7 +76,7 @@ static std::atomic<u32> perfLongestPresentUs;
 static std::atomic<u64> perfWaitUs;
 static std::atomic<u64> perfRenderUs;
 static std::atomic<u32> perfRenders, perfDraws, perfVertices, perfTextureRenders;
-static std::atomic<u32> perfTextureUpdates, perfTextureBytes;
+static std::atomic<u32> perfTextureUpdates, perfTextureBytes, perfTextureAgain;
 std::atomic<u32> audioUnderruns;
 std::atomic<u32> audioFramesIn, audioFramesOut, audioFillPermille;
 unsigned perfDrawCalls;
@@ -226,6 +226,12 @@ void perfTextureUpdated(u32 size)
 	perfTextureBytes.fetch_add(size, std::memory_order_relaxed);
 }
 
+void perfTextureRecurring()
+{
+	if (perfEnabled)
+		perfTextureAgain.fetch_add(1, std::memory_order_relaxed);
+}
+
 void perfWaited(unsigned long long start)
 {
 	if (perfEnabled)
@@ -317,7 +323,7 @@ static void perfVblank()
 	const u64 gpuSceneUs = perfGpuUs[0].exchange(0), gpuPageUs = perfGpuUs[1].exchange(0);
 	printf("Deadcast perf %6.1f s: vblank %5.2f/s %5.1f%% | rendered %5.2f/s skipped %5.2f/s | presented %5.2f/s longest %5.1f ms"
 			" | emu cpu %3.0f%% waits %3.0f%% | render cpu %3.0f%% | mmu flushes %u+%u misses %u"
-			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u"
+			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB, seen before %u) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u"
 			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms | aica cpu %.0f%% | audio in %.0f/s out %.0f/s fill %u | submit %.2f ms + page %.2f ms\n",
 			(now - start) / 1e6, vblanks / secs, vblanks / secs / nominal * 100.0,
 			(FrameCount - frames) / secs, (fskip - skipped) / secs,
@@ -326,7 +332,7 @@ static void perfVblank()
 			renderCpu != 0 ? (renderNow - renderCpu) / window * 100.0 : 0.0,
 			mmuStatFullFlushes, mmuStatPartialFlushes, mmuStatMisses,
 			renders, perfTextureRenders.exchange(0), renders ? renderUs / 1000.0 / renders : 0.0, renders ? draws / renders : 0, renders ? vertices / renders : 0,
-			perfTextureUpdates.exchange(0), perfTextureBytes.exchange(0) / 1024,
+			perfTextureUpdates.exchange(0), perfTextureBytes.exchange(0) / 1024, perfTextureAgain.exchange(0),
 			audioUnderruns.exchange(0),
 			aica::aicaStatReads, aica::aicaStatWrites, aica::aicaStatMeets, aica::aicaStatWaitUs / window * 100.0,
 			deadcast::waitLoopTurnsSkipped,
