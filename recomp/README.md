@@ -51,16 +51,14 @@ module. Each module is added to the build in `CMakeLists.txt` (`add_subdirectory
 
 ### README.md
 
-A module's README follows `modules/rez/README.md`. It starts with the game and what the module is,
-then has these sections, in this order:
+A module's README follows `modules/rez/README.md`, kept short: the game in a line or two, then these
+sections, in this order:
 
-- **Supported Formats:** every disc the module plays: its file name, its release (region and product
-  number), its format (a CHD) and the SHA-1 its CHD's header records, the same as `module.cfg`. Say
-  which `chdman info` line shows it, and which images are refused.
-- **Recomp Features:** what the module adds to the game, each setting it declares in `module.cfg`
-  and any feature built in (a higher resolution, widescreen, ...). Show FPS is every module's, so it
-  is not listed.
-- **Playing:** its speed on the Brick, where it saves, anything a player should know.
+- **Supported Formats:** every disc the module plays: file name, release (region and product
+  number), format and the CHD header's SHA-1 (as in `module.cfg`).
+- **Features:** what the module adds to the game, a line each: the settings it declares in
+  `module.cfg` and anything built in (60 fps, a higher resolution, ...). Show FPS is every module's,
+  so it is not listed.
 - **Files**, **Building** and **Credits**.
 
 ### module.cfg
