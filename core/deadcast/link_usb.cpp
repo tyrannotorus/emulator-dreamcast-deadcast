@@ -41,6 +41,12 @@ constexpr const char *OtgRole = "/sys/devices/platform/soc/usbc0/otg_role";
 constexpr const char *OtgHost = "/sys/devices/platform/soc/usbc0/usb_host";
 constexpr const char *OtgDevice = "/sys/devices/platform/soc/usbc0/usb_device";
 constexpr const char *OtgNull = "/sys/devices/platform/soc/usbc0/usb_null";
+// The bottom port's 5 V out as a host: 0 off (TrimUI's usb_dock.sh: a host whose power comes from the
+// other side). Written, never read (like the role files, its read may act). Off whenever this Brick hosts
+// over its bottom port: the other Brick (its port pinned a device) links without it (seen 2026-11-01:
+// found in 4 s, kept with the 5 V on and off again), so no Brick ever powers the other over that cable,
+// and two hosting at once while they settle which hosts put no two 5 V supplies on one wire.
+constexpr const char *Axp5v = "/sys/devices/platform/soc/usbc0/axp_5v";
 constexpr const char *HostMark = "/tmp/deadcast-link-host";
 // power coming into the bottom port that the PMIC accepts: a charger's, a computer's, a Brick's top
 // port's (not a Brick's bottom port's: it reads 0 then, even with 5 V on the pins)
@@ -132,7 +138,7 @@ struct DevicePipe : Pipe
 	u32 testBytes() const override { return 16 << 20; }
 } devicePipe;
 
-// the PMIC's 5 V out of the bottom port, which the other Brick needs to see a host there
+// the PMIC's 5 V out of the bottom port (off while Deadcast hosts there: Axp5v)
 std::string bottomPower()
 {
 	if (DIR *dir = opendir("/sys/class/regulator"))
@@ -444,9 +450,18 @@ void setRole(const std::string& want)
 	if (readText(OtgRole) != want)
 	{
 		if (want == "usb_host")
+		{
 			if (FILE *f = fopen(HostMark, "w"))
 				fclose(f);
+			// off before (the driver turns it on as it makes the port a host) and after
+			writeText(Axp5v, "0");
+		}
 		const std::string said = readText(want == "usb_host" ? OtgHost : want == "usb_device" ? OtgDevice : OtgNull);
+		if (want == "usb_host")
+		{
+			log("bottom port: a host, its 5 V out %s before it was switched off", bottomPower().c_str());
+			writeText(Axp5v, "0");
+		}
 		for (int i = 0; i < 20 && readText(OtgRole) != want; i++)
 			sleepMs(100);
 		log("bottom port: %s (%s), its 5 V out %s", readText(OtgRole).c_str(), said.c_str(), bottomPower().c_str());
@@ -553,8 +568,8 @@ struct Usb : Transport
 		if (access(HostMark, F_OK) == 0)
 			setRole("usb_device");
 		// With nothing on it, or another Brick's bottom port (the driver does not take that for a host), the
-		// port has no role and no device behind it: a device then, for the other Brick to find. As it was
-		// once the link stops.
+		// port has no role and no device behind it: a device then, for the other Brick to find. It stays one
+		// after the link (end()).
 		if (readText(OtgRole) == "null")
 			setRole("usb_device");
 		// Power coming in (a host: another Brick's top port, a computer; or a charger): the driver made
@@ -745,10 +760,9 @@ struct Usb : Transport
 		if (hosting)
 			setRole("usb_device");
 		hosting = false;
-		// (a pinned port stays a device: given back to the driver as null, it does not take a computer's
-		// power for a host again, and ADB is gone; seen 2026-10-31)
-		if (startRole == "null")
-			setRole("null");
+		// The port stays a device, never null again: choosing any role stops the driver's own watch of
+		// the port, so given back as null it no longer finds a computer plugged in later, and ADB and the
+		// PC are gone until a reboot (seen 2026-10-31 and 2026-11-01). A device, a computer finds it.
 		pinned = false;
 		holdUntil = 0;
 		// the ports are as they were: nothing left for it to do
