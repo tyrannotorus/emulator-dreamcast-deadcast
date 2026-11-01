@@ -78,6 +78,9 @@ static std::atomic<u32> perfRenders, perfDraws, perfVertices, perfTextureRenders
 static std::atomic<u32> perfTextureUpdates, perfTextureBytes;
 std::atomic<u32> audioUnderruns;
 unsigned perfDrawCalls;
+static std::atomic<u64> perfGpuUs[2], perfGpuMaxUs[2], perfBlockedUs[3], perfProcessUs, perfRenderMaxUs;
+static std::atomic<u32> perfGpuCount[2];
+static std::atomic<u32> perfLateGaps;
 static std::atomic<bool> perfRenderClockSet;
 static clockid_t perfRenderClock;
 
@@ -92,13 +95,48 @@ unsigned long long perfNow()
 	return perfEnabled ? perfNowUs() : 0;
 }
 
+static void perfMax(std::atomic<u64>& max, u64 value)
+{
+	u64 now = max.load(std::memory_order_relaxed);
+	while (value > now && !max.compare_exchange_weak(now, value, std::memory_order_relaxed))
+		;
+}
+
+bool perfOn()
+{
+	return perfEnabled;
+}
+
+void perfGpu(int kind, unsigned long long us)
+{
+	if (!perfEnabled || kind < 0 || kind > 1)
+		return;
+	perfGpuUs[kind].fetch_add(us, std::memory_order_relaxed);
+	perfGpuCount[kind].fetch_add(1, std::memory_order_relaxed);
+	perfMax(perfGpuMaxUs[kind], us);
+}
+
+void perfRenderBlocked(int kind, unsigned long long start)
+{
+	if (perfEnabled && kind >= 0 && kind <= 2)
+		perfBlockedUs[kind].fetch_add(perfNowUs() - start, std::memory_order_relaxed);
+}
+
+void perfProcessed(unsigned long long start)
+{
+	if (perfEnabled)
+		perfProcessUs.fetch_add(perfNowUs() - start, std::memory_order_relaxed);
+}
+
 void perfRendered(unsigned long long start, unsigned draws, unsigned vertices, bool toTexture)
 {
 	if (!perfEnabled)
 		return;
 	if (toTexture)
 		perfTextureRenders.fetch_add(1, std::memory_order_relaxed);
-	perfRenderUs.fetch_add(perfNowUs() - start, std::memory_order_relaxed);
+	const u64 took = perfNowUs() - start;
+	perfRenderUs.fetch_add(took, std::memory_order_relaxed);
+	perfMax(perfRenderMaxUs, took);
 	perfRenders.fetch_add(1, std::memory_order_relaxed);
 	perfDraws.fetch_add(draws, std::memory_order_relaxed);
 	perfVertices.fetch_add(vertices, std::memory_order_relaxed);
@@ -141,6 +179,8 @@ void perfPresented()
 	if (last != 0)
 	{
 		u32 gap = (u32)(now - last);
+		if (gap > 25000)
+			perfLateGaps.fetch_add(1, std::memory_order_relaxed);
 		u32 longest = perfLongestPresentUs.load(std::memory_order_relaxed);
 		while (gap > longest && !perfLongestPresentUs.compare_exchange_weak(longest, gap, std::memory_order_relaxed))
 			;
@@ -153,7 +193,18 @@ static void perfVblank()
 {
 	static u64 start, windowStart, emuCpu, renderCpu;
 	static u32 vblanks, frames, skipped;
+	// the wall time between two emulated vblanks: over 17.5 ms (a frame is 16.68), that frame was late
+	static u64 lastVblank, frameMaxUs;
+	static u32 framesOver;
 	u64 now = perfNowUs();
+	if (lastVblank != 0)
+	{
+		const u64 frame = now - lastVblank;
+		frameMaxUs = std::max(frameMaxUs, frame);
+		if (frame > 17500)
+			framesOver++;
+	}
+	lastVblank = now;
 	bool renderClock = perfRenderClockSet.load(std::memory_order_acquire);
 	if (start == 0)
 	{
@@ -182,9 +233,12 @@ static void perfVblank()
 	u64 emuNow = perfCpuUs(CLOCK_THREAD_CPUTIME_ID);
 	u64 renderNow = renderClock ? perfCpuUs(perfRenderClock) : 0;
 	double window = (double)(now - windowStart);
+	const u32 gpuScene = perfGpuCount[0].exchange(0), gpuPage = perfGpuCount[1].exchange(0);
+	const u64 gpuSceneUs = perfGpuUs[0].exchange(0), gpuPageUs = perfGpuUs[1].exchange(0);
 	printf("Deadcast perf %6.1f s: vblank %5.2f/s %5.1f%% | rendered %5.2f/s skipped %5.2f/s | presented %5.2f/s longest %5.1f ms"
 			" | emu cpu %3.0f%% waits %3.0f%% | render cpu %3.0f%% | mmu flushes %u+%u misses %u"
-			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u\n",
+			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u"
+			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u\n",
 			(now - start) / 1e6, vblanks / secs, vblanks / secs / nominal * 100.0,
 			(FrameCount - frames) / secs, (fskip - skipped) / secs,
 			presented / secs, longest / 1000.0,
@@ -197,7 +251,15 @@ static void perfVblank()
 			aica::aicaStatReads, aica::aicaStatWrites, aica::aicaStatMeets, aica::aicaStatWaitUs / window * 100.0,
 			deadcast::waitLoopTurnsSkipped,
 			deadcast::sleepTimeslices * (double)SH4_TIMESLICE / (vblanks / secs * Frame_Cycles * secs) * 100.0,
-			bmStatCompiled, bmStatCompileUs / 1000.0, bmStatCacheResets);
+			bmStatCompiled, bmStatCompileUs / 1000.0, bmStatCacheResets,
+			gpuScene ? gpuSceneUs / 1000.0 / gpuScene : 0.0, perfGpuMaxUs[0].exchange(0) / 1000.0,
+			gpuPage ? gpuPageUs / 1000.0 / gpuPage : 0.0, perfGpuMaxUs[1].exchange(0) / 1000.0,
+			perfRenderMaxUs.exchange(0) / 1000.0, perfProcessUs.exchange(0) / 1000.0 / std::max(renders, 1u),
+			perfBlockedUs[0].exchange(0) / window * 100.0, perfBlockedUs[1].exchange(0) / window * 100.0,
+			perfBlockedUs[2].exchange(0) / window * 100.0,
+			framesOver, frameMaxUs / 1000.0, perfLateGaps.exchange(0));
+	framesOver = 0;
+	frameMaxUs = 0;
 	bmStatCompiled = bmStatCacheResets = 0;
 	bmStatCompileUs = 0;
 	deadcast::waitLoopTurnsSkipped = 0;

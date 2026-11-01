@@ -72,8 +72,12 @@ bool QueueRender(TA_context* ctx)
 			// If autoskipframe is enabled (normal level), we only do so if the CPU is running
 			// fast enough over the last frames
 			// Deadcast: a render to texture, and the frame right after one, are never skipped: they wait for
-			// the queue instead
+			// the queue instead (the SH4 waiting for the renderer: perf's waits)
+		{
+			const auto waitStart = perfNow();
 			frame_finished.Wait();
+			perfWaited(waitStart);
+		}
 	}
 
 	if (!skipFrame && !rqueue && !ctx->rend.isRTT)

@@ -28,6 +28,7 @@ bool BaseVulkanRenderer::BaseInit(vk::RenderPass renderPass, int subpass)
 {
 	// Deadcast: as many frames in flight as the panel has pages, shared by screen frames and renders to texture
 	texCommandPool.Init(Panel::Pages);
+	texCommandPool.measureGpu(0);
 	fbCommandPool.Init();
 	quadPipeline = std::make_unique<QuadPipeline>(false, false);
 	quadPipeline->Init(&shaderManager, renderPass, subpass);

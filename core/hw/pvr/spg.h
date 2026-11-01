@@ -31,3 +31,13 @@ extern std::atomic<u32> audioUnderruns;
 // Deadcast: the emulation thread waited for the renderer, from start (perfNow()) until now
 unsigned long long perfNow();
 void perfWaited(unsigned long long start);
+// Deadcast perf: whether DEADCAST_PERF is on
+bool perfOn();
+// the GPU's time over a frame's work (vulkan/gputimer.h): kind 0 the renderer's submission (scene, renders
+// to texture, texture uploads), 1 the frame drawn into the screen's page
+void perfGpu(int kind, unsigned long long us);
+// the render thread blocked from start until now: kind 0 on the renderer's frame in flight (the GPU), 1 on
+// a page of the screen (shown, or its copy not done), 2 on the parse thread (the frame's polygons)
+void perfRenderBlocked(int kind, unsigned long long start);
+// a render's first part done (polygons to vertices, Renderer::Process), from start
+void perfProcessed(unsigned long long start);

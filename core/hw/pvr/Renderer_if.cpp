@@ -353,9 +353,14 @@ private:
 #endif
 		const bool offThread = renderer->parsesOffThread();
 		if (offThread)
+		{
+			const auto parseStart = perfNow();
 			parseWait();
+			perfRenderBlocked(2, parseStart);
+		}
 		{
 			FC_PROFILE_SCOPE_NAMED("Renderer::Process");
+			const auto processStart = perfNow();
 			try {
 				renderer->Process(taContext);
 			} catch (...) {
@@ -365,6 +370,7 @@ private:
 				FinishRender(taContext);
 				throw;
 			}
+			perfProcessed(processStart);
 		}
 
 		if (renderToScreen && !taContext->endSignaled)

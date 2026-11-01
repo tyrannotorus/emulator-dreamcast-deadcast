@@ -331,6 +331,7 @@ void VulkanContext::CreateSwapChain()
 	    	drawFences.push_back(device->createFenceUnique(vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)));
 	    }
 	    inFlightObjects.resize(Panel::Pages);
+	    pageTimer.init(physicalDevice, *device, graphicsQueueIndex, Panel::Pages, 1);
 	    quadPipeline->Init(shaderManager.get(), *renderPass, 0);
 	    quadPipelineWithAlpha->Init(shaderManager.get(), *renderPass, 0);
 	    quadDrawer->Init(quadPipeline.get());
@@ -389,6 +390,7 @@ void VulkanContext::NewFrame()
 	if (!IsValid())
 		throw InvalidVulkanContext();
 	currentImage = (currentImage + 1) % GetSwapChainSize();
+	const unsigned long long waitStart = pageTimer.active() ? perfNow() : 0;
 	panel.waitWritable(currentImage);
 	try {
 		vk::Result res = device->waitForFences(*drawFences[currentImage], true, UINT64_MAX);
@@ -398,10 +400,17 @@ void VulkanContext::NewFrame()
 		WARN_LOG(RENDERER, "vk:SystemError: %s", e.what());
 		throw FlycastException("Vulkan system error");
 	}
+	if (pageTimer.active())
+	{
+		perfRenderBlocked(1, waitStart);
+		pageTimer.collect(currentImage);
+	}
 	device->resetCommandPool(*commandPools[currentImage], vk::CommandPoolResetFlagBits::eReleaseResources);
 	inFlightObjects[currentImage].clear();
 	vk::CommandBuffer commandBuffer = *commandBuffers[currentImage];
 	commandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+	if (pageTimer.active())
+		pageTimer.start(commandBuffer, currentImage);
 	assert(!rendering);
 	rendering = true;
 }
@@ -422,6 +431,8 @@ void VulkanContext::EndFrame(vk::CommandBuffer overlayCmdBuffer)
 		return;
 	vk::CommandBuffer commandBuffer = *commandBuffers[currentImage];
 	commandBuffer.endRenderPass();
+	if (pageTimer.active())
+		pageTimer.stop(commandBuffer, currentImage);
 	commandBuffer.end();
 	std::vector<vk::CommandBuffer> allCmdBuffers;
 	if (overlayCmdBuffer)
@@ -545,6 +556,7 @@ void VulkanContext::PresentLastFrame()
 
 void VulkanContext::term()
 {
+	pageTimer.term();
 	lastFrameView = nullptr;
 	if (device && graphicsQueue)
 		WaitIdle();

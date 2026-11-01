@@ -40,6 +40,15 @@ void CommandPool::Init(size_t chainSize)
 	freeBuffers.resize(chainSize);
 	inFlightBuffers.resize(chainSize);
 	inFlightObjects.resize(chainSize);
+	if (gpuKind >= 0)
+		measureGpu(gpuKind);
+}
+
+void CommandPool::measureGpu(int kind)
+{
+	gpuKind = kind;
+	VulkanContext *context = VulkanContext::Instance();
+	gpuTimer.init(context->GetPhysicalDevice(), device, context->GetGraphicsQueueFamilyIndex(), (u32)chainSize, kind);
 }
 
 void CommandPool::Term()
@@ -51,6 +60,7 @@ void CommandPool::Term()
 		if (res != vk::Result::eSuccess)
 			WARN_LOG(RENDERER, "CommandPool::Term: waitForFences failed %d", (int)res);
 	}
+	gpuTimer.term();
 	inFlightObjects.clear();
 	freeBuffers.clear();
 	inFlightBuffers.clear();
@@ -64,9 +74,15 @@ void CommandPool::BeginFrame()
 		return;
 	frameStarted = true;
 	index = (index + 1) % chainSize;
+	const unsigned long long waitStart = gpuKind >= 0 ? perfNow() : 0;
 	vk::Result res = device.waitForFences(fences[index].get(), true, UINT64_MAX);
 	if (res != vk::Result::eSuccess)
 		WARN_LOG(RENDERER, "CommandPool::BeginFrame: waitForFences failed %d", (int)res);
+	if (gpuKind >= 0)
+	{
+		perfRenderBlocked(0, waitStart);
+		gpuTimer.collect((u32)index);
+	}
 	std::vector<vk::UniqueCommandBuffer>& inFlightBuf = inFlightBuffers[index];
 	std::vector<vk::UniqueCommandBuffer>& freeBuf = freeBuffers[index];
 	std::move(inFlightBuf.begin(), inFlightBuf.end(), std::back_inserter(freeBuf));
@@ -95,6 +111,22 @@ void CommandPool::EndFrame()
 				}
 			len--;
 		}
+	}
+	// Deadcast: measured, two command buffers of its own around the frame's (gputimer.h)
+	if (gpuTimer.active() && !commandBuffers.empty())
+	{
+		// (the order is settled above: Allocate's mark for it no longer matters)
+		const vk::CommandBuffer first = Allocate();
+		const vk::CommandBuffer last = Allocate();
+		const vk::CommandBufferBeginInfo once(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+		first.begin(once);
+		gpuTimer.start(first, (u32)index);
+		first.end();
+		last.begin(once);
+		gpuTimer.stop(last, (u32)index);
+		last.end();
+		commandBuffers.insert(commandBuffers.begin(), first);
+		commandBuffers.push_back(last);
 	}
 	device.resetFences(fences[index].get());
 	VulkanContext::Instance()->SubmitCommandBuffers(commandBuffers, *fences[index]);

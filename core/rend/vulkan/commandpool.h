@@ -20,6 +20,7 @@
 */
 #pragma once
 #include "vulkan.h"
+#include "gputimer.h"
 
 #include <vector>
 #include <memory>
@@ -33,6 +34,8 @@ public:
 	void EndFrame();
 	void EndFrameAndWait();
 	vk::CommandBuffer Allocate(bool submitLast = false);
+	// Deadcast: each frame's GPU time measured, as kind (perfGpu), and the waits for it (DEADCAST_PERF)
+	void measureGpu(int kind);
 
 	int GetIndex() const {
 		return index;
@@ -54,4 +57,6 @@ private:
 	std::vector<std::vector<std::unique_ptr<Deletable>>> inFlightObjects;
 	bool frameStarted = false;
 	vk::Device device{};
+	GpuTimer gpuTimer;
+	int gpuKind = -1;
 };

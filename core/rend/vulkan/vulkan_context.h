@@ -22,6 +22,7 @@
 
 #ifdef USE_VULKAN
 #include "vulkan.h"
+#include "gputimer.h"
 
 #include <stdexcept>
 
@@ -255,6 +256,7 @@ private:
 	std::unique_ptr<QuadDrawer> quadRotateDrawer;
 	std::unique_ptr<ShaderManager> shaderManager;
 
+	GpuTimer pageTimer;		// Deadcast: the GPU's time for each frame drawn into its page (DEADCAST_PERF)
 	vk::ImageView lastFrameView;
 	vk::Extent2D lastFrameExtent;
 	float lastFrameAR = 0.f;
