@@ -14,6 +14,8 @@ cp shell/brick/pak/config/* "$PAK/config/"
 llvm-strip -o "$PAK/deadcast" "$EXE"
 chmod +x "$PAK/launch.sh" "$PAK/deadcast"
 cp LICENSE "$PAK/licenses/flycast-GPL-2.0.txt"
+# the menu's font (frontend/), in the binary
+cp fonts/NotoSans-OFL.txt "$PAK/licenses/NotoSans-OFL-1.1.txt"
 echo "package: $PAK ($(du -sh "$PAK" | cut -f1))"
 # the release's file (pak.json release_filename): the pak's contents at the zip's root, as the Pak Store
 # unpacks it into Emus/tg5040/DC-DEADCAST.pak/, in a fixed order
