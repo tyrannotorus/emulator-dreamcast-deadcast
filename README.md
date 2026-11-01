@@ -1,5 +1,5 @@
 # Deadcast
-A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the Trimui Brick/Hammer.
+A Sega Dreamcast emulator targeting optimal performance on the Trimui Brick/Hammer.
 
 # Emulator Features
 - Many games play well or close to full speed on the TrimUI Brick/Hammer.
@@ -12,9 +12,11 @@ A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the T
 ## Trimui Brick/Hammer
 1. Install Deadcast via the [NextUI](https://github.com/LoveRetro/NextUI) [Pak Store](https://github.com/LoveRetro/nextui-pak-store).
 2. Put Dreamcast roms in a `/Roms/Dreamcast (DC-DEADCAST)/` folder on your SD Card.
-3. Put the Dreamcast BIOS (`dc_boot.bin`) in a `/Emus/tg5040/DC-DEADCAST.pak/bios/` folder on your SD Card.
+3. Put the Dreamcast BIOS (`dc_boot.bin`) in the `/Emus/tg5040/DC-DEADCAST.pak/bios/` folder on your SD Card.
 
-## AI Slop Section
+# Credits
+
+## AI Section
 
 Deadcast runs on the TrimUI Brick (NextUI, tg5040) only, as `Emus/tg5040/DC-DEADCAST.pak`. It renders
 with Vulkan on the Brick's PowerVR GE8300 straight to the panel through fb0; SDL2 reads the pad and
