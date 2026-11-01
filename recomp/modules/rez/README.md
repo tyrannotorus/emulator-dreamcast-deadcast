@@ -3,8 +3,6 @@
 Rez (United Game Artists, 2001), recompiled for the TrimUI Brick. Deadcast plays it in place of its
 emulator when the game's Current Core is Recomp.
 
-Module `rez`, version 1.0.1.
-
 ## Supported Formats
 
 | Region | Format | SHA-1 |
