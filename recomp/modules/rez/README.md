@@ -11,7 +11,7 @@ emulator when the game's Current Core is Recomp.
 | Europe | CHD | `01b7c1cc29a840b141a4ae713037eb1224fac233` |
 
 The SHA-1 is the CHD header's, shown by `chdman info` as **SHA1**. Other images, including GDI, CDI
-and BIN/CUE, are refused.
+and BIN/CUE, are currently not supported.
 
 ## Features
 
