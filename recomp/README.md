@@ -4,9 +4,11 @@ A recomp module is a recompiled build of one Dreamcast game: the game's SH-4 cod
 and compiled for the TrimUI Brick, played instead of Deadcast's emulation. Where a module exists for
 the disc being played, Deadcast's menu offers it under **Options**:
 
-- **Current Core** picks Emulator or Recomp for that game. Changing it restarts the game in the
-  other core.
-- **Recomp Options** shows the module's settings.
+- **Current Core** picks Emulator or Recomp for that game. Once another core is picked, the main
+  page's **Continue** reads **Restart**, which starts the game again in it. Leaving the menu any
+  other way puts the game's own core back.
+- **Emulator Options** and **Recomp Options** hold each core's settings. Both can be set from either
+  core: each core reads its settings when it starts.
 - **Download Recomp Module** (or **Check for Recomp Update** once installed) fetches the module.
 
 Modules live in this repository. A module is added by a pull request and reviewed like any other
@@ -21,7 +23,9 @@ Deadcast build already knows. It never downloads from anyone else's repository.
    module reads them from Deadcast's store.
 2. **Deadcast's menu, not one of its own.** MENU opens Deadcast's menu over the held game, through
    the shared port layer (`src/framework/deadcast.cpp`, built on `../frontend`). Save and Load (the
-   emulator's save states) and Emulator Options are shown disabled.
+   emulator's save states) are shown disabled. Emulator Options' Console, Video and Audio settings
+   are kept in the emulator's `emu.cfg` for its next start (`../frontend/options.h`); its Controls and
+   Local Multiplayer are the emulator's own, shown disabled.
 3. **No game data in git.** No disc images, nothing extracted from them, and no translated code.
    The translation is generated at build time from the builder's own disc (`<module>/game/extracted`
    is git-ignored).
@@ -31,8 +35,11 @@ Deadcast build already knows. It never downloads from anyone else's repository.
 
 ## A module's folder
 
+Every module has a folder of its own in `modules/`:
+
 ```
-recomp/<id>/
+recomp/modules/<id>/
+  README.md           the module, for players and builders (below)
   module.cfg          the manifest
   game/<id>.toml      the game: its discs, its boot file, relocations, hooks, functions
   game/CMakeLists.txt dreamcomp_add_port(<id> ...) with the module's own sources
@@ -40,7 +47,21 @@ recomp/<id>/
 ```
 
 The engine (`engine/`) and the port layer (`src/framework/`, `include/dreamcomp/`) are shared by every
-module.
+module. Each module is added to the build in `CMakeLists.txt` (`add_subdirectory(modules/<id>/game)`).
+
+### README.md
+
+A module's README follows `modules/rez/README.md`. It starts with the game and what the module is,
+then has these sections, in this order:
+
+- **Supported Formats:** every disc the module plays: its file name, its release (region and product
+  number), its format (a CHD) and the SHA-1 its CHD's header records, the same as `module.cfg`. Say
+  which `chdman info` line shows it, and which images are refused.
+- **Recomp Features:** what the module adds to the game, each setting it declares in `module.cfg`
+  and any feature built in (a higher resolution, widescreen, ...). Show FPS is every module's, so it
+  is not listed.
+- **Playing:** its speed on the Brick, where it saves, anything a player should know.
+- **Files**, **Building** and **Credits**.
 
 ### module.cfg
 
@@ -57,18 +78,18 @@ setting = scale | Resolution | 1=640x480, panel=1024x768 | 1
 The port layer applies `scale` (the resolution) itself, live. Any other setting a module declares,
 it reads from Deadcast's store (`deadcast::recomp::get("<id>.<key>")`, `frontend/recomp.h`).
 
-Every module's Recomp Options also has **Show FPS**, which a module does not declare: the frame
-rate in the bottom-left corner, as Deadcast's emulator shows it (`F:59.9`). The port layer draws it
-the same way for every module, copied into each frame as it is presented, so the frames keep the
-engine's fast path.
+Every module's Recomp Options starts with **Show FPS**, which a module does not declare: the frame
+rate in the bottom-left corner, as Deadcast's emulator shows it (`F:59.9`). The settings a module
+declares follow it, in the manifest's order. The port layer draws the counter the same way for every
+module, copied into each frame as it is presented, so the frames keep the engine's fast path.
 
 ## How Deadcast runs a module
 
 Deadcast keeps installed modules in `<DEADCAST_HOME>/recomp/<id>/`. When a game's core is Recomp,
 Deadcast's first act is to `exec` the module, `<exec> <disc>`, so the emulator never starts. A module
 keeps its own files (its settings file, memory card, caches) in `<DEADCAST_HOME>/recomp-data/<id>/`.
-Choosing the other core in the menu ends the process with exit code 86, and Deadcast's `launch.sh`
-starts the game again in the core now chosen.
+Restarting in the other core (Current Core, then Restart) ends the process with exit code 86, and
+Deadcast's `launch.sh` starts the game again in the core now chosen.
 
 ## Building and contributing
 
@@ -86,7 +107,7 @@ carries a binary or anything from the disc. Release binaries are built by the ma
 reviewed source and the maintainer's own disc: a binary from a pull request cannot be checked without
 building it again. With the same disc and the pinned toolchain, both builds come out the same.
 
-Rez Recompiled (`rez/`) is the first module. Its engine came from the standalone Rez Recompiled
+Rez Recompiled (`modules/rez/`) is the first module. Its engine came from the standalone Rez Recompiled
 port, which owes much to
 [dream-recomp](https://github.com/phobos665/dream-recomp), [dreamcomp](https://github.com/cherryduck/dreamcomp)
 and [flycast](https://github.com/flyinghead/flycast).

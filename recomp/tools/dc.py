@@ -84,7 +84,7 @@ def run(cmd: list[str], cwd: str | None = None, check: bool = True, env: dict | 
 # project helpers
 
 def port_info() -> dict:
-    # Deadcast: the module's folder (DC_PORT, e.g. recomp/rez), its game/<id>.toml in it; the engine
+    # Deadcast: the module's folder (DC_PORT, e.g. recomp/modules/rez), its game/<id>.toml in it; the engine
     # is shared, at ROOT
     port = os.environ.get("DC_PORT", ROOT)
     tomls = glob.glob(os.path.join(port, "game", "*.toml"))

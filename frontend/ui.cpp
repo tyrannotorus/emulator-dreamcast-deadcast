@@ -530,6 +530,22 @@ Screen recompOptionsScreen()
 	Screen screen;
 	screen.title = "Recomp Options";
 	screen.desc = st.module.name + " " + st.module.version;
+	// Show FPS is always Recomp Options' first row, in every module: keep it first. It is the frame
+	// rate in the corner, as the emulator's Show FPS, and no module declares it; the module's own
+	// settings (module.cfg) follow it, in the order declared.
+	Item fps;
+	fps.name = "Show FPS";
+	fps.desc = "Shows the frame rate.";
+	fps.row = Row::Choice;
+	fps.values = { "Off", "On" };
+	const std::string fpsKey = st.module.id + ".fps";
+	fps.value = recomp::get(fpsKey, "off") == "on" ? 1 : 0;
+	fps.change = [fpsKey](int i) {
+		recomp::set(fpsKey, i ? "on" : "off");
+		if (st.host.recompSetting)
+			st.host.recompSetting("fps", i ? "on" : "off");
+	};
+	screen.items.push_back(std::move(fps));
 	for (const recomp::Setting& setting : st.module.settings)
 	{
 		Item item;
@@ -552,28 +568,56 @@ Screen recompOptionsScreen()
 		};
 		screen.items.push_back(std::move(item));
 	}
-	// every module's: the frame rate in the corner, as the emulator's Show FPS
-	Item fps;
-	fps.name = "Show FPS";
-	fps.desc = "Shows the frame rate.";
-	fps.row = Row::Choice;
-	fps.values = { "Off", "On" };
-	const std::string key = st.module.id + ".fps";
-	fps.value = recomp::get(key, "off") == "on" ? 1 : 0;
-	fps.change = [key](int i) {
-		recomp::set(key, i ? "on" : "off");
-		if (st.host.recompSetting)
-			st.host.recompSetting("fps", i ? "on" : "off");
-	};
-	screen.items.push_back(std::move(fps));
 	return screen;
 }
 
 
+// a page of Emulator Options' settings (Console, Video, Audio), each kept as it changes
+Screen settingsScreen(const options::Page& list)
+{
+	Screen screen;
+	screen.title = list.name;
+	for (const options::Setting& setting : list.settings)
+	{
+		Item item;
+		item.name = setting.name;
+		item.desc = setting.desc;
+		item.row = Row::Choice;
+		const int now = st.host.emulatorSettings.get(setting);
+		for (const auto& choice : setting.choices)
+		{
+			if (choice.second == now)
+				item.value = (int)item.values.size();
+			item.values.push_back(choice.first);
+		}
+		item.change = [s = &setting](int i) { st.host.emulatorSettings.set(*s, s->choices[i].second); };
+		screen.items.push_back(std::move(item));
+	}
+	return screen;
+}
+
+// the emulator's settings, from either core (a module keeps them for the emulator's next start); its
+// Controls and Local Multiplayer are its own, disabled in a module
+Screen emulatorOptionsScreen()
+{
+	Screen screen;
+	screen.title = "Emulator Options";
+	screen.desc = st.host.version;
+	for (const options::Page& list : options::pages())
+		screen.items.push_back(entry(list.name, list.desc, [&list] { push(settingsScreen(list)); }));
+	Item controls = entry("Controls", "", [] { st.host.controls(); });
+	controls.available = [] { return st.host.controls != nullptr; };
+	screen.items.push_back(std::move(controls));
+	Item link = entry("Local Multiplayer", "Two players on two Bricks.", [] { st.host.localMultiplayer(); });
+	link.available = [] { return st.host.localMultiplayer != nullptr; };
+	screen.items.push_back(std::move(link));
+	return screen;
+}
+
 void checkModule();
 
-// the game's core, Deadcast's emulation or a recomp module of it, and each one's settings (the other
-// core's disabled: they belong to its process); a module looked for online and downloaded
+// the game's core, Deadcast's emulation or a recomp module of it, and each core's options, set from
+// either core; a module looked for online and downloaded
 Screen optionsScreen()
 {
 	Screen screen;
@@ -585,12 +629,14 @@ Screen optionsScreen()
 	current.values = { "Emulator", "Recomp" };
 	current.value = (int)st.chosen;
 	current.available = moduleInstalled;
-	// only picked here: leaving the menu for the game asks before it restarts in it (frame())
-	current.change = [](int value) { st.chosen = (Core)value; };
+	// only picked here: the main page's Continue (the first page's first row) becomes Restart, which
+	// starts the game again in it; leaving the menu otherwise puts the game's own core back (frame())
+	current.change = [](int value) {
+		st.chosen = (Core)value;
+		st.screens.front().items.front().name = st.chosen != st.host.core ? "Restart" : "Continue";
+	};
 	screen.items.push_back(std::move(current));
-	Item emulator = entry("Emulator Options", "", [] { push(st.host.emulatorOptions()); });
-	emulator.available = [] { return st.host.core == Core::Emulator && st.host.emulatorOptions != nullptr; };
-	screen.items.push_back(std::move(emulator));
+	screen.items.push_back(entry("Emulator Options", "", [] { push(emulatorOptionsScreen()); }));
 	Item settings = entry("Recomp Options", "", [] { push(recompOptionsScreen()); });
 	settings.available = moduleInstalled;
 	screen.items.push_back(std::move(settings));
@@ -702,13 +748,28 @@ void checkModule()
 
 }	// namespace
 
+// the core picked in Options stored as the game's (from its next start)
+static void keepChosen()
+{
+	recomp::set("core." + st.module.id, st.chosen == Core::Recomp ? "recomp" : "emulator");
+}
+
 Screen mainScreen(const std::string& title, Host host)
 {
 	Screen screen;
 	screen.title = title;
 	screen.back = [] { finish(Result::Resume); };
 	screen.status = networkStatus;
-	screen.items.push_back(entry("Continue", "", [] { finish(Result::Resume); }));
+	// Continue; Restart with another core picked in Options: the game starts again in it
+	screen.items.push_back(entry("Continue", "", [] {
+		if (st.chosen == st.host.core)
+			finish(Result::Resume);
+		else
+		{
+			keepChosen();
+			finish(Result::Switch);
+		}
+	}));
 	for (Item *item : { &host.save, &host.load })
 	{
 		if (item->name.empty())
@@ -903,30 +964,14 @@ void finish(Result result)
 	st.result = result;
 }
 
-// the core picked in Options stored as the game's (from its next start)
-static void keepChosen()
-{
-	recomp::set("core." + st.module.id, st.chosen == Core::Recomp ? "recomp" : "emulator");
-}
-
 Result frame()
 {
 	if (!st.open)
 		return Result::Resume;
-	// leaving for the game with another core picked in Options: asked first, as the game restarts in
-	// it; B keeps the core the game has. Quitting keeps the one picked for the game's next start.
-	if (st.result == Result::Resume && st.chosen != st.host.core)
-	{
-		st.result = Result::Open;
-		ask(std::string("Switching to ") + (st.chosen == Core::Recomp ? "Recomp" : "Emulator")
-				+ "\nwill restart your game.", "RESTART", [] {
-			keepChosen();
-			finish(Result::Switch);
-		}, [] {
-			st.chosen = st.host.core;
-			finish(Result::Resume);
-		});
-	}
+	// another core picked in Options: back to the game (B, MENU) puts the game's own core back; quitting
+	// keeps the one picked for the game's next start (Restart starts the game again in it: mainScreen)
+	if (st.result == Result::Resume)
+		st.chosen = st.host.core;
 	if (st.result == Result::Quit && st.chosen != st.host.core)
 		keepChosen();
 	// work once its screen is up

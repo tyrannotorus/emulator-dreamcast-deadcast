@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build a recomp module (recomp/MODULE) for NextUI's tg5040 handhelds from the builder's own disc, into
+# Build a recomp module (recomp/modules/MODULE) for NextUI's tg5040 handhelds from the builder's own disc, into
 # build-brick/recomp/MODULE/: its executable, its manifest (module.cfg), its game's config and licences,
 # what Deadcast keeps in <DEADCAST_HOME>/recomp/MODULE/ (frontend/recomp.h).
 #   shell/brick/recomp.sh rez "/path/to/Rez (Europe) (En,Ja,Fr,De,Es,It).chd"
@@ -11,7 +11,7 @@ cd "$(dirname "$0")/../.."
 M=${1:?usage: shell/brick/recomp.sh MODULE DISC}
 DISC=${2:?usage: shell/brick/recomp.sh MODULE DISC}
 shift 2
-[ -f "recomp/$M/module.cfg" ] || { echo "recomp: no recomp/$M/module.cfg"; exit 2; }
+[ -f "recomp/modules/$M/module.cfg" ] || { echo "recomp: no recomp/modules/$M/module.cfg"; exit 2; }
 TC="$PWD/build-brick/toolchain"
 [ -d "$TC/aarch64-nextui-linux-gnu/libc" ] || { echo "recomp: no toolchain (shell/brick/toolchain.sh)"; exit 2; }
 VKLIB="$PWD/build-brick/devlibs/libvulkan.so.1"
@@ -33,8 +33,8 @@ TRANSLATE="$PWD/$H/engine/translator/dream-translate"
 LIBCHDR="$(find "$PWD/$H" -name 'libchdr.so*' -type f | head -n 1)"
 
 # the disc: checked against the module's game config, its boot file and code overlays extracted
-# (recomp/MODULE/game/extracted: the game's own code, never in git)
-DC_PORT="$PWD/recomp/$M" DCDISC_LIBCHDR="$LIBCHDR" python3 recomp/tools/dc.py setup --disc "$DISC"
+# (recomp/modules/MODULE/game/extracted: the game's own code, never in git)
+DC_PORT="$PWD/recomp/modules/$M" DCDISC_LIBCHDR="$LIBCHDR" python3 recomp/tools/dc.py setup --disc "$DISC"
 
 # the module, for the handheld; pkg-config sees the sysroot's packages only, never this machine's
 SYSROOT="$TC/aarch64-nextui-linux-gnu/libc"
@@ -63,15 +63,15 @@ cmake -S recomp -B "$B" -G Ninja \
 ninja -C "$B" "$@" "${M}_boot"
 
 # packaged as Deadcast installs it
-EXEC=$(sed -n 's/^exec *= *//p' "recomp/$M/module.cfg")
+EXEC=$(sed -n 's/^exec *= *//p' "recomp/modules/$M/module.cfg")
 OUT="build-brick/recomp/$M"
 rm -rf "$OUT"
 mkdir -p "$OUT/licenses"
-llvm-strip -o "$OUT/$EXEC" "$B/$M/game/$EXEC"
+llvm-strip -o "$OUT/$EXEC" "$B/modules/$M/game/$EXEC"
 chmod +x "$OUT/$EXEC"
-cp "recomp/$M/module.cfg" "$OUT/"
-cp "recomp/$M/game/$M.toml" "$OUT/"
-[ -f "recomp/$M/game/$M-pipelines.txt" ] && cp "recomp/$M/game/$M-pipelines.txt" "$OUT/"
+cp "recomp/modules/$M/module.cfg" "$OUT/"
+cp "recomp/modules/$M/game/$M.toml" "$OUT/"
+[ -f "recomp/modules/$M/game/$M-pipelines.txt" ] && cp "recomp/modules/$M/game/$M-pipelines.txt" "$OUT/"
 cp recomp/LICENSE "$OUT/licenses/deadcast-recomp-GPL-2.0.txt"
 cp recomp/THIRD_PARTY_NOTICES.md "$OUT/licenses/THIRD_PARTY_NOTICES.md"
 cp recomp/engine/third_party/libchdr/LICENSE.txt "$OUT/licenses/libchdr-BSD-3-Clause.txt"

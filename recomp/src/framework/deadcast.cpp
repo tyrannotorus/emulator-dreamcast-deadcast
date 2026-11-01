@@ -2,9 +2,9 @@
 // the game (../../frontend/ui.h), the same menu as Deadcast's own, drawn into the engine's overlay
 // (an image the size of the screen, blended over the game on the GPU). While the menu is open the
 // guest is held at its vblank (clock, sound and game logic stopped) and the menu reads the pad itself;
-// its pages are Deadcast's: Save and Load (the emulator's) and Emulator Options disabled, Recomp
-// Options the module's. A module has no menu of its own: its settings are Recomp Options', declared
-// in its manifest (frontend/recomp.h).
+// its pages are Deadcast's: Save and Load (the emulator's) disabled, Emulator Options' settings kept
+// for the emulator's next start, Recomp Options the module's. A module has no menu of its own: its
+// settings are Recomp Options', declared in its manifest (frontend/recomp.h).
 #include "dream/runtime/host_ext.h"
 #include "dreamcomp/port.h"
 #include "recomp.h"
@@ -29,6 +29,7 @@ namespace dreamcomp {
 namespace {
 
 namespace ui = deadcast::ui;
+namespace options = deadcast::options;
 
 // The Brick's pad, as the window reads it (engine/render/src/vk/window_nextui.cpp): opened again
 // here, as the window's reading stops while the guest is held
@@ -256,11 +257,13 @@ private:
         return ui::gameName(rom != nullptr && *rom != '\0' ? rom : disc_);
     }
 
-    // a recomp's main page: no save states, no emulator; the module's settings applied as they change
+    // a recomp's main page: no save states; Emulator Options' settings kept in emu.cfg (the emulator's
+    // Controls and Local Multiplayer: none); the module's settings applied as they change
     ui::Host host() {
         ui::Host h;
         h.core = ui::Core::Recomp;
         h.disc = disc_;
+        h.emulatorSettings = options::file();
         h.recompSetting = [this](const std::string& key, const std::string& value) {
             if (key == "scale")
                 set_render_scale(value == "panel" ? kScalePanel : std::atoi(value.c_str()));

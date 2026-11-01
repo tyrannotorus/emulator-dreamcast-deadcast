@@ -23,9 +23,9 @@
 #include <memory>
 #include <thread>
 
-// Deadcast's side of the menu (frontend/ui.h draws it): its pages (Emulator Options, Controls, Local
-// Multiplayer and the link, a two-player session's), its save states, the BIOS page, and the screen and
-// pad it is shown with.
+// Deadcast's side of the menu (frontend/ui.h draws it): its live settings for Emulator Options
+// (frontend/options.h), its own pages (Controls, Local Multiplayer and the link, a two-player
+// session's), its save states, the BIOS page, and the screen and pad it is shown with.
 namespace deadcast::menu
 {
 namespace
@@ -87,69 +87,45 @@ struct State
 };
 State st;
 
-// a setting the menu shows: an option of emu.cfg and the values it may take
-struct Setting
+// Emulator Options' settings (frontend/options.h): the emulator's own, live, saved as they change
+template<typename T>
+config::Option<T> *option(const options::Setting& setting)
 {
-	const char *name;
-	const char *desc;
-	std::vector<std::pair<const char *, int>> choices;
-	config::BaseOption *option;			// saved at every change (the game's own config, if it has one)
-	std::function<int()> get;
-	std::function<void(int)> set;
-
-	int index() const
-	{
-		const int v = get();
-		for (size_t i = 0; i < choices.size(); i++)
-			if (choices[i].second == v)
-				return (int)i;
-		return 0;
-	}
-};
-
-Setting choice(const char *name, const char *desc, config::Option<int>& option, std::vector<std::pair<const char *, int>> choices)
-{
-	return { name, desc, std::move(choices), &option, [&option] { return option.get(); }, [&option](int v) { option.set(v); } };
+	for (config::BaseOption *o : config::Settings::instance().list())
+		if (auto *found = dynamic_cast<config::Option<T> *>(o);
+				found != nullptr && found->getSection() == setting.section && found->getName() == setting.key)
+			return found;
+	return nullptr;
 }
 
-Setting toggle(const char *name, const char *desc, config::Option<bool>& option)
+options::Store liveSettings()
 {
-	return { name, desc, { { "Off", 0 }, { "On", 1 } }, &option, [&option] { return option.get() ? 1 : 0; },
-		[&option](int v) { option.set(v != 0); } };
-}
-
-// Emulator Options' pages. Not shown: the TV standard and the cable, NTSC and VGA for the Brick's screen
-// (emulator.cpp; TV Composite for a game that refuses VGA)
-std::vector<Setting>& consoleSettings()
-{
-	static std::vector<Setting> list {
-		choice("Region", "The console's region. Takes effect on restart.", config::Region,
-				{ { "Japan", 0 }, { "USA", 1 }, { "Europe", 2 }, { "Default", 3 } }),
-		choice("Language", "The console's language. Takes effect on restart.", config::Language,
-				{ { "Japanese", 0 }, { "English", 1 }, { "German", 2 }, { "French", 3 }, { "Spanish", 4 }, { "Italian", 5 }, { "Default", 6 } }),
+	return {
+		[](const options::Setting& setting) {
+			if (setting.flag)
+			{
+				config::Option<bool> *o = option<bool>(setting);
+				return o != nullptr ? (o->get() ? 1 : 0) : setting.fallback;
+			}
+			config::Option<int> *o = option<int>(setting);
+			return o != nullptr ? o->get() : setting.fallback;
+		},
+		[](const options::Setting& setting, int value) {
+			if (setting.flag)
+			{
+				if (config::Option<bool> *o = option<bool>(setting))
+				{
+					o->set(value != 0);
+					o->save();
+				}
+			}
+			else if (config::Option<int> *o = option<int>(setting))
+			{
+				o->set(value);
+				o->save();
+			}
+		},
 	};
-	return list;
-}
-
-std::vector<Setting>& videoSettings()
-{
-	static std::vector<Setting> list {
-		toggle("Show FPS", "Shows the frame rate.", config::ShowFPS),
-		choice("Frame Skip", "Skips drawing frames when the game falls behind.", config::AutoSkipFrame,
-				{ { "Off", 0 }, { "Normal", 1 }, { "Maximum", 2 } }),
-		choice("Texture Filter", "How the game's textures are smoothed.", config::TextureFiltering,
-				{ { "Default", 0 }, { "Nearest", 1 }, { "Linear", 2 } }),
-	};
-	return list;
-}
-
-std::vector<Setting>& audioSettings()
-{
-	static std::vector<Setting> list {
-		toggle("Audio DSP", "The sound chip's effects, such as reverb. Costs speed.", config::DSPEnabled),
-		toggle("VMU Sounds", "The VMU's beeps.", config::VmuSound),
-	};
-	return list;
 }
 
 // the Dreamcast's buttons and the emulator's own, as the pad's mapping has them
@@ -276,29 +252,6 @@ std::string discName()
 	const std::string& path = settings.content.path;
 	const size_t slash = path.find_last_of('/');
 	return slash == std::string::npos ? path : path.substr(slash + 1);
-}
-
-Screen settingsScreen(const std::string& title, std::vector<Setting>& list)
-{
-	Screen screen;
-	screen.title = title;
-	for (Setting& setting : list)
-	{
-		Item item;
-		item.name = setting.name;
-		item.desc = setting.desc;
-		item.row = Row::Choice;
-		for (const auto& choice : setting.choices)
-			item.values.push_back(choice.first);
-		item.value = setting.index();
-		Setting *s = &setting;
-		item.change = [s](int i) {
-			s->set(s->choices[i].second);
-			s->option->save();
-		};
-		screen.items.push_back(std::move(item));
-	}
-	return screen;
 }
 
 // the Controls page's rows, one per Controls entry: what each is bound to now
@@ -493,19 +446,6 @@ Screen localMultiplayerScreen()
 	return screen;
 }
 
-Screen emulatorOptionsScreen()
-{
-	Screen screen;
-	screen.title = "Emulator Options";
-	screen.desc = "Deadcast " DEADCAST_VERSION;
-	screen.items.push_back(entry("Console", "The Dreamcast's region and language.", [] { ui::push(settingsScreen("Console", consoleSettings())); }));
-	screen.items.push_back(entry("Video", "", [] { ui::push(settingsScreen("Video", videoSettings())); }));
-	screen.items.push_back(entry("Audio", "", [] { ui::push(settingsScreen("Audio", audioSettings())); }));
-	screen.items.push_back(entry("Controls", "", [] { ui::push(bindingsScreen()); }));
-	screen.items.push_back(entry("Local Multiplayer", "Two players on two Bricks.", [] { ui::push(localMultiplayerScreen()); }));
-	return screen;
-}
-
 //
 // Save states
 //
@@ -644,7 +584,10 @@ ui::Host host()
 		item->shift = [](int step) { st.slot = (st.slot + step + SlotCount) % SlotCount; };
 		item->aside = drawPreview;
 	}
-	host.emulatorOptions = emulatorOptionsScreen;
+	host.version = "Deadcast " DEADCAST_VERSION;
+	host.emulatorSettings = liveSettings();
+	host.controls = [] { ui::push(bindingsScreen()); };
+	host.localMultiplayer = [] { ui::push(localMultiplayerScreen()); };
 	return host;
 }
 

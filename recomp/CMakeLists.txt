@@ -67,4 +67,4 @@ if(TARGET dream_render_vk)
 endif()
 
 # The modules
-add_subdirectory(rez/game)
+add_subdirectory(modules/rez/game)

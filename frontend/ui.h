@@ -8,6 +8,7 @@
 // left, over the paused game blurred. Opening or leaving a page slides its rows; the pills stay in place.
 #pragma once
 #include "canvas.h"
+#include "options.h"
 
 #include <functional>
 #include <string>
@@ -109,11 +110,17 @@ struct Host
 	std::string disc;							// the disc played (its recomp module found by it)
 	Item save;									// the emulator's save states (a module: none, disabled)
 	Item load;
-	std::function<Screen()> emulatorOptions;	// the emulator's pages (a module: none, disabled)
+	std::string version;						// under Emulator Options' rows: Deadcast's
+	// Emulator Options' settings (frontend/options.h): the emulator's own; a module's, emu.cfg
+	options::Store emulatorSettings;
+	// the emulator's own pages under Emulator Options (a module: none, disabled)
+	std::function<void()> controls;
+	std::function<void()> localMultiplayer;
 	// a recomp setting changed (key, value): a module applies it, if it can while playing
 	std::function<void(const std::string&, const std::string&)> recompSetting;
 };
-// the first page: Continue, Save, Load, Options, Quit, the network's status at the bottom left
+// the first page: Continue (Restart once Options picks another core), Save, Load, Options, Quit, the
+// network's status at the bottom left
 Screen mainScreen(const std::string& title, Host host);
 
 // the menu over the paused game: its picture (RGB24, the backdrop, blurred and darkened) and the first page

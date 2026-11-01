@@ -6,6 +6,8 @@ add_library(deadcast_frontend STATIC
         catalog.h
         download.cpp
         download.h
+        options.cpp
+        options.h
         recomp.cpp
         recomp.h
         sha256.cpp
