@@ -11,8 +11,8 @@ A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the T
 # Supported Devices
 ## Trimui Brick/Hammer
 1. Install Deadcast via the NextUI Pak Store
-2. Put Dreamcast roms in a `Roms/Dreamcast (DC-DEADCAST)/` folder in the root of your SD Card.
-3. Put Dreamcast bios (naomi.zip) in a `Emus/tg5040/DC-DEADCAST.pak/bios/` folder in the root of your SD Card.
+2. Put Dreamcast roms in a `/Roms/Dreamcast (DC-DEADCAST)/` folder on your SD Card.
+3. Put Dreamcast bios (`naomi.zip`) in a `/Emus/tg5040/DC-DEADCAST.pak/bios/` folder on your SD Card.
 
 ## AI Slop Section
 
