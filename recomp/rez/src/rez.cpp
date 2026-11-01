@@ -38,8 +38,6 @@ const dreamcomp::PortInfo kInfo = [] {
     // logic step at 60 fps (native_sys.cpp). --cpu-speed 1 (or the setting cpu_speed=1) runs the
     // console's own timing.
     p.cpu_speed = 4;
-    // Deadcast's start page gives way at Rez's first framebuffer flip.
-    p.pictures_shown = rez::native_gfx_frame_swaps;
     if (const char* w = std::getenv("REZ_WIDESCREEN"); w && w[0] == '1') {
         g_widescreen = true;
         p.widescreen = widescreen;

@@ -44,7 +44,6 @@ std::unordered_map<std::uint32_t, dream::pvr::Stream> g_streams;
 std::uint32_t g_list_ctx = 0;    // the context whose list init is running
 std::uint32_t g_render_ctx = 0;  // the context Kamui's render start was called with
 int g_render_event = -1;
-std::uint64_t g_frame_swaps = 0;  // FB_R_SOF1 writes: pictures the game has shown
 
 
 bool spg_reg(std::uint32_t off) {
@@ -98,9 +97,6 @@ void settings_write(std::uint32_t off, std::uint32_t value) {
             return;
         }
         case Core::kFbRSof1:
-            g_regs[off >> 2] = value & 0x00FFFFFCu;
-            ++g_frame_swaps;
-            return;
         case Core::kFbRSof2:
             g_regs[off >> 2] = value & 0x00FFFFFCu;
             return;
@@ -134,10 +130,6 @@ public:
 Regs g_regs_handler;
 
 }  // namespace
-
-std::uint64_t native_gfx_frame_swaps() {
-    return g_frame_swaps;
-}
 
 dream::mem::MmioHandler* native_gfx_regs() {
     return g_sys && g_sys->pvr_core ? &g_regs_handler : nullptr;

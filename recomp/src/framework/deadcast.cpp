@@ -1,10 +1,10 @@
-// Deadcast's start page and menu in a recomp module (include/dreamcomp/deadcast.h), drawn by
-// Deadcast's frontend into the engine's overlay: an image the size of the screen, blended over the
-// game on the GPU. While the menu is open the guest is held at its vblank (clock, sound and game
-// logic stopped) and the menu reads the pad itself; its pages are Deadcast's: Save and Load (the
-// emulator's) and Emulator Settings disabled, Recomp Settings the module's.
-#include "dreamcomp/deadcast.h"
-
+// Deadcast in a recomp module, registered as an engine extension: MENU opening Deadcast's menu over
+// the game (../../frontend/ui.h), the same menu as Deadcast's own, drawn into the engine's overlay
+// (an image the size of the screen, blended over the game on the GPU). While the menu is open the
+// guest is held at its vblank (clock, sound and game logic stopped) and the menu reads the pad itself;
+// its pages are Deadcast's: Save and Load (the emulator's) and Emulator Settings disabled, Recomp
+// Settings the module's. A module has no menu of its own: its settings are Recomp Settings', declared
+// in its manifest (frontend/recomp.h).
 #include "dream/runtime/host_ext.h"
 #include "dreamcomp/port.h"
 #include "recomp.h"
@@ -67,33 +67,26 @@ public:
 
     void on_stop(dream::System&, const char*) override { deadcast::recomp::runEnded(); }
 
+    // The start page is Deadcast's (put on the screen as it runs the module, frontend/recomp.cpp), up
+    // until the window first presents: the game's first picture. Not drawn again here: drawn before
+    // the first guest instruction, the game's first textured frame came up garbled (2026-10-31).
     void on_start(dream::System&) override {
         pad_ = openPad();
         ui::setDisplay(this);
-        const std::size_t slash = disc_.find_last_of('/');
-        starting_ = ui::showStart("Loading...", slash == std::string::npos ? disc_ : disc_.substr(slash + 1));
     }
-
-    void started() {
-        if (!starting_)
-            return;
-        ui::endStart();
-        starting_ = false;
-    }
-    bool starting() const { return starting_; }
 
     // MENU while the game runs: its picture taken at the next present, then the menu over it
     void on_vblank(dream::System&) override {
         perf();
         for (const input_event& ev : read())
-            if (ev.type == EV_KEY && ev.code == BTN_MODE && ev.value == 1 && state_ == State::Closed && !starting_) {
+            if (ev.type == EV_KEY && ev.code == BTN_MODE && ev.value == 1 && state_ == State::Closed) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 captured_ = false;
                 state_ = State::Capturing;
             }
     }
 
-    bool overlay_open() override { return starting_ || state_ != State::Closed; }
+    bool overlay_open() override { return state_ != State::Closed; }
     bool guest_paused() override { return state_ != State::Closed; }
 
     void on_paused_tick() override {
@@ -260,8 +253,6 @@ private:
     int pad_ = -1;
     int hatX_ = 0;
     int hatY_ = 0;
-    // asked from the render thread too
-    std::atomic<bool> starting_ { false };
     std::mutex mutex_;
     std::atomic<State> state_ { State::Closed };
     bool captured_ = false;
@@ -276,8 +267,5 @@ Menu g_menu;
 dream::host::Register g_register(g_menu);
 
 }  // namespace
-
-bool deadcast_starting() { return g_menu.starting(); }
-void deadcast_started() { g_menu.started(); }
 
 }  // namespace dreamcomp

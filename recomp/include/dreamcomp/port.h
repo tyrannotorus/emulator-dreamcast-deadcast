@@ -34,9 +34,6 @@ struct PortInfo {
     // more lets frames that overran a VBlank on the SH-4 finish in time. The `cpu_speed` setting
     // and the flag override it.
     unsigned cpu_speed = 1;
-    // NextUI builds: how many pictures the game has put on screen so far (its framebuffer flips),
-    // so Deadcast's start page gives way at the first. Null: the PowerVR model's count.
-    std::uint64_t (*pictures_shown)() = nullptr;
 
     // Widescreen. Called every vblank on the guest thread with the target aspect ratio (4/3 means
     // off: restore the original), so it can re-assert values the game recomputes. `anamorphic`

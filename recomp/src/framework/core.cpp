@@ -31,8 +31,6 @@
 
 
 #ifdef DREAMCOMP_NEXTUI
-#include "dream/runtime/pvr/core.h"
-#include "dreamcomp/deadcast.h"
 #include "recomp.h"
 #endif
 
@@ -500,16 +498,6 @@ public:
 
     void on_vblank(dream::System& sys) override {
         ++vblanks_;
-#ifdef DREAMCOMP_NEXTUI
-        // Deadcast's start page gives way at the game's first picture (the port's count of them,
-        // else the PowerVR model's framebuffer flips).
-        if (deadcast_starting()) {
-            const std::uint64_t shown = g_port && g_port->pictures_shown ? g_port->pictures_shown()
-                                        : (sys.pvr_core ? sys.pvr_core->frame_swaps : 0);
-            if (shown > 0)
-                deadcast_started();
-        }
-#endif
         follow_window();
         if (g_port && g_port->widescreen)
             g_port->widescreen(sys, widescreen() ? target_aspect() : 4.0f / 3.0f);
