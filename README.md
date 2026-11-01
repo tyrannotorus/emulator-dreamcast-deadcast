@@ -2,7 +2,7 @@
 A Sega Dreamcast emulator (flycast-based) targeting optimal performance on the Trimui Brick/Hammer.
 
 ## Emulator Features
-- Many games play well, or close to full speed on the TrimUI Brick/Hammer.
+- Many games play well or close to full speed on the TrimUI Brick/Hammer.
 - USB-C / Bluetooth device-to-device co-op play.
 
 ## Recomp Features
