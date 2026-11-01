@@ -51,3 +51,5 @@ void perfGpu(int kind, unsigned long long us);
 void perfRenderBlocked(int kind, unsigned long long start);
 // a render's first part done (polygons to vertices, Renderer::Process), from start
 void perfProcessed(unsigned long long start);
+// a vkQueueSubmit's time, from start: kind 0 the renderer's frame, 1 the page's copy
+void perfSubmitted(int kind, unsigned long long start);

@@ -133,7 +133,10 @@ void CommandPool::EndFrame()
 		commandBuffers.push_back(last);
 	}
 	device.resetFences(fences[index].get());
+	const unsigned long long submitStart = gpuKind >= 0 ? perfNow() : 0;
 	VulkanContext::Instance()->SubmitCommandBuffers(commandBuffers, *fences[index]);
+	if (gpuKind >= 0)
+		perfSubmitted(0, submitStart);
 }
 
 vk::CommandBuffer CommandPool::Allocate(bool submitLast)

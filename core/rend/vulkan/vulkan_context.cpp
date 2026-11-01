@@ -441,7 +441,9 @@ void VulkanContext::EndFrame(vk::CommandBuffer overlayCmdBuffer)
 		allCmdBuffers.push_back(overlayCmdBuffer);
 	allCmdBuffers.push_back(commandBuffer);
 	device->resetFences(*drawFences[currentImage]);
+	const unsigned long long submitStart = perfNow();
 	graphicsQueue.submit(vk::SubmitInfo(nullptr, nullptr, allCmdBuffers), *drawFences[currentImage]);
+	perfSubmitted(1, submitStart);
 	perfTrace('E');
 	assert(rendering);
 	rendering = false;
