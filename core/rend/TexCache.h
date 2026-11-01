@@ -42,6 +42,8 @@ struct vram_block
 
 bool VramLockedWriteOffset(size_t offset);
 bool VramLockedWrite(u8* address);
+// Deadcast: a range about to be written whole, its locked pages released with no fault (a texture DMA)
+void VramLockedWriteRange(size_t offset, size_t size);
 
 void UpscalexBRZ(int factor, u32* source, u32* dest, int width, int height, bool has_alpha);
 

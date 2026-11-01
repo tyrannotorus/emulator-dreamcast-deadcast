@@ -4,6 +4,7 @@
 		nullDC just 'fakes' each dma as if it was a full channel, never bothering properly
 		updating the dmac regs -- it works just fine really :|
 */
+#include "rend/TexCache.h"
 #include "types.h"
 #include "hw/sh4/sh4_mmr.h"
 #include "hw/holly/sb.h"
@@ -69,6 +70,8 @@ void DMAC_Ch2St()
 		{
 			// 64-bit path
 			dst = (dst & 0x00FFFFFF) | 0xa4000000;
+			// Deadcast: the textures in the way released at once, not page by page through write faults
+			VramLockedWriteRange(dst & VRAM_MASK, len);
 			if ((src & RAM_MASK) + len > RAM_SIZE)
 			{
 				u32 newLen = RAM_SIZE - (src & RAM_MASK);

@@ -112,6 +112,54 @@ bool VramLockedWriteOffset(size_t offset)
 	return true;
 }
 
+// Deadcast: what VramLockedWriteOffset does on a write fault, done ahead for a range about to be written
+// whole (a texture DMA): the textures in its locked pages invalidated and the pages unprotected, each run of
+// them in one call, with no fault taken. Pages protected for anything else still fault as before.
+void VramLockedWriteRange(size_t offset, size_t size)
+{
+	if (VramLocks == nullptr || size == 0)
+		return;
+	const size_t pages = VRAM_SIZE / PAGE_SIZE;
+	const size_t first = (offset & VRAM_MASK) / PAGE_SIZE;
+	const size_t count = std::min(pages, ((offset & PAGE_MASK) + size + PAGE_SIZE - 1) / PAGE_SIZE);
+	std::lock_guard<std::mutex> lockguard(vramlist_lock);
+	size_t run = 0, runStart = 0;
+	auto unprotect = [&]() {
+		if (run != 0)
+			addrspace::unprotectVram((u32)(runStart * PAGE_SIZE), (u32)(run * PAGE_SIZE));
+		run = 0;
+	};
+	for (size_t i = 0; i < count; i++)
+	{
+		const size_t page = (first + i) % pages;
+		if (page == 0)
+			unprotect();	// past the end of VRAM: a run of its own
+		std::vector<vram_block *>& list = VramLocks[page];
+		if (list.empty())
+		{
+			unprotect();
+			continue;
+		}
+		for (auto& lock : list)
+		{
+			if (lock != nullptr)
+			{
+				lock->texture->invalidate();
+				if (lock != nullptr)
+				{
+					ERROR_LOG(PVR, "Error : pvr is supposed to remove lock");
+					die("Invalid state");
+				}
+			}
+		}
+		list.clear();
+		if (run == 0)
+			runStart = page;
+		run++;
+	}
+	unprotect();
+}
+
 bool VramLockedWrite(u8* address)
 {
 	u32 offset = addrspace::getVramOffset(address);
