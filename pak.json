@@ -1,7 +1,7 @@
 {
   "name": "DC-DEADCAST",
   "type": "EMU",
-  "description": "A performance-focused Dreamcast emulator",
+  "description": "A performance-focused Dreamcast emulator with recomp modules.",
   "author": "tyrannotorus",
   "repo_url": "https://github.com/tyrannotorus/emulator-dreamcast-deadcast",
   "release_filename": "DC-DEADCAST.pak.zip",
