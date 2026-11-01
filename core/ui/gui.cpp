@@ -527,7 +527,7 @@ static void savestate()
 {
 	// TODO save state async: png compression, savestate file compression/write
 	std::vector<u8> pngData;
-	getScreenshot(pngData, 640);
+	getScreenshot(pngData);	// Deadcast: the screen as shown, at its own size (VulkanContext::GetLastFrame)
 	dc_savestate(config::SavestateSlot, pngData.empty() ? nullptr : &pngData[0], pngData.size());
 	ImguiStateTexture savestatePic;
 	savestatePic.invalidate();
