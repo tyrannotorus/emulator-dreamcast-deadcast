@@ -15,7 +15,8 @@ the disc being played, Deadcast's menu offers it under **Options**:
   module's own settings.
 
 **Recomp Store**, on the main page, lists every recomp module, for any game: those installed, any with an
-update first and marked with a download icon, then those downloadable. A module's own page there says what it is (its `store.json`)
+update first and marked with a download icon, then those downloadable. Without internet it lists those
+installed, which can still be deleted. A module's own page there says what it is (its `store.json`)
 and downloads, updates or deletes it.
 
 Modules live in this repository. A module is added by a pull request and reviewed like any other

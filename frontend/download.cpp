@@ -244,10 +244,10 @@ ModuleInfo readInfo(const std::string& text)
 	return info;
 }
 
-std::vector<StoreEntry> storeCatalog(bool network)
+std::vector<StoreEntry> storeCatalog()
 {
 	const char *base = std::getenv("DEADCAST_RECOMP_URL");
-	if (network && base != nullptr && *base != '\0')
+	if (base != nullptr && *base != '\0')
 	{
 		std::vector<StoreEntry> entries = testCatalog(std::string(base) + "catalog.cfg");
 		if (!entries.empty())

@@ -149,6 +149,7 @@ struct State
 	recomp::StoreEntry downloading;
 	bool updating = false;			// over a version installed
 	std::vector<recomp::StoreEntry> store;		// what the Recomp Store offers, read as it opens
+	bool storeOffline = false;		// no internet as it opened: it offers nothing, and says so
 	std::vector<InfoLine> info;		// a module's page: its text in lines
 	int infoTop = 0;				// the line at the top of it
 };
@@ -914,7 +915,7 @@ void getModule(const recomp::StoreEntry& entry, bool updating)
 	if (st.network)
 		startDownload(entry, updating);
 	else
-		message("No network connection.");
+		message("No internet connection.");
 }
 
 // a module deleted, and everything of it, its saves too. At once, unless it is the module playing now:
@@ -1141,6 +1142,17 @@ Screen storeScreen()
 			screen.items.push_back(std::move(row));
 		}
 	}
+	if (st.storeOffline)
+	{
+		Item heading;
+		heading.name = sections[1];
+		heading.row = Row::Header;
+		screen.items.push_back(std::move(heading));
+		Item none;
+		none.name = "No internet connection";
+		none.available = [] { return false; };
+		screen.items.push_back(std::move(none));
+	}
 	if (screen.items.empty())
 	{
 		screen.desc = "No recomp modules yet.";
@@ -1168,10 +1180,12 @@ void refreshStore(const std::string& name)
 	shown = std::move(fresh);
 }
 
-// straight in, no page saying it is checking: what the store offers is this build's, nothing to wait for
+// straight in, no page saying it is checking. With no internet it offers nothing: what is installed is listed
+// to be deleted, and with nothing known of updates, nothing is said of them.
 void openStore()
 {
-	st.store = recomp::storeCatalog(st.network);
+	st.storeOffline = !st.network;
+	st.store = st.storeOffline ? std::vector<recomp::StoreEntry>() : recomp::storeCatalog();
 	push(storeScreen());
 }
 
