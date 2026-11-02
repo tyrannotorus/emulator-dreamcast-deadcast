@@ -645,16 +645,20 @@ std::string moduleName(const std::string& title, const std::string& name)
 
 void refreshStore(const std::string& name);
 
-// the selected row in view, and a section's name with the section's first row
+// the selected row in view, and with it the rows next to it the cursor goes past (a section's name, what is
+// greyed): nothing else would ever bring them into view
 void reveal(Screen& screen)
 {
-	int top = screen.selected;
-	if (top > 0 && screen.items[top - 1].row == Row::Header)
-		top--;
-	if (top < screen.start)
-		screen.start = top;
-	if (screen.selected >= screen.start + MaxRows)
-		screen.start = screen.selected - MaxRows + 1;
+	const int count = (int)screen.items.size();
+	int first = screen.selected, last = screen.selected;
+	while (first > 0 && !enabled(screen.items[first - 1]))
+		first--;
+	while (last + 1 < count && !enabled(screen.items[last + 1]))
+		last++;
+	if (first < screen.start)
+		screen.start = first;
+	if (last >= screen.start + MaxRows)
+		screen.start = last - MaxRows + 1;
 }
 
 // the core picked in Options stored as the game's (from its next start): the module picked, and not the disc's
