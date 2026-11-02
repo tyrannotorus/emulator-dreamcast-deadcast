@@ -12,7 +12,6 @@
 #include "oslib/i18n.h"
 #include "stdclass.h"
 #include "deadcast/menu.h"
-#include "deadcast/catalog.h"
 #include "recomp.h"
 #include "version.h"
 
@@ -258,7 +257,6 @@ int main(int argc, char* argv[])
 	// Deadcast: recomp modules marked for deletion deleted, an install cut short tidied away; then the
 	// disc's recomp module instead, if that is its chosen core (no emulator started)
 	deadui::recomp::tidy();
-	deadui::recomp::publishCatalog(deadcast::catalog());
 	if (deadui::recomp::get("app.version") != DEADCAST_VERSION)
 		deadui::recomp::set("app.version", DEADCAST_VERSION);
 	if (argc > 1)

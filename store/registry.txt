@@ -1,0 +1,2 @@
+# The recomp modules Deadcast's store lists: one GitHub repository a line, owner/name.
+tyrannotorus/emulator-dreamcast-deadcast-recomp-rez-recompiled

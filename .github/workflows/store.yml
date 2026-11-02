@@ -1,0 +1,40 @@
+# The store's list: rebuilt hourly from store/registry.txt, on the store branch.
+name: Recomp store list
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["store/**", ".github/workflows/store.yml"]
+permissions:
+  contents: write
+concurrency:
+  group: store-list
+  cancel-in-progress: false
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Build and publish
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          REPO="https://github.com/$GITHUB_REPOSITORY.git"
+          git clone -q --depth 1 --branch "$GITHUB_REF_NAME" --no-recurse-submodules "$REPO" source
+          if ! git clone -q --depth 1 --branch store "$REPO" list; then
+            git init -q -b store list
+            git -C list remote add origin "$REPO"
+          fi
+          python3 -I source/store/build-list.py source/store/registry.txt list/catalog.cfg
+          git -C list add catalog.cfg
+          if git -C list diff --cached --quiet; then
+            echo "The list has not changed."
+          else
+            git -C list commit -q -m "The store's list"
+            git -C list push -q origin store
+          fi

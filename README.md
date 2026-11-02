@@ -36,7 +36,8 @@ Deadcast execs in its place.
   own code is in `core/deadcast/`: the menu's emulator side, save states, the two-Brick link.
 - `ui/`: the menu library the emulator and every recomp module share, a submodule: pages, the module
   store, and the tg5040 toolchain.
-- `core/deadcast/catalog.h`: the recomp modules this build offers, each file by SHA-256.
+- `store/`: the recomp modules the store lists (`registry.txt`). An Action rebuilds the list hourly, on the
+  `store` branch.
 - `shell/brick/`: build and package scripts. `pak.json`: the Pak Store's entry.
 
 Only source, build scripts and READMEs go in git; never disc images or anything extracted from them.
@@ -59,8 +60,7 @@ shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DE
 - Each is its own repository, built on the
   [recomp SDK](https://github.com/tyrannotorus/emulator-dreamcast-deadcast-recomp-sdk): the rules, the
   folder and `module.cfg` are in its README.
-- Listing one: `shell/brick/catalog.sh <tarball> <url>` writes its size and SHA-256 into
-  `core/deadcast/catalog.h`; build Deadcast after. Its release must not change after that.
+- Listing one: add its repository to `store/registry.txt`. The store then offers its latest release.
 - In the menu a module goes by its manifest's `title` (`Rez Recompiled`); in the docs it is the
   "<game title> recomp module". Never the game's title alone.
 - Recomp Options: Show FPS first, the module's settings after. Getting, updating and deleting a module
