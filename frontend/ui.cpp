@@ -47,6 +47,7 @@ constexpr int InfoLeading = S(12);	// a module's page: from one line of its text
 constexpr int InfoIndent = S(8);	// a list's lines, past the dot
 constexpr int InfoHeadingGap = S(4);	// and under a section's name
 constexpr int InfoHeight = MaxRows * RowPitch + 2 * RowOverhang;	// the room for its text, that of the rows
+constexpr int StoreLoadingMs = 400;	// "Loading Store..." up at least this long: never a flash
 constexpr int SlideMs = 150;		// a page's rows sliding in, the ones before them out
 constexpr float BackdropBrightness = 0.4f;	// the paused game behind the menu (white: 40% grey)
 
@@ -149,6 +150,11 @@ struct State
 	recomp::StoreEntry downloading;
 	bool updating = false;			// over a version installed
 	std::vector<recomp::StoreEntry> store;		// what the Recomp Store offers, read as it opens
+	std::thread storeLoad;			// reading it, its page saying so
+	std::atomic<bool> storeLoaded { false };
+	std::atomic<bool> cancelStoreLoad { false };
+	std::vector<recomp::StoreEntry> storeFetched;
+	u64 storeOpenedAt = 0;
 	std::vector<InfoLine> info;		// a module's page: its text in lines
 	int infoTop = 0;				// the line at the top of it
 };
@@ -541,7 +547,7 @@ void drawPills(const Screen& screen)
 	c.pill(Padding, Padding, std::min(maxWidth, large.measure(title) + ButtonPadding * 2), PillSize, ColorAccent);
 	c.text(large, title, Padding + ButtonPadding, baseline(large, Padding, PillSize), ColorHint);
 	const int buttonsWidth = drawButtons(pageButtons(screen), 0);
-	if (!screen.body)
+	if (!screen.body || screen.status)
 	{
 		const std::string desc = screen.status ? screen.status()
 				: !screen.items.empty() && !screen.items[screen.selected].desc.empty() ? screen.items[screen.selected].desc
@@ -590,8 +596,16 @@ void draw()
 	st.display->show(c.data());
 }
 
+void endStoreLoad()
+{
+	if (st.storeLoad.joinable())
+		st.storeLoad.join();
+}
+
 void close(bool resume)
 {
+	st.cancelStoreLoad = true;
+	endStoreLoad();
 	st.display->end(resume ? Display::After::LastFrame : Display::After::Stay);
 	st.open = false;
 	st.screens.clear();
@@ -1166,12 +1180,46 @@ void refreshStore(const std::string& name)
 	shown = std::move(fresh);
 }
 
-// straight in, no page saying it is checking. With no internet it offers nothing: what is installed is listed
-// to be deleted, and nothing is said of updates or downloads beyond the network's status at the bottom left.
+// With a network: straight to the store's page, saying so while what it offers is read, its rows then in place
+// of that (B gives up). Without: what is installed at once, to be deleted, and nothing said of updates or
+// downloads beyond the network's status at the bottom left.
 void openStore()
 {
-	st.store = st.network ? recomp::storeCatalog() : std::vector<recomp::StoreEntry>();
-	push(storeScreen());
+	endStoreLoad();
+	if (!st.network)
+	{
+		st.store.clear();
+		push(storeScreen());
+		return;
+	}
+	st.storeLoaded = false;
+	st.cancelStoreLoad = false;
+	st.storeOpenedAt = nowMs();
+	st.storeLoad = std::thread([] {
+		st.storeFetched = recomp::storeCatalog(st.cancelStoreLoad);
+		st.storeLoaded = true;
+	});
+	Screen screen;
+	screen.title = "Recomp Store";
+	screen.status = networkStatus;
+	screen.body = [](int ox) {
+		drawMessage(loaded->large, "Loading Store...", ox, 0, st.canvas.width(), st.canvas.height());
+	};
+	screen.buttons = [] { return Buttons { { "B", "BACK" } }; };
+	screen.act = [](Button) {};
+	screen.back = [] {
+		st.cancelStoreLoad = true;
+		pop();
+	};
+	screen.tick = [] {
+		if (!st.storeLoaded || nowMs() - st.storeOpenedAt < (u64)StoreLoadingMs)
+			return;
+		endStoreLoad();
+		st.store = std::move(st.storeFetched);
+		page() = storeScreen();
+		redraw();
+	};
+	push(std::move(screen));
 }
 
 }	// namespace

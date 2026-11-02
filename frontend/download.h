@@ -49,7 +49,8 @@ ModuleInfo readInfo(const std::string& json);
 // can be fetched: key = value lines, a module = line starting each
 // entry, the other keys named as above (info = its store.json on one line), disc = once a disc. That file carries no signature, so nothing
 // but a test may ever read one.
-std::vector<StoreEntry> storeCatalog();
+// It may take a while: on a thread of its own, given up when cancel turns true.
+std::vector<StoreEntry> storeCatalog(const std::atomic<bool>& cancel);
 
 // fetched, checked, unpacked and installed, replacing the module installed before in one rename;
 // done and total (bytes) as it goes, stopped when cancel turns true (until it is checked: then unpacking

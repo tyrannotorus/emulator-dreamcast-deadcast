@@ -54,7 +54,12 @@ size_t collect(char *data, size_t size, size_t count, void *context)
 }
 
 // a test server's catalog (download.h); empty if there is none to read
-std::vector<StoreEntry> testCatalog(const std::string& address)
+int stopWhen(void *cancel, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
+{
+	return *(const std::atomic<bool> *)cancel ? 1 : 0;
+}
+
+std::vector<StoreEntry> testCatalog(const std::string& address, const std::atomic<bool>& cancel)
 {
 	std::vector<StoreEntry> entries;
 	CURL *curl = session(address);
@@ -64,6 +69,9 @@ std::vector<StoreEntry> testCatalog(const std::string& address)
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, collect);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &text);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, stopWhen);
+	curl_easy_setopt(curl, CURLOPT_XFERINFODATA, const_cast<std::atomic<bool> *>(&cancel));
 	const CURLcode res = curl_easy_perform(curl);
 	curl_easy_cleanup(curl);
 	if (res != CURLE_OK)
@@ -244,12 +252,12 @@ ModuleInfo readInfo(const std::string& text)
 	return info;
 }
 
-std::vector<StoreEntry> storeCatalog()
+std::vector<StoreEntry> storeCatalog(const std::atomic<bool>& cancel)
 {
 	const char *base = std::getenv("DEADCAST_RECOMP_URL");
 	if (base != nullptr && *base != '\0')
 	{
-		std::vector<StoreEntry> entries = testCatalog(std::string(base) + "catalog.cfg");
+		std::vector<StoreEntry> entries = testCatalog(std::string(base) + "catalog.cfg", cancel);
 		if (!entries.empty())
 			return entries;
 	}
