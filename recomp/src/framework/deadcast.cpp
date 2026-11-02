@@ -185,7 +185,6 @@ public:
 private:
     enum class State { Closed, Capturing, Open };
 
-    // once a second, as Deadcast's own perf lines: the game's vblanks (60 at full speed)
     // once a second, as Deadcast's own perf lines: the game's vblanks (60 at full speed) and the
     // frames shown, which Show FPS puts in the corner as the emulator's does
     void perf() {

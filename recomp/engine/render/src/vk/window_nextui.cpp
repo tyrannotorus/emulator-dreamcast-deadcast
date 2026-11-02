@@ -432,8 +432,23 @@ void Window::blit_frame(VkCommandBuffer cmd, VkImage src, VkExtent2D size, bool 
 // the fence says the page holds it, and the game goes on meanwhile.
 bool Window::end_frame(std::uint32_t image_index) {
     VkCommandBuffer cmd = cmds_[frame_];
-    if (!fb0_blitted_)
+    if (!fb0_blitted_) {
+        // The render pass's own dependency should order its colour writes before this copy, but the
+        // Brick's PowerVR driver does not keep it: the first frame drawn through the frame image after
+        // fast-path frames reached the screen with the image's earlier contents (garbage at first,
+        // the last menu after; a menu opening over Rez at 1024x768). An explicit barrier does.
+        VkImageMemoryBarrier b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        b.oldLayout = b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = images_[image_index];
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                             0, nullptr, 0, nullptr, 1, &b);
         fb0_->record_copy(cmd, images_[image_index], fb0_pages_[frame_]);
+    }
     fb0_blitted_ = false;
     vkEndCommandBuffer(cmd);
     VkSubmitInfo si{};
