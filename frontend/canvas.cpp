@@ -126,7 +126,7 @@ void Canvas::roundRect(int x, int y, int width, int height, int r, u32 rgb)
 		auto corner = [&](int xx) {
 			const float px = xx + 0.5f;
 			const float cx = px < r ? r : px > width - r ? width - r : px;
-			const float d = std::hypot(px - cx, py - cy) - r;
+			const float d = std::sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) - r;
 			blend(x + xx, y + yy, rgb, (u32)(std::clamp(0.5f - d, 0.f, 1.f) * 255.f + 0.5f));
 		};
 		for (int xx = 0; xx < r; xx++)
@@ -143,19 +143,18 @@ void Canvas::roundRect(int x, int y, int width, int height, int r, u32 rgb)
 	}
 }
 
-void Canvas::polygon(const float *xy, int count, u32 rgb)
+void Canvas::sprite(const Sprite& shape, int x, int y, u32 rgb)
 {
-	float minX = xy[0], maxX = xy[0], minY = xy[1], maxY = xy[1];
-	for (int i = 1; i < count; i++)
-	{
-		minX = std::min(minX, xy[i * 2]);
-		maxX = std::max(maxX, xy[i * 2]);
-		minY = std::min(minY, xy[i * 2 + 1]);
-		maxY = std::max(maxY, xy[i * 2 + 1]);
-	}
+	for (int yy = 0; yy < shape.h; yy++)
+		for (int xx = 0; xx < shape.w; xx++)
+			blend(x + xx, y + yy, rgb, shape.covered[(size_t)yy * shape.w + xx]);
+}
+
+void Sprite::polygon(const float *xy, int count)
+{
 	// 4 x 4 samples a pixel, each in or out by the even-odd rule
-	for (int y = (int)std::floor(minY); y < (int)std::ceil(maxY); y++)
-		for (int x = (int)std::floor(minX); x < (int)std::ceil(maxX); x++)
+	for (int y = 0; y < h; y++)
+		for (int x = 0; x < w; x++)
 		{
 			int inside = 0;
 			for (int s = 0; s < 16; s++)
@@ -171,7 +170,8 @@ void Canvas::polygon(const float *xy, int count, u32 rgb)
 				}
 				inside += in;
 			}
-			blend(x, y, rgb, (u32)(inside * 255 / 16));
+			u8& covered1 = covered[(size_t)y * w + x];
+			covered1 = std::max(covered1, (u8)(inside * 255 / 16));
 		}
 }
 

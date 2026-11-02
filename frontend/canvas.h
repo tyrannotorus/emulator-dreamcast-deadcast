@@ -65,8 +65,8 @@ public:
 	void roundRect(int x, int y, int width, int height, int r, u32 rgb);
 	void pill(int x, int y, int width, int height, u32 rgb) { roundRect(x, y, width, height, height / 2, rgb); }
 	void circle(int cx, int cy, int r, u32 rgb) { roundRect(cx - r, cy - r, 2 * r, 2 * r, r, rgb); }
-	// a small polygon (icons): count points, x then y each
-	void polygon(const float *xy, int count, u32 rgb);
+	// a shape worked out before (below), its top left at x, y
+	void sprite(const class Sprite& shape, int x, int y, u32 rgb);
 	// an RGB24 picture scaled into the rectangle, its channels multiplied by brightness
 	void picture(const u8 *rgb, int width, int height, int x, int y, int toWidth, int toHeight, float brightness = 1.f);
 	// text with its baseline at y; returns the x after it
@@ -80,6 +80,22 @@ private:
 	int w = 0;
 	int h = 0;
 	std::vector<u32> pixels;
+};
+
+// A small shape (an icon) as how much of each pixel it covers: worked out once, as that takes some 16 tests of
+// every edge for every pixel, and drawn every frame as cheaply as text
+class Sprite
+{
+public:
+	Sprite(int width, int height) : w(width), h(height), covered((size_t)width * height) {}
+	// a polygon added: count points, x then y each, from the shape's top left
+	void polygon(const float *xy, int count);
+
+private:
+	friend class Canvas;
+	int w;
+	int h;
+	std::vector<u8> covered;
 };
 
 // the next codepoint of UTF-8 text, from pos

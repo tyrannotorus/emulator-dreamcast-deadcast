@@ -365,40 +365,48 @@ int rowsTop()
 // NextUI's gray arrows, 24 x 4 (1x), in the gaps above and below the rows: there is more that way
 void drawArrows(int left, bool above, bool below)
 {
+	static const Sprite up = [] {
+		Sprite shape(S(24), S(4));
+		const float points[] { 0, (float)S(4), (float)S(12), 0, (float)S(24), (float)S(4) };
+		shape.polygon(points, 3);
+		return shape;
+	}();
+	static const Sprite down = [] {
+		Sprite shape(S(24), S(4));
+		const float points[] { 0, 0, (float)S(24), 0, (float)S(12), (float)S(4) };
+		shape.polygon(points, 3);
+		return shape;
+	}();
 	Canvas& c = st.canvas;
 	const int top = rowsTop();
-	const float ax = (float)(left + ButtonPadding);
+	const int x = left + ButtonPadding;
 	if (above)
-	{
-		const float y = (float)((Padding + PillSize + top - RowOverhang) / 2 - S(2));
-		const float up[] { ax, y + S(4), ax + S(12), y, ax + S(24), y + S(4) };
-		c.polygon(up, 3, Gray);
-	}
+		c.sprite(up, x, (Padding + PillSize + top - RowOverhang) / 2 - S(2), Gray);
 	if (below)
-	{
-		const float y = (float)((top + MaxRows * RowPitch + RowOverhang + c.height() - Padding - PillSize) / 2 - S(2));
-		const float down[] { ax, y, ax + S(24), y, ax + S(12), y + S(4) };
-		c.polygon(down, 3, Gray);
-	}
+		c.sprite(down, x, (top + MaxRows * RowPitch + RowOverhang + c.height() - Padding - PillSize) / 2 - S(2), Gray);
 }
 
 // A download icon: an arrow down onto a bar, as high as the font's capitals and about as heavy. Drawn, as Noto
 // Sans has no such glyph; x is its left, y the text's baseline.
 void drawDownloadIcon(Font& font, int x, int y, u32 color)
 {
-	const float h = (float)font.capHeight();
-	const float stem = h * 0.22f, bar = h * 0.18f, gap = h * 0.1f;
-	const float left = (float)x, right = left + h, bottom = (float)y, top = bottom - h;
-	const float tip = bottom - bar - gap;
-	const float shoulder = top + (tip - top) * 0.45f;
-	const float middle = left + h / 2;
-	const float arrow[] {
-		middle - stem / 2, top, middle + stem / 2, top, middle + stem / 2, shoulder,
-		right - h * 0.08f, shoulder, middle, tip, left + h * 0.08f, shoulder, middle - stem / 2, shoulder
-	};
-	st.canvas.polygon(arrow, 7, color);
-	const float tray[] { left, bottom - bar, right, bottom - bar, right, bottom, left, bottom };
-	st.canvas.polygon(tray, 4, color);
+	static const Sprite icon = [&font] {
+		const float h = (float)font.capHeight();
+		const float stem = h * 0.22f, bar = h * 0.18f, gap = h * 0.1f;
+		const float tip = h - bar - gap;
+		const float shoulder = tip * 0.45f;
+		const float middle = h / 2;
+		const float arrow[] {
+			middle - stem / 2, 0, middle + stem / 2, 0, middle + stem / 2, shoulder,
+			h * 0.92f, shoulder, middle, tip, h * 0.08f, shoulder, middle - stem / 2, shoulder
+		};
+		const float tray[] { 0, h - bar, h, h - bar, h, h, 0, h };
+		Sprite shape(font.capHeight(), font.capHeight());
+		shape.polygon(arrow, 7);
+		shape.polygon(tray, 4);
+		return shape;
+	}();
+	st.canvas.sprite(icon, x, y - font.capHeight(), color);
 }
 
 // a page's rows, from the same top on every page (pages sliding by line up), the selected one in a pill, a
@@ -1160,12 +1168,11 @@ void refreshStore(const std::string& name)
 	shown = std::move(fresh);
 }
 
+// straight in, no page saying it is checking: what the store offers is this build's, nothing to wait for
 void openStore()
 {
-	busy("Checking...", [] {
-		st.store = recomp::storeCatalog(st.network);
-		push(storeScreen());
-	});
+	st.store = recomp::storeCatalog(st.network);
+	push(storeScreen());
 }
 
 }	// namespace
