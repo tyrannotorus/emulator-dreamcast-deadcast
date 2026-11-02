@@ -125,6 +125,7 @@ for repo in open(registry, encoding="utf-8").read().splitlines():
     print(f"{repo}: {mid} {dict(entry)['version']}")
 
 with open(listing, "w", encoding="utf-8") as out:
+    out.write("store = 1\n")    # a list with nothing on it is still a list
     for mid in sorted(entries):
         for k, v in entries[mid]:
             if v:
