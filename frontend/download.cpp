@@ -1,4 +1,5 @@
 #include "download.h"
+#include "catalog.h"
 #include "recomp.h"
 #include "sha256.h"
 
@@ -21,7 +22,7 @@ namespace
 
 // where the release's files are: Deadcast's release, or DEADCAST_RECOMP_URL (tests: a server of one's
 // own; the checksum still decides)
-std::string url(const CatalogEntry& entry)
+std::string url(const StoreEntry& entry)
 {
 	const char *base = std::getenv("DEADCAST_RECOMP_URL");
 	return std::string(base != nullptr && *base != '\0' ? base : Release) + entry.file;
@@ -42,6 +43,64 @@ CURL *session(const std::string& address)
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "Deadcast");
 	return curl;
+}
+
+size_t collect(char *data, size_t size, size_t count, void *context)
+{
+	((std::string *)context)->append(data, size * count);
+	return size * count;
+}
+
+// a test server's catalog (download.h); empty if there is none to read
+std::vector<StoreEntry> testCatalog(const std::string& address)
+{
+	std::vector<StoreEntry> entries;
+	CURL *curl = session(address);
+	if (curl == nullptr)
+		return entries;
+	std::string text;
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, collect);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &text);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+	const CURLcode res = curl_easy_perform(curl);
+	curl_easy_cleanup(curl);
+	if (res != CURLE_OK)
+	{
+		std::printf("Deadcast: %s: %s\n", address.c_str(), curl_easy_strerror(res));
+		return entries;
+	}
+	for (const auto& kv : keyValues(text))
+	{
+		if (kv.first == "module")
+		{
+			entries.emplace_back();
+			entries.back().id = kv.second;
+		}
+		if (entries.empty())
+			continue;
+		StoreEntry& entry = entries.back();
+		if (kv.first == "name")
+			entry.name = kv.second;
+		else if (kv.first == "version")
+			entry.version = kv.second;
+		else if (kv.first == "file")
+			entry.file = kv.second;
+		else if (kv.first == "size")
+			entry.size = std::strtoull(kv.second.c_str(), nullptr, 10);
+		else if (kv.first == "sha256")
+			entry.sha256 = kv.second;
+		else if (kv.first == "title")
+			entry.title = kv.second;
+		else if (kv.first == "needs")
+			entry.needs = kv.second;
+		else if (kv.first == "disc")
+			entry.discs.push_back(kv.second);
+	}
+	// its ids name folders
+	entries.erase(std::remove_if(entries.begin(), entries.end(), [](const StoreEntry& entry) {
+		return entry.id.empty() || entry.id[0] == '.' || entry.id.find('/') != std::string::npos;
+	}), entries.end());
+	return entries;
 }
 
 struct Fetch
@@ -150,34 +209,37 @@ std::string unpack(const std::string& archive, const std::string& dir, std::atom
 
 }	// namespace
 
-const CatalogEntry *catalogFor(const std::string& discSha1)
+std::vector<StoreEntry> storeCatalog(bool network)
 {
-	for (const CatalogEntry& entry : Catalog)
+	const char *base = std::getenv("DEADCAST_RECOMP_URL");
+	if (network && base != nullptr && *base != '\0')
 	{
-		if (entry.id == nullptr)
-			continue;
-		for (const char *disc : entry.discs)
-			if (disc != nullptr && discSha1 == disc)
-				return &entry;
+		std::vector<StoreEntry> entries = testCatalog(std::string(base) + "catalog.cfg");
+		if (!entries.empty())
+			return entries;
 	}
-	return nullptr;
+	std::vector<StoreEntry> entries;
+	for (const CatalogEntry& built : Catalog)
+	{
+		if (built.id == nullptr)
+			continue;
+		StoreEntry entry;
+		entry.id = built.id;
+		entry.name = built.name;
+		entry.version = built.version;
+		entry.file = built.file;
+		entry.size = built.size;
+		entry.sha256 = built.sha256;
+		entry.title = built.title;
+		for (const char *disc : built.discs)
+			if (disc != nullptr)
+				entry.discs.push_back(disc);
+		entries.push_back(std::move(entry));
+	}
+	return entries;
 }
 
-std::string reachable(const CatalogEntry& entry)
-{
-	CURL *curl = session(url(entry));
-	if (curl == nullptr)
-		return "The download cannot start.";
-	curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-	const CURLcode res = curl_easy_perform(curl);
-	curl_easy_cleanup(curl);
-	if (res != CURLE_OK)
-		std::printf("Deadcast: %s: %s\n", url(entry).c_str(), curl_easy_strerror(res));
-	return res == CURLE_OK ? "" : "The recomp module cannot be reached now.";
-}
-
-std::string install(const CatalogEntry& entry, std::atomic<uint64_t>& done, std::atomic<uint64_t>& total,
+std::string install(const StoreEntry& entry, std::atomic<uint64_t>& done, std::atomic<uint64_t>& total,
 		const std::atomic<bool>& cancel, std::atomic<bool>& unpacking)
 {
 	const std::string dir = home() + "/recomp";
@@ -224,7 +286,7 @@ std::string install(const CatalogEntry& entry, std::atomic<uint64_t>& done, std:
 	if (sha != entry.sha256)
 	{
 		std::remove(archive.c_str());
-		std::printf("Deadcast: %s: SHA-256 %s, not %s\n", entry.file, sha.c_str(), entry.sha256);
+		std::printf("Deadcast: %s: SHA-256 %s, not %s\n", entry.file.c_str(), sha.c_str(), entry.sha256.c_str());
 		return "The download is not the module it should be. Nothing was installed.";
 	}
 
@@ -262,7 +324,7 @@ std::string install(const CatalogEntry& entry, std::atomic<uint64_t>& done, std:
 	}
 	removeTree(old);
 	sync();
-	std::printf("Deadcast: recomp module %s %s installed\n", entry.id, entry.version);
+	std::printf("Deadcast: recomp module %s %s installed\n", entry.id.c_str(), entry.version.c_str());
 	return "";
 }
 

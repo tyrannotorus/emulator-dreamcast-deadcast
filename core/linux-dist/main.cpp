@@ -13,6 +13,7 @@
 #include "stdclass.h"
 #include "deadcast/menu.h"
 #include "recomp.h"
+#include "version.h"
 
 #include <csignal>
 #include <string>
@@ -256,6 +257,8 @@ int main(int argc, char* argv[])
 	// Deadcast: recomp modules marked for deletion deleted, an install cut short tidied away; then the
 	// disc's recomp module instead, if that is its chosen core (no emulator started)
 	deadcast::recomp::tidy();
+	if (deadcast::recomp::get("deadcast.version") != DEADCAST_VERSION)
+		deadcast::recomp::set("deadcast.version", DEADCAST_VERSION);
 	if (argc > 1)
 		deadcast::recomp::runChosen(argv[1]);
 #if defined(USE_BREAKPAD)

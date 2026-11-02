@@ -7,6 +7,7 @@
 //   version = 1.0.1
 //   exec = rez                      the executable, beside the manifest
 //   disc = 9711a0d0...              each disc it plays, by the SHA-1 its CHD's header records
+//   title = Rez Recompiled          what the menu calls it
 //   setting = scale | Resolution | 1=640x480, panel=1024x768 | 1
 //                                   each setting, shown in Recomp Options: key | name | value=label, ... | default
 //
@@ -37,13 +38,18 @@ struct Module
 {
 	std::string id;
 	std::string name;
+	std::string title;
 	std::string version;
 	std::string exec;
 	std::string dir;
 	std::vector<std::string> discs;
 	std::vector<Setting> settings;
 };
+// key = value lines, # comments; a key may come more than once
+std::vector<std::pair<std::string, std::string>> keyValues(const std::string& text);
 bool readManifest(const std::string& file, Module& module);
+// every module installed
+std::vector<Module> allInstalled();
 // the module installed for a disc (its CHD's SHA-1); false if none. Only a folder named as its manifest's
 // id counts: never what an install or a deletion left half done (<id>.new, <id>.old)
 bool installed(const std::string& discSha1, Module& module);
@@ -72,7 +78,8 @@ constexpr const char *RunMarker = "/tmp/deadcast-recomp-run";
 constexpr int SwitchExit = 86;
 
 // Deadcast's store of what the menu picks for the recomps (key = value lines in <home>/recomp.cfg), each
-// change saved at once: core.<module> (the game's core), <module>.<setting> (a module's settings)
+// change saved at once: core.<module> (the game's core), <module>.<setting> (a module's settings),
+// deadcast.version (the Deadcast on this Brick, which a module cannot tell by itself)
 std::string get(const std::string& key, const std::string& def = "");
 void set(const std::string& key, const std::string& value);
 

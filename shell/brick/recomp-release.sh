@@ -56,7 +56,8 @@ with open(path, "wb") as raw:
 data = open(path, "rb").read()
 sha = hashlib.sha256(data).hexdigest()
 
-entry = (f'\t{{ "{mid}", "{name}", "{version}", "{file}", {len(data)}, "{sha}",\n'
+title = cfg.get("title", "")
+entry = (f'\t{{ "{mid}", "{name}", "{version}", "{file}", {len(data)}, "{sha}", "{title}",\n'
          f'\t\t{{ {", ".join(chr(34) + d + chr(34) for d in discs)} }} }},\n')
 text = open(catalog, encoding="utf-8").read()
 text = re.sub(r'(constexpr const char \*Release = ")[^"]*(";)',

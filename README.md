@@ -63,8 +63,10 @@ shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DE
 - Releasing one: `shell/brick/recomp-release.sh <id> <version>` packs it and writes its size and
   SHA-256 into `frontend/catalog.h`; build Deadcast after. Any change to the module's binary changes
   its SHA-256, so pack it again before every release.
-- In the menu and the docs a module is always the "<game title> recomp module", never the title alone.
-- Recomp Options: Check for Update first, Show FPS second, the module's settings after.
+- In the menu a module goes by its manifest's `title` (`Rez Recompiled`); in the docs it is the
+  "<game title> recomp module". Never the game's title alone.
+- Recomp Options: Show FPS first, the module's settings after. Getting, updating and deleting a module
+  are the Recomp Store's (on the main page).
 
 ### Releasing
 
@@ -97,10 +99,10 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 ### Controls
 
 MENU opens Deadcast's menu, drawn like NextUI's own emulators' (`frontend/`, `core/deadcast/menu.cpp`):
-Continue, Save and Load (ten slots, with pictures), Options and Quit. Options holds Current Core,
+Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Current Core,
 Emulator Options (Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it
-changes) and Recomp Options (Download Recomp Module, or Check for Update and the module's settings once
-it is installed). Picking the other core turns Continue into Restart, which starts the game again in
+changes) and Recomp Options (the settings of the game's module, once it is installed). Recomp Store lists
+every recomp module: download, update, delete. Picking the other core turns Continue into Restart, which starts the game again in
 it; each core's options can be set from either core. The menu shows whether the Brick is connected to a
 network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the
 Dreamcast's d-pad (at first) and its analog stick, for games that only read the stick. Controls remaps

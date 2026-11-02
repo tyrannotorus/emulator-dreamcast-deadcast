@@ -1,6 +1,7 @@
 #include "recomp.h"
 #include "ui.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -37,24 +38,17 @@ std::vector<std::string> split(const std::string& s, char by)
 	return parts;
 }
 
-// key = value lines, # comments; a key may come more than once
 std::vector<std::pair<std::string, std::string>> readLines(const std::string& file)
 {
-	std::vector<std::pair<std::string, std::string>> lines;
 	FILE *f = std::fopen(file.c_str(), "r");
 	if (f == nullptr)
-		return lines;
+		return {};
+	std::string text;
 	char buf[1024];
-	while (std::fgets(buf, sizeof(buf), f) != nullptr)
-	{
-		const std::string line = trim(buf);
-		const size_t eq = line.find('=');
-		if (line.empty() || line[0] == '#' || eq == std::string::npos)
-			continue;
-		lines.emplace_back(trim(line.substr(0, eq)), trim(line.substr(eq + 1)));
-	}
+	while (const size_t n = std::fread(buf, 1, sizeof(buf), f))
+		text.append(buf, n);
 	std::fclose(f);
-	return lines;
+	return keyValues(text);
 }
 
 std::string storeFile()
@@ -86,6 +80,23 @@ std::map<std::string, std::string>& store()
 }
 
 }	// namespace
+
+std::vector<std::pair<std::string, std::string>> keyValues(const std::string& text)
+{
+	std::vector<std::pair<std::string, std::string>> lines;
+	for (size_t start = 0, end; start < text.size(); start = end + 1)
+	{
+		end = text.find('\n', start);
+		if (end == std::string::npos)
+			end = text.size();
+		const std::string line = trim(text.substr(start, end - start));
+		const size_t eq = line.find('=');
+		if (line.empty() || line[0] == '#' || eq == std::string::npos)
+			continue;
+		lines.emplace_back(trim(line.substr(0, eq)), trim(line.substr(eq + 1)));
+	}
+	return lines;
+}
 
 std::string home()
 {
@@ -124,6 +135,8 @@ bool readManifest(const std::string& file, Module& module)
 			module.id = kv.second;
 		else if (kv.first == "name")
 			module.name = kv.second;
+		else if (kv.first == "title")
+			module.title = kv.second;
 		else if (kv.first == "version")
 			module.version = kv.second;
 		else if (kv.first == "exec")
@@ -149,36 +162,37 @@ bool readManifest(const std::string& file, Module& module)
 	return !module.id.empty() && !module.exec.empty() && !module.discs.empty();
 }
 
+std::vector<Module> allInstalled()
+{
+	std::vector<Module> modules;
+	const std::string dir = modulesDir();
+	DIR *d = opendir(dir.c_str());
+	if (d == nullptr)
+		return modules;
+	while (const dirent *e = readdir(d))
+	{
+		if (e->d_name[0] == '.')
+			continue;
+		Module m;
+		if (readManifest(dir + "/" + e->d_name + "/module.cfg", m) && m.id == e->d_name
+				&& access((m.dir + "/" + m.exec).c_str(), X_OK) == 0)
+			modules.push_back(std::move(m));
+	}
+	closedir(d);
+	return modules;
+}
+
 bool installed(const std::string& discSha1, Module& module)
 {
 	if (discSha1.empty())
 		return false;
-	const std::string dir = modulesDir();
-	DIR *d = opendir(dir.c_str());
-	if (d == nullptr)
-		return false;
-	bool found = false;
-	while (!found)
-	{
-		const dirent *e = readdir(d);
-		if (e == nullptr)
-			break;
-		if (e->d_name[0] == '.')
-			continue;
-		Module m;
-		if (!readManifest(dir + "/" + e->d_name + "/module.cfg", m) || m.id != e->d_name
-				|| access((m.dir + "/" + m.exec).c_str(), X_OK) != 0)
-			continue;
-		for (const std::string& disc : m.discs)
-			if (disc == discSha1)
-			{
-				module = std::move(m);
-				found = true;
-				break;
-			}
-	}
-	closedir(d);
-	return found;
+	for (Module& m : allInstalled())
+		if (std::find(m.discs.begin(), m.discs.end(), discSha1) != m.discs.end())
+		{
+			module = std::move(m);
+			return true;
+		}
+	return false;
 }
 
 void runChosen(const std::string& disc)

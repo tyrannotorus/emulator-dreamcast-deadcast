@@ -3,25 +3,38 @@
 // by where it came from: anything else fails the check and is deleted. (The Brick has no CA
 // certificates, so the connection is not verified; the checksum is what decides.)
 #pragma once
-#include "catalog.h"
-
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace deadcast::recomp
 {
 
-// the catalog's module for a disc (its CHD's SHA-1); nullptr if none
-const CatalogEntry *catalogFor(const std::string& discSha1);
+// a module the Recomp Store offers
+struct StoreEntry
+{
+	std::string id;
+	std::string name;
+	std::string version;
+	std::string file;			// in the release
+	uint64_t size = 0;			// its bytes
+	std::string sha256;
+	std::string title;			// what the menu calls it
+	std::string needs;			// the oldest Deadcast that can run it, if any is too old
+	std::vector<std::string> discs;
+};
 
-// the release's file for it there (asked for, not fetched): empty if so, else why not
-std::string reachable(const CatalogEntry& entry);
+// what the store offers: this build's catalog. In a test, DEADCAST_RECOMP_URL's catalog.cfg instead if it
+// can be fetched (network: there is a network to ask): key = value lines, a module = line starting each
+// entry, the other keys named as above, disc = once a disc. That file carries no signature, so nothing
+// but a test may ever read one.
+std::vector<StoreEntry> storeCatalog(bool network);
 
 // fetched, checked, unpacked and installed, replacing the module installed before in one rename;
 // done and total (bytes) as it goes, stopped when cancel turns true (until it is checked: then unpacking
 // says so, and done and total count the archive unpacked). Empty when installed, else what went wrong.
-std::string install(const CatalogEntry& entry, std::atomic<uint64_t>& done, std::atomic<uint64_t>& total,
+std::string install(const StoreEntry& entry, std::atomic<uint64_t>& done, std::atomic<uint64_t>& total,
 		const std::atomic<bool>& cancel, std::atomic<bool>& unpacking);
 
 }

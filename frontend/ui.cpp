@@ -13,6 +13,7 @@
 #include <thread>
 
 #include <fcntl.h>
+#include <strings.h>
 #include <linux/fb.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -128,7 +129,9 @@ struct State
 	std::atomic<bool> downloadDone { false };
 	std::atomic<bool> installing { false };		// fetched and checked: being unpacked
 	std::string downloadError;
-	const recomp::CatalogEntry *downloading = nullptr;
+	recomp::StoreEntry downloading;
+	bool updating = false;			// over a version installed
+	std::vector<recomp::StoreEntry> store;		// what the Recomp Store offers, read as it opens
 };
 State st;
 
@@ -222,7 +225,7 @@ void actList(Button code)
 		}
 		break;
 	case Button::X:
-		if (item.row == Row::Binding && item.clear)
+		if (item.clear)
 			item.clear();
 		break;
 	default:
@@ -410,6 +413,8 @@ Buttons pageButtons(const Screen& screen)
 {
 	if (screen.buttons)
 		return screen.buttons();
+	if (!screen.items.empty() && !screen.items[screen.selected].hints.empty())
+		return screen.items[screen.selected].hints;
 	Buttons buttons { { "B", "BACK" } };
 	if (!screen.items.empty() && screen.items[screen.selected].row == Row::Binding)
 	{
@@ -525,14 +530,14 @@ bool moduleInstalled()
 	return st.hasModule;
 }
 
-// a module as the player is told of it: never the game's title alone, which reads as the game
-std::string moduleName(const std::string& title)
+// a module as the player is told of it: its title (Rez Recompiled), or with none declared its name as a
+// module. Never the game's title alone, which reads as the game.
+std::string moduleName(const std::string& title, const std::string& name)
 {
-	return title + " recomp module";
+	return title.empty() ? name + " recomp module" : title;
 }
 
-void checkModule();
-void removeModule();
+void refreshStore();
 
 // the core picked in Options stored as the game's (from its next start)
 void keepChosen()
@@ -540,25 +545,14 @@ void keepChosen()
 	recomp::set("core." + st.module.id, st.chosen == Core::Recomp ? "recomp" : "emulator");
 }
 
-// the game's recomp module: with none installed, Download Recomp Module alone; installed, Check for
-// Update, Show FPS, the module's settings, as its manifest declares them, kept in Deadcast's store,
-// and last Delete Recomp Module
+// the settings of the game's recomp module, as its manifest declares them, kept in Deadcast's store.
+// Show FPS is always the first row, in every module; a module does not declare it. Getting a module,
+// updating it and deleting it are the Recomp Store's.
 Screen recompOptionsScreen()
 {
 	Screen screen;
 	screen.title = "Recomp Options";
-	// Check for Update is always Recomp Options' first row and Show FPS its second, in every module,
-	// whatever settings it declares: keep them first. Neither is declared by a module; the module's own
-	// settings (module.cfg) follow them, in the order declared.
-	screen.items.push_back(entry(st.hasModule ? "Check for Update" : "Download Recomp Module", "", [] {
-		if (st.network)
-			busy("Checking...", checkModule);
-		else
-			message("No network connection.");
-	}));
-	if (!st.hasModule)
-		return screen;
-	screen.desc = moduleName(st.module.name) + " " + st.module.version;
+	screen.desc = moduleName(st.module.title, st.module.name) + " " + st.module.version;
 	// the frame rate in the corner, as the emulator's Show FPS
 	Item fps;
 	fps.name = "Show FPS";
@@ -595,43 +589,8 @@ Screen recompOptionsScreen()
 		};
 		screen.items.push_back(std::move(item));
 	}
-	// the module and everything of it, its saves too: asked first; in the module, the game restarts
-	// in the emulator
-	screen.items.push_back(entry("Delete Recomp Module", "", [] {
-		std::string question = "Delete\n" + moduleName(st.module.name) + " " + st.module.version + "\nand its saves?";
-		if (st.host.core == Core::Recomp)
-			question += "\nYour game restarts in the emulator.";
-		ask(question, "DELETE", removeModule);
-	}));
 	return screen;
 }
-
-// the module deleted. From the emulator: at once, then Recomp Options again without it (and the
-// emulator the core again, were Recomp picked but not restarted into). From the module itself: only
-// marked, and the game started again emulated; Deadcast deletes it as it starts (recomp::tidy).
-void removeModule()
-{
-	const std::string name = moduleName(st.module.name);
-	if (st.host.core == Core::Recomp)
-	{
-		recomp::markForDeletion(st.module.id);
-		st.chosen = Core::Emulator;
-		keepChosen();
-		finish(Result::Switch);
-		return;
-	}
-	const bool deleted = recomp::deleteModule(st.module.id);
-	st.module = recomp::Module();
-	st.hasModule = recomp::installed(st.discSha1, st.module);
-	st.chosen = st.host.core;
-	st.screens.front().items.front().name = "Continue";
-	for (Screen& screen : st.screens)
-		if (screen.title == "Options" && !screen.items.empty())
-			screen.items.front().value = (int)st.chosen;
-	page() = recompOptionsScreen();
-	message(deleted ? name + " is deleted." : name + "\ncould not be fully deleted.\nDeadcast retries at its next start.");
-}
-
 
 // a page of Emulator Options' settings (Console, Video, Audio), each kept as it changes
 Screen settingsScreen(const options::Page& list)
@@ -696,7 +655,9 @@ Screen optionsScreen()
 	};
 	screen.items.push_back(std::move(current));
 	screen.items.push_back(entry("Emulator Options", "", [] { push(emulatorOptionsScreen()); }));
-	screen.items.push_back(entry("Recomp Options", "", [] { push(recompOptionsScreen()); }));
+	Item recompOptions = entry("Recomp Options", "", [] { push(recompOptionsScreen()); });
+	recompOptions.available = moduleInstalled;
+	screen.items.push_back(std::move(recompOptions));
 	return screen;
 }
 
@@ -710,7 +671,7 @@ std::string megabytes(uint64_t bytes)
 void drawDownload(int ox)
 {
 	Canvas& c = st.canvas;
-	const recomp::CatalogEntry& e = *st.downloading;
+	const recomp::StoreEntry& e = st.downloading;
 	const uint64_t size = st.downloadSize > 0 ? st.downloadSize.load() : e.size;
 	const std::string doing = st.installing ? "Installing" : st.cancelDownload ? "Stopping" : "Downloading";
 	Font& font = loaded->large;
@@ -719,7 +680,7 @@ void drawDownload(int ox)
 	const int lines = font.lineHeight() * 2, barHeight = S(6), gap = S(10);
 	const int block = lines + gap + barHeight + (counted ? gap / 2 + small.lineHeight() : 0);
 	const int top = (c.height() - block) / 2;
-	drawMessage(font, doing + "\n" + moduleName(e.name) + " " + e.version, ox, top, c.width(), lines);
+	drawMessage(font, doing + "\n" + moduleName(e.title, e.name) + " " + e.version, ox, top, c.width(), lines);
 	const int barWidth = c.width() / 2, barX = ox + (c.width() - barWidth) / 2, barY = top + lines + gap;
 	const double done = size > 0 ? std::min(1.0, (double)st.downloaded / (double)size) : 0.0;
 	c.pill(barX, barY, barWidth, barHeight, ColorAccent);
@@ -730,8 +691,8 @@ void drawDownload(int ox)
 				c.width(), small.lineHeight());
 }
 
-// the download over (installed, failed or stopped): its page gone, what came of it said; installed,
-// Recomp Options again with the module's rows
+// the download over (installed, failed or stopped): its page gone, what came of it said; installed, the
+// store's rows as they now are
 void downloadOver()
 {
 	st.download.join();
@@ -742,29 +703,28 @@ void downloadOver()
 		return;
 	}
 	st.hasModule = recomp::installed(st.discSha1, st.module);
-	// Recomp Options again, now with the module's rows
-	if (depth() > 0 && page().title == "Recomp Options")
-		page() = recompOptionsScreen();
-	// in the emulator, Current Core picks it from now on
-	const std::string name = moduleName(st.module.name);
-	if (st.host.core == Core::Emulator)
-		message(name + " is installed.");
-	else
+	refreshStore();
+	const std::string name = moduleName(st.downloading.title, st.downloading.name);
+	// the module playing now goes on as it started
+	if (st.host.core == Core::Recomp && st.downloading.id == st.module.id)
 		message(name + " is updated: it plays from your game's next start.");
+	else
+		message(name + (st.updating ? " is updated." : " is installed."));
 }
 
 // fetched (installed by recomp::install) on a thread of its own, its page showing how far; B stops it
-void startDownload(const recomp::CatalogEntry *entry)
+void startDownload(const recomp::StoreEntry& entry, bool updating)
 {
 	st.downloading = entry;
+	st.updating = updating;
 	st.downloaded = 0;
-	st.downloadSize = entry->size;
+	st.downloadSize = entry.size;
 	st.cancelDownload = false;
 	st.downloadDone = false;
 	st.installing = false;
 	st.downloadError.clear();
-	st.download = std::thread([entry] {
-		st.downloadError = recomp::install(*entry, st.downloaded, st.downloadSize, st.cancelDownload, st.installing);
+	st.download = std::thread([] {
+		st.downloadError = recomp::install(st.downloading, st.downloaded, st.downloadSize, st.cancelDownload, st.installing);
 		st.downloadDone = true;
 	});
 	Screen screen;
@@ -801,30 +761,166 @@ bool newer(const std::string& a, const std::string& b)
 	return false;
 }
 
-// what the catalog has for this game's disc: newer than the module installed, there to fetch, then
-// fetched if the player says so. Never an older one: a module's own menu reads the catalog it was built
-// with, which lists the module before it.
-void checkModule()
+void getModule(const recomp::StoreEntry& entry, bool updating)
 {
-	const recomp::CatalogEntry *entry = recomp::catalogFor(st.discSha1);
-	if (entry == nullptr)
+	if (st.network)
+		startDownload(entry, updating);
+	else
+		message("No network connection.");
+}
+
+// a module deleted, and everything of it, its saves too. At once, unless it is the module playing now:
+// that one is only marked, and the game starts again emulated; Deadcast deletes it as it starts
+// (recomp::tidy). The emulator is the game's core again, were this game's module picked but not
+// restarted into.
+void removeModule(const recomp::Module& module, const std::string& name)
+{
+	const bool thisGame = module.id == st.module.id;
+	if (thisGame && st.host.core == Core::Recomp)
 	{
-		message("Sorry, no recomp module found.");
+		recomp::markForDeletion(module.id);
+		st.chosen = Core::Emulator;
+		keepChosen();
+		finish(Result::Switch);
 		return;
 	}
-	if (st.hasModule && !newer(entry->version, st.module.version))
+	const bool deleted = recomp::deleteModule(module.id);
+	if (thisGame)
 	{
-		message(moduleName(st.module.name) + " is up to date.");
-		return;
+		st.module = recomp::Module();
+		st.hasModule = recomp::installed(st.discSha1, st.module);
+		st.chosen = st.host.core;
+		st.screens.front().items.front().name = "Continue";
 	}
-	const std::string why = recomp::reachable(*entry);
-	if (!why.empty())
+	refreshStore();
+	message(deleted ? name + " is deleted." : name + "\ncould not be fully deleted.\nDeadcast retries at its next start.");
+}
+
+// asked first: it takes the module's saves
+void askRemove(const recomp::Module& module, const std::string& name)
+{
+	std::string question = "Delete\n" + name + " " + module.version + "\nand its saves?";
+	if (st.host.core == Core::Recomp && module.id == st.module.id)
+		question += "\nYour game restarts in the emulator.";
+	ask(question, "DELETE", [module, name] { removeModule(module, name); });
+}
+
+bool playsThisDisc(const std::vector<std::string>& discs)
+{
+	return std::find(discs.begin(), discs.end(), st.discSha1) != discs.end();
+}
+
+// A store's row shows the module's title and no more: the buttons it offers say what state it is in.
+// Installed: delete it
+Item installedRow(const recomp::Module& module, const std::string& title)
+{
+	Item item;
+	item.name = title;
+	item.hints = { { "B", "BACK" }, { "X", "DELETE" } };
+	item.clear = [module, title] { askRemove(module, title); };
+	return item;
+}
+
+// not installed: download it, or told what it takes when this Deadcast cannot run it
+Item offeredRow(const recomp::StoreEntry& entry, const std::string& title, bool usable)
+{
+	Item item;
+	item.name = title;
+	if (usable)
 	{
-		message(why);
-		return;
+		item.hints = { { "B", "BACK" }, { "A", "DOWNLOAD" } };
+		item.confirm = [entry] { getModule(entry, false); };
 	}
-	ask("Download\n" + moduleName(entry->name) + " " + entry->version + "?", "DOWNLOAD",
-			[entry] { startDownload(entry); });
+	else
+	{
+		item.hints = { { "B", "BACK" }, { "A", "UPDATE DEADCAST" } };
+		item.confirm = [title] { message("Update Deadcast to use\n" + title + "."); };
+	}
+	return item;
+}
+
+// installed with a newer version offered: update it, or delete it
+Item updateRow(const recomp::Module& module, const recomp::StoreEntry& entry, const std::string& title)
+{
+	Item item = installedRow(module, title);
+	item.hints = { { "B", "BACK" }, { "X", "DELETE" }, { "A", "UPDATE" } };
+	item.confirm = [entry] { getModule(entry, true); };
+	return item;
+}
+
+// every module offered and every one installed, offered or not, so that one can always be deleted; by
+// name, the cursor on this game's module if it has one
+Screen storeScreen()
+{
+	Screen screen;
+	screen.title = "Recomp Store";
+	std::vector<recomp::Module> mine = recomp::allInstalled();
+	const std::string deadcast = recomp::get("deadcast.version");
+	struct StoreRow
+	{
+		std::string title;
+		Item item;
+		bool thisGame;
+	};
+	std::vector<StoreRow> rows;
+	for (const recomp::StoreEntry& entry : st.store)
+	{
+		const std::string title = moduleName(entry.title, entry.name);
+		const bool usable = entry.needs.empty() || !newer(entry.needs, deadcast);
+		const auto own = std::find_if(mine.begin(), mine.end(), [&entry](const recomp::Module& module) {
+			return module.id == entry.id;
+		});
+		if (own == mine.end())
+			rows.push_back({ title, offeredRow(entry, title, usable), playsThisDisc(entry.discs) });
+		else
+		{
+			rows.push_back({ title, usable && newer(entry.version, own->version) ? updateRow(*own, entry, title)
+					: installedRow(*own, title), playsThisDisc(own->discs) });
+			mine.erase(own);
+		}
+	}
+	for (const recomp::Module& module : mine)
+	{
+		const std::string title = moduleName(module.title, module.name);
+		rows.push_back({ title, installedRow(module, title), playsThisDisc(module.discs) });
+	}
+	std::stable_sort(rows.begin(), rows.end(), [](const StoreRow& a, const StoreRow& b) {
+		return strcasecmp(a.title.c_str(), b.title.c_str()) < 0;
+	});
+	for (StoreRow& row : rows)
+	{
+		if (row.thisGame)
+		{
+			screen.selected = (int)screen.items.size();
+			screen.start = std::max(0, screen.selected - MaxRows + 1);
+		}
+		screen.items.push_back(std::move(row.item));
+	}
+	if (screen.items.empty())
+	{
+		screen.desc = "No recomp modules yet.";
+		screen.buttons = [] { return Buttons { { "B", "BACK" } }; };
+	}
+	return screen;
+}
+
+// the store's page again, its rows as they now are and the cursor where it was
+void refreshStore()
+{
+	Screen& shown = page();
+	Screen fresh = storeScreen();
+	const int count = (int)fresh.items.size();
+	fresh.selected = std::min(shown.selected, std::max(count - 1, 0));
+	fresh.start = std::min(shown.start, std::max(count - MaxRows, 0));
+	shown = std::move(fresh);
+}
+
+void openStore()
+{
+	busy("Checking...", [] {
+		st.store = recomp::storeCatalog(st.network);
+		push(storeScreen());
+	});
 }
 
 }	// namespace
@@ -854,6 +950,7 @@ Screen mainScreen(const std::string& title, Host host)
 		screen.items.push_back(*item);
 	}
 	screen.items.push_back(entry("Options", "", [] { push(optionsScreen()); }));
+	screen.items.push_back(entry("Recomp Store", "", openStore));
 	screen.items.push_back(entry("Quit", "", [] { finish(Result::Quit); }));
 	st.discSha1 = recomp::chdSha1(host.disc);
 	st.hasModule = recomp::installed(st.discSha1, st.module);

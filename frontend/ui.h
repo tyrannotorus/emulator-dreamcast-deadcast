@@ -64,6 +64,8 @@ Fonts& fonts();
 // what pages are drawn on, the screen's size
 Canvas& canvas();
 
+using Buttons = std::vector<std::pair<const char *, const char *>>;
+
 // A row of a page: does something (A), picks one of its values (Left/Right), or shows what a control is
 // bound to (A waits for a control, X clears it)
 enum class Row { Action, Choice, Binding };
@@ -77,14 +79,14 @@ struct Item
 	std::function<void(int)> change;	// Choice: a value picked
 	std::function<void()> confirm;		// A
 	std::function<void(int)> shift;		// Left/Right on an Action, -1 or 1 (Save, Load: the slot)
-	std::function<void()> clear;		// X on a Binding
+	std::function<void()> clear;		// X
 	std::function<bool()> available;	// while false: greyed, and the cursor goes past it
 	std::function<void(int ox)> aside;	// drawn at the right while selected (Save, Load: the slot's picture)
+	Buttons hints;						// the buttons shown while selected, instead of its kind's
 };
 Item entry(const std::string& name, const std::string& desc, std::function<void()> confirm);
 bool enabled(const Item& item);
 
-using Buttons = std::vector<std::pair<const char *, const char *>>;
 struct Screen
 {
 	std::string title;
@@ -119,7 +121,7 @@ struct Host
 	// a recomp setting changed (key, value): a module applies it, if it can while playing
 	std::function<void(const std::string&, const std::string&)> recompSetting;
 };
-// the first page: Continue (Restart once Options picks another core), Save, Load, Options, Quit, the
+// the first page: Continue (Restart once Options picks another core), Save, Load, Options, Recomp Store, Quit, the
 // network's status at the bottom left
 Screen mainScreen(const std::string& title, Host host);
 
