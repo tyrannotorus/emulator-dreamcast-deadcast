@@ -38,19 +38,6 @@ std::vector<std::string> split(const std::string& s, char by)
 	return parts;
 }
 
-std::vector<std::pair<std::string, std::string>> readLines(const std::string& file)
-{
-	FILE *f = std::fopen(file.c_str(), "r");
-	if (f == nullptr)
-		return {};
-	std::string text;
-	char buf[1024];
-	while (const size_t n = std::fread(buf, 1, sizeof(buf), f))
-		text.append(buf, n);
-	std::fclose(f);
-	return keyValues(text);
-}
-
 std::string storeFile()
 {
 	return home() + "/recomp.cfg";
@@ -72,7 +59,7 @@ std::map<std::string, std::string>& store()
 	static bool loaded = false;
 	if (!loaded)
 	{
-		for (const auto& kv : readLines(storeFile()))
+		for (const auto& kv : keyValues(readText(storeFile())))
 			values[kv.first] = kv.second;
 		loaded = true;
 	}
@@ -80,6 +67,19 @@ std::map<std::string, std::string>& store()
 }
 
 }	// namespace
+
+std::string readText(const std::string& file)
+{
+	FILE *f = std::fopen(file.c_str(), "r");
+	if (f == nullptr)
+		return "";
+	std::string text;
+	char buf[1024];
+	while (const size_t n = std::fread(buf, 1, sizeof(buf), f))
+		text.append(buf, n);
+	std::fclose(f);
+	return text;
+}
 
 std::vector<std::pair<std::string, std::string>> keyValues(const std::string& text)
 {
@@ -129,7 +129,7 @@ bool readManifest(const std::string& file, Module& module)
 {
 	module = Module();
 	module.dir = file.substr(0, file.find_last_of('/'));
-	for (const auto& kv : readLines(file))
+	for (const auto& kv : keyValues(readText(file)))
 	{
 		if (kv.first == "id")
 			module.id = kv.second;

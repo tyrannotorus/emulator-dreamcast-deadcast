@@ -13,7 +13,7 @@ SRC=build-brick/recomp/$M
 [ -f "$SRC/module.cfg" ] || { echo "recomp-release: no $SRC (shell/brick/recomp.sh $M DISC)"; exit 2; }
 mkdir -p build-brick/release
 python3 - "$SRC" "$TAG" frontend/catalog.h build-brick/release <<'EOF'
-import hashlib, io, os, re, sys, tarfile
+import hashlib, io, json, os, re, sys, tarfile
 
 src, tag, catalog, out = sys.argv[1:5]
 cfg = {}
@@ -57,7 +57,12 @@ data = open(path, "rb").read()
 sha = hashlib.sha256(data).hexdigest()
 
 title = cfg.get("title", "")
-entry = (f'\t{{ "{mid}", "{name}", "{version}", "{file}", {len(data)}, "{sha}", "{title}",\n'
+store = json.load(open(os.path.join(src, "store.json"), encoding="utf-8"))
+# what the player is told is what is checked
+if sorted(d.get("sha1", "") for d in store.get("formats", [])) != sorted(discs):
+    sys.exit("recomp-release: store.json's formats must list the manifest's discs")
+info = json.dumps(store, ensure_ascii=False, separators=(",", ":"))
+entry = (f'\t{{ "{mid}", "{name}", "{version}", "{file}", {len(data)}, "{sha}", "{title}", R"json({info})json",\n'
          f'\t\t{{ {", ".join(chr(34) + d + chr(34) for d in discs)} }} }},\n')
 text = open(catalog, encoding="utf-8").read()
 text = re.sub(r'(constexpr const char \*Release = ")[^"]*(";)',

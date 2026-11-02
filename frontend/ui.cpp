@@ -42,6 +42,10 @@ using u64 = std::uint64_t;
 
 constexpr int MaxRows = 6;			// a page's rows shown at once (arrows: there are more)
 constexpr int RowPitch = S(28);		// from one row to the next (its pill, PillSize, a little taller)
+constexpr int RowOverhang = (PillSize - RowPitch) / 2;
+constexpr int InfoLeading = S(12);	// a module's page: from one line of its text to the next
+constexpr int InfoIndent = S(8);	// a list's lines, past the dot
+constexpr int InfoRows = (MaxRows * RowPitch + 2 * RowOverhang) / InfoLeading;
 constexpr int SlideMs = 150;		// a page's rows sliding in, the ones before them out
 constexpr float BackdropBrightness = 0.4f;	// the paused game behind the menu (white: 40% grey)
 
@@ -84,6 +88,18 @@ bool loadFonts()
 	loaded = f.release();
 	return true;
 }
+
+// a line of a module's page; marked: a dot before it, a list entry's first line; cells: a table's row instead
+// of text, ruled: with a line under it
+struct InfoLine
+{
+	std::string text;
+	u32 color = White;
+	bool indented = false;
+	bool marked = false;
+	std::vector<std::string> cells;
+	bool ruled = false;
+};
 
 struct State
 {
@@ -132,6 +148,9 @@ struct State
 	recomp::StoreEntry downloading;
 	bool updating = false;			// over a version installed
 	std::vector<recomp::StoreEntry> store;		// what the Recomp Store offers, read as it opens
+	std::vector<InfoLine> info;		// a module's page: its text in lines
+	int infoTop = 0;				// the line at the top of it
+	int infoColumns[2] = { 0, 0 };	// the widths of its table's first two columns
 };
 State st;
 
@@ -217,7 +236,7 @@ void actList(Button code)
 		break;
 	}
 	case Button::A:
-		if (item.confirm && enabled(item))
+		if (item.confirm)
 		{
 			// it may change the pages, this one's items with them
 			const std::function<void()> confirm = item.confirm;
@@ -336,6 +355,33 @@ void drawDescription(const std::string& desc, int width)
 	}
 }
 
+// where a page's rows start, the same on every page (pages sliding by line up): MaxRows of them in the middle
+// of the room between the title and the buttons
+int rowsTop()
+{
+	return Padding + PillSize + (st.canvas.height() - 2 * (Padding + PillSize) - MaxRows * RowPitch) / 2;
+}
+
+// NextUI's gray arrows, 24 x 4 (1x), in the gaps above and below the rows: there is more that way
+void drawArrows(int left, bool above, bool below)
+{
+	Canvas& c = st.canvas;
+	const int top = rowsTop();
+	const float ax = (float)(left + ButtonPadding);
+	if (above)
+	{
+		const float y = (float)((Padding + PillSize + top - RowOverhang) / 2 - S(2));
+		const float up[] { ax, y + S(4), ax + S(12), y, ax + S(24), y + S(4) };
+		c.polygon(up, 3, Gray);
+	}
+	if (below)
+	{
+		const float y = (float)((top + MaxRows * RowPitch + RowOverhang + c.height() - Padding - PillSize) / 2 - S(2));
+		const float down[] { ax, y, ax + S(24), y, ax + S(12), y + S(4) };
+		c.polygon(down, 3, Gray);
+	}
+}
+
 // a page's rows, from the same top on every page (pages sliding by line up), the selected one in a pill, a
 // Choice's or Binding's value at the right; arrows above and below when there are more
 void drawList(const Screen& screen, int ox)
@@ -344,16 +390,15 @@ void drawList(const Screen& screen, int ox)
 	Font& large = loaded->large;
 	const int count = (int)screen.items.size();
 	const int shown = std::min(count, MaxRows);
-	// MaxRows of them in the middle of the room between the title and the buttons
-	const int top = Padding + PillSize + (c.height() - 2 * (Padding + PillSize) - MaxRows * RowPitch) / 2;
-	const int overhang = (PillSize - RowPitch) / 2;
+	const int top = rowsTop();
+	const int overhang = RowOverhang;
 	const int left = ox + Padding;
 	const int right = ox + c.width() - Padding;
 	for (int i = 0; i < shown; i++)
 	{
 		const int index = screen.start + i;
 		const Item& item = screen.items[index];
-		const bool selected = index == screen.selected && enabled(item);
+		const bool selected = index == screen.selected;
 		const int rowTop = top + i * RowPitch;
 		if (item.row == Row::Header)
 		{
@@ -381,25 +426,39 @@ void drawList(const Screen& screen, int ox)
 			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, rowTop, RowPitch),
 					enabled(item) ? White : LightGray);
 	}
-	if (count > shown)
-	{
-		// NextUI's gray arrows, 24 x 4 (1x), in the gaps above and below the rows
-		const float ax = (float)(left + ButtonPadding);
-		if (screen.start > 0)
-		{
-			const float y = (float)((Padding + PillSize + top - overhang) / 2 - S(2));
-			const float up[] { ax, y + S(4), ax + S(12), y, ax + S(24), y + S(4) };
-			c.polygon(up, 3, Gray);
-		}
-		if (screen.start + shown < count)
-		{
-			const float y = (float)((top + MaxRows * RowPitch + overhang + c.height() - Padding - PillSize) / 2 - S(2));
-			const float down[] { ax, y, ax + S(24), y, ax + S(12), y + S(4) };
-			c.polygon(down, 3, Gray);
-		}
-	}
+	drawArrows(left, screen.start > 0, screen.start + shown < count);
 	if (count > 0 && screen.items[screen.selected].aside)
 		screen.items[screen.selected].aside(ox);
+}
+
+// a module's page: its text, from the line at the top, in the room of the rows
+void drawInfo(int ox)
+{
+	Font& tiny = loaded->tiny;
+	const int left = ox + Padding;
+	const int x = left + ButtonPadding;
+	const int shown = std::min((int)st.info.size() - st.infoTop, InfoRows);
+	for (int i = 0; i < shown; i++)
+	{
+		const InfoLine& line = st.info[st.infoTop + i];
+		const int rowTop = rowsTop() + i * InfoLeading;
+		const int y = baseline(tiny, rowTop, InfoLeading);
+		if (!line.cells.empty())
+		{
+			// the last column takes what is left: a SHA-1 is wide
+			const int x1 = x + st.infoColumns[0], x2 = x1 + st.infoColumns[1], right = ox + st.canvas.width() - Padding;
+			st.canvas.text(tiny, line.cells[0], x, y, line.color);
+			st.canvas.text(tiny, line.cells[1], x1, y, line.color);
+			st.canvas.text(tiny, Canvas::fit(tiny, line.cells[2], right - x2), x2, y, line.color);
+			if (line.ruled)
+				st.canvas.fill(x, rowTop + InfoLeading - S(1), right - x, 2, LightGray);
+			continue;
+		}
+		if (line.marked)
+			st.canvas.text(tiny, "\xe2\x80\xa2", x, y, line.color);	// a dot
+		st.canvas.text(tiny, line.text, line.indented ? x + InfoIndent : x, y, line.color);
+	}
+	drawArrows(left, st.infoTop > 0, st.infoTop + InfoRows < (int)st.info.size());
 }
 
 // a page's rows (or its own body) with their left edge at ox, off the screen while they slide
@@ -424,7 +483,7 @@ Buttons pageButtons(const Screen& screen)
 		buttons.push_back({ "X", "CLEAR" });
 		buttons.push_back({ "A", "SET" });
 	}
-	else if (screen.items.empty() || (screen.items[screen.selected].row == Row::Action && enabled(screen.items[screen.selected])))
+	else if (screen.items.empty() || screen.items[screen.selected].row == Row::Action)
 		buttons.push_back({ "A", "OKAY" });
 	return buttons;
 }
@@ -880,48 +939,130 @@ std::vector<StoreModule> storeModules()
 	return modules;
 }
 
-// a module's own page: what can be done with it as it stands
+bool hasUpdate(const StoreModule& m)
+{
+	return m.installed && m.offered && m.usable && newer(m.entry.version, m.own.version);
+}
+
+// a module's page's text: its store.json (of the version on offer, unless it is the one installed), around
+// the version
+std::vector<InfoLine> moduleInfo(const StoreModule& m)
+{
+	std::string json = m.installed && !hasUpdate(m) ? recomp::readText(m.own.dir + "/store.json") : "";
+	if (json.empty())
+		json = m.entry.info;
+	const recomp::ModuleInfo info = recomp::readInfo(json);
+	Font& tiny = loaded->tiny;
+	const int width = st.canvas.width() - 2 * (Padding + ButtonPadding);
+	std::vector<InfoLine> lines;
+	// a paragraph, after a gap
+	const auto text = [&](const std::string& paragraph, u32 color) {
+		if (paragraph.empty())
+			return;
+		if (!lines.empty())
+			lines.emplace_back();
+		for (const std::string& line : wrap(tiny, paragraph, width))
+			lines.push_back({ line, color, false, false });
+	};
+	// a heading and its list
+	const auto list = [&](const std::string& heading, const std::vector<std::string>& entries) {
+		text(heading, Gray);
+		for (const std::string& entry : entries)
+		{
+			bool first = true;
+			for (const std::string& line : wrap(tiny, entry, width - InfoIndent))
+			{
+				lines.push_back({ line, White, true, first });
+				first = false;
+			}
+		}
+	};
+	if (!m.installed && !m.usable)
+		text("Needs a newer Deadcast.", White);
+	text(info.description, White);
+	if (!info.formats.empty())
+	{
+		text("Supported Formats", Gray);
+		const int gap = S(8);
+		st.infoColumns[0] = tiny.measure("Format") + gap;
+		st.infoColumns[1] = tiny.measure("Region") + gap;
+		for (const recomp::ModuleInfo::Format& disc : info.formats)
+		{
+			st.infoColumns[0] = std::max(st.infoColumns[0], tiny.measure(disc.format) + gap);
+			st.infoColumns[1] = std::max(st.infoColumns[1], tiny.measure(disc.region) + gap);
+		}
+		InfoLine header;
+		header.cells = { "Format", "Region", "SHA-1" };
+		header.color = Gray;
+		header.ruled = true;
+		lines.push_back(std::move(header));
+		for (const recomp::ModuleInfo::Format& disc : info.formats)
+		{
+			InfoLine row;
+			row.cells = { disc.format, disc.region, disc.sha1 };
+			lines.push_back(std::move(row));
+		}
+	}
+	if (!info.features.empty())
+		list("Features", info.features);
+	list(hasUpdate(m) ? "Version " + m.entry.version + ", you have " + m.own.version
+			: "Version " + (m.installed ? m.own.version : m.entry.version), info.changelog);
+	const size_t scheme = info.repo.find("://");
+	text(scheme == std::string::npos ? info.repo : info.repo.substr(scheme + 3), Gray);
+	return lines;
+}
+
+// a module's own page: what it is, and on its buttons what can be done with it as it stands. Up and Down
+// scroll the text.
 Screen moduleScreen(const StoreModule& m)
 {
+	st.info = moduleInfo(m);
+	st.infoTop = 0;
+	const bool update = hasUpdate(m);
+	const bool download = !m.installed && m.usable;
+	Buttons buttons { { "B", "BACK" } };
+	if (m.installed)
+		buttons.push_back({ "X", "DELETE" });
+	if (update)
+		buttons.push_back({ "A", "UPDATE" });
+	else if (download)
+		buttons.push_back({ "A", "DOWNLOAD" });
 	Screen screen;
 	screen.title = m.title;
-	if (!m.installed)
-	{
-		Item download = entry("Download", "", [m] { getModule(m.entry, false); });
-		if (!m.usable)
-		{
-			download.available = [] { return false; };
-			screen.desc = "Needs a newer Deadcast.";
-		}
-		screen.items.push_back(std::move(download));
-		return screen;
-	}
-	if (m.offered && m.usable && newer(m.entry.version, m.own.version))
-		screen.items.push_back(entry("Update", "", [m] { getModule(m.entry, true); }));
-	screen.items.push_back(entry("Delete", "", [m] { askRemove(m.own, m.title); }));
+	screen.body = drawInfo;
+	screen.buttons = [buttons] { return buttons; };
+	screen.act = [m, update, download](Button code) {
+		if (code == Button::Up || code == Button::Down)
+			st.infoTop = std::max(0, std::min(st.infoTop + (code == Button::Up ? -1 : 1), (int)st.info.size() - InfoRows));
+		else if (code == Button::A && (update || download))
+			getModule(m.entry, update);
+		else if (code == Button::X && m.installed)
+			askRemove(m.own, m.title);
+	};
 	return screen;
 }
 
-// the store's page: Installed (if any) and Available (if any), each module opening its own page; the
-// cursor on this game's module if it has one
+// the store's page: what has an update, what else is installed, what is available, each under its section's
+// name unless it has nothing; every module opens its own page. The cursor on this game's module if it has one.
 Screen storeScreen()
 {
 	Screen screen;
 	screen.title = "Recomp Store";
 	const std::vector<StoreModule> modules = storeModules();
-	for (const bool installed : { true, false })
+	const char *const sections[] = { "Updates Available", "Installed", "Available" };
+	for (int section = 0; section < 3; section++)
 	{
 		bool named = false;
 		for (const StoreModule& m : modules)
 		{
-			if (m.installed != installed)
+			if ((hasUpdate(m) ? 0 : m.installed ? 1 : 2) != section)
 				continue;
 			if (!named)
 			{
-				Item section;
-				section.name = installed ? "Installed" : "Available";
-				section.row = Row::Header;
-				screen.items.push_back(std::move(section));
+				Item heading;
+				heading.name = sections[section];
+				heading.row = Row::Header;
+				screen.items.push_back(std::move(heading));
 				named = true;
 			}
 			if (m.plays)

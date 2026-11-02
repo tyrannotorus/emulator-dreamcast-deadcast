@@ -15,6 +15,8 @@ add_library(deadcast_frontend STATIC
         ui.cpp
         ui.h)
 target_include_directories(deadcast_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# the JSON library the emulator carries, for a module's store.json
+target_include_directories(deadcast_frontend PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../core/deps/json)
 target_compile_features(deadcast_frontend PUBLIC cxx_std_17)
 # FreeType for the text; the device's libcurl and zlib for the recomp modules' downloads
 target_link_libraries(deadcast_frontend PRIVATE freetype CURL::libcurl ZLIB::ZLIB)

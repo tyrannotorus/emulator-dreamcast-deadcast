@@ -21,13 +21,33 @@ struct StoreEntry
 	uint64_t size = 0;			// its bytes
 	std::string sha256;
 	std::string title;			// what the menu calls it
+	std::string info;			// its store.json
 	std::string needs;			// the oldest Deadcast that can run it, if any is too old
 	std::vector<std::string> discs;
 };
 
+// What a module's page in the store says, from the store.json every module comes with. It travels in the
+// catalog too, to be read before the module is downloaded.
+struct ModuleInfo
+{
+	struct Format
+	{
+		std::string format;		// CHD, BIN/CUE, CDI...
+		std::string region;
+		std::string sha1;
+	};
+	std::string description;
+	std::vector<Format> formats;			// the discs it plays
+	std::vector<std::string> features;		// a line each
+	std::vector<std::string> changelog;		// what changed in this version, a line each
+	std::string repo;						// a link
+};
+// from store.json's text; whatever is missing or malformed stays empty
+ModuleInfo readInfo(const std::string& json);
+
 // what the store offers: this build's catalog. In a test, DEADCAST_RECOMP_URL's catalog.cfg instead if it
 // can be fetched (network: there is a network to ask): key = value lines, a module = line starting each
-// entry, the other keys named as above, disc = once a disc. That file carries no signature, so nothing
+// entry, the other keys named as above (info = its store.json on one line), disc = once a disc. That file carries no signature, so nothing
 // but a test may ever read one.
 std::vector<StoreEntry> storeCatalog(bool network);
 

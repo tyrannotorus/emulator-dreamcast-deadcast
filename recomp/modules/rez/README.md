@@ -22,6 +22,7 @@ and BIN/CUE, are currently not supported.
 
 ```
 module.cfg              the manifest
+store.json              what its page in the Recomp Store says
 game/rez.toml           the game: its discs, boot file, relocations, hooks, functions
 game/rez-pipelines.txt  the renderer's pipelines Rez uses
 game/CMakeLists.txt     the module's build

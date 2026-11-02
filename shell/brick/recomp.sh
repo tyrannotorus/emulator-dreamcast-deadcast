@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build a recomp module (recomp/modules/MODULE) for NextUI's tg5040 handhelds from the builder's own disc, into
-# build-brick/recomp/MODULE/: its executable, its manifest (module.cfg), its game's config and licences,
+# build-brick/recomp/MODULE/: its executable, its manifest (module.cfg), its store.json, its game's config and licences,
 # what Deadcast keeps in <DEADCAST_HOME>/recomp/MODULE/ (frontend/recomp.h).
 #   shell/brick/recomp.sh rez "/path/to/Rez (Europe) (En,Ja,Fr,De,Es,It).chd"
 # Needs, besides Deadcast's own (shell/brick/build.sh): the device's libvulkan.so.1
@@ -69,7 +69,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT/licenses"
 llvm-strip -o "$OUT/$EXEC" "$B/modules/$M/game/$EXEC"
 chmod +x "$OUT/$EXEC"
-cp "recomp/modules/$M/module.cfg" "$OUT/"
+cp "recomp/modules/$M/module.cfg" "recomp/modules/$M/store.json" "$OUT/"
 cp "recomp/modules/$M/game/$M.toml" "$OUT/"
 [ -f "recomp/modules/$M/game/$M-pipelines.txt" ] && cp "recomp/modules/$M/game/$M-pipelines.txt" "$OUT/"
 cp recomp/LICENSE "$OUT/licenses/deadcast-recomp-GPL-2.0.txt"

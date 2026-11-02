@@ -17,6 +17,7 @@ struct CatalogEntry
 	uint64_t size;				// its bytes
 	const char *sha256;
 	const char *title;			// what the menu calls it
+	const char *info;			// its store.json
 	const char *discs[4];		// the discs it plays (their CHDs' header SHA-1), as its manifest
 };
 
@@ -24,7 +25,7 @@ struct CatalogEntry
 constexpr const char *Release = "https://github.com/tyrannotorus/emulator-dreamcast-deadcast/releases/download/1.1.1/";
 
 constexpr CatalogEntry Catalog[] = {
-	{ "rez", "Rez", "1.0.2", "recomp-rez-1.0.2.tar.gz", 44298064, "1ea0aa645130c96fda3ad38b72b6ee080c931165dc92f973c1e52d9455fdd8b1", "Rez Recompiled",
+	{ "rez", "Rez", "1.0.2", "recomp-rez-1.0.2.tar.gz", 44298064, "1ea0aa645130c96fda3ad38b72b6ee080c931165dc92f973c1e52d9455fdd8b1", "Rez Recompiled", R"json({"description":"Rez (United Game Artists, 2001), recompiled for the TrimUI Brick.","formats":[{"format":"CHD","region":"Japan","sha1":"9711a0d0c21af3685672b9a42c72abf999fc7150"},{"format":"CHD","region":"Europe","sha1":"01b7c1cc29a840b141a4ae713037eb1224fac233"}],"features":["60 fps: the stages are drawn at 60 frames a second, where the original draws them at 30.","Resolution: 640x480 or 1024x768 (the Brick's screen), set in Recomp Options."],"changelog":["Opening the menu no longer shows garbled graphics."],"repo":"https://github.com/tyrannotorus/recomp-dreamcast-rez"})json",
 		{ "9711a0d0c21af3685672b9a42c72abf999fc7150", "01b7c1cc29a840b141a4ae713037eb1224fac233" } },
 };
 

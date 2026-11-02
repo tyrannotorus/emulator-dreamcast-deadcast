@@ -12,8 +12,9 @@ the disc being played, Deadcast's menu offers it under **Options**:
 - **Recomp Options** is greyed until the game's module is installed. It starts with **Show FPS**,
   followed by the module's own settings.
 
-**Recomp Store**, on the main page, lists every recomp module, for any game: those installed, then those
-available. A module's own page there downloads, updates or deletes it.
+**Recomp Store**, on the main page, lists every recomp module, for any game: those with an update, the
+others installed, then those available. A module's own page there says what it is (its `store.json`)
+and downloads, updates or deletes it.
 
 Modules live in this repository. A module is added by a pull request and reviewed like any other
 code. Deadcast downloads modules only from Deadcast's own releases, and only files whose SHA-256 the
@@ -45,6 +46,7 @@ Every module has a folder of its own in `modules/`:
 recomp/modules/<id>/
   README.md           the module, for players and builders (below)
   module.cfg          the manifest
+  store.json          what its page in the Recomp Store says
   game/<id>.toml      the game: its discs, its boot file, relocations, hooks, functions
   game/CMakeLists.txt dreamcomp_add_port(<id> ...) with the module's own sources
   src/                native code replacing the game's libraries, and the module's hooks
@@ -64,6 +66,21 @@ sections, in this order:
   `module.cfg` and anything built in (60 fps, a higher resolution, ...). Show FPS is every module's,
   so it is not listed.
 - **Files**, **Building** and **Credits**.
+
+### store.json
+
+What a player reads before downloading the module. Every key is optional, and the changelog is for the
+version in `module.cfg`. `formats` lists the same discs as the `disc` lines of `module.cfg`:
+
+```json
+{
+  "description": "The game in a line or two.",
+  "formats": [{ "format": "CHD", "region": "Japan", "sha1": "9711a0d0..." }],
+  "features": ["One line for each thing it adds."],
+  "changelog": ["One line for each change in this version."],
+  "repo": "https://github.com/..."
+}
+```
 
 ### module.cfg
 

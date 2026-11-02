@@ -3,6 +3,8 @@
 #include "recomp.h"
 #include "sha256.h"
 
+#include "json.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -91,6 +93,8 @@ std::vector<StoreEntry> testCatalog(const std::string& address)
 			entry.sha256 = kv.second;
 		else if (kv.first == "title")
 			entry.title = kv.second;
+		else if (kv.first == "info")
+			entry.info = kv.second;
 		else if (kv.first == "needs")
 			entry.needs = kv.second;
 		else if (kv.first == "disc")
@@ -209,6 +213,37 @@ std::string unpack(const std::string& archive, const std::string& dir, std::atom
 
 }	// namespace
 
+ModuleInfo readInfo(const std::string& text)
+{
+	ModuleInfo info;
+	const nlohmann::json json = nlohmann::json::parse(text, nullptr, false);
+	if (!json.is_object())
+		return info;
+	const auto string = [&json](const char *key) {
+		const auto it = json.find(key);
+		return it != json.end() && it->is_string() ? it->get<std::string>() : std::string();
+	};
+	const auto lines = [&json](const char *key) {
+		std::vector<std::string> found;
+		const auto it = json.find(key);
+		if (it != json.end() && it->is_array())
+			for (const auto& line : *it)
+				if (line.is_string())
+					found.push_back(line.get<std::string>());
+		return found;
+	};
+	info.description = string("description");
+	const auto formats = json.find("formats");
+	if (formats != json.end() && formats->is_array())
+		for (const auto& disc : *formats)
+			if (disc.is_object())
+				info.formats.push_back({ disc.value("format", ""), disc.value("region", ""), disc.value("sha1", "") });
+	info.features = lines("features");
+	info.changelog = lines("changelog");
+	info.repo = string("repo");
+	return info;
+}
+
 std::vector<StoreEntry> storeCatalog(bool network)
 {
 	const char *base = std::getenv("DEADCAST_RECOMP_URL");
@@ -231,6 +266,7 @@ std::vector<StoreEntry> storeCatalog(bool network)
 		entry.size = built.size;
 		entry.sha256 = built.sha256;
 		entry.title = built.title;
+		entry.info = built.info;
 		for (const char *disc : built.discs)
 			if (disc != nullptr)
 				entry.discs.push_back(disc);

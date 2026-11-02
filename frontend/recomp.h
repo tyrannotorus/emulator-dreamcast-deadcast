@@ -1,6 +1,7 @@
 // Recomp modules: recompiled builds of single games, run instead of Deadcast's emulation where one is
 // installed for the disc being played. Each lives in its own folder, <home>/recomp/<id>/, with its
-// executable and a manifest, module.cfg:
+// executable, a store.json (what its page in the Recomp Store says, frontend/download.h) and a manifest,
+// module.cfg:
 //
 //   id = rez                        the folder's name
 //   name = Rez
@@ -45,6 +46,8 @@ struct Module
 	std::vector<std::string> discs;
 	std::vector<Setting> settings;
 };
+// a file's text; empty if it cannot be read
+std::string readText(const std::string& file);
 // key = value lines, # comments; a key may come more than once
 std::vector<std::pair<std::string, std::string>> keyValues(const std::string& text);
 bool readManifest(const std::string& file, Module& module);
