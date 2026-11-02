@@ -2,6 +2,7 @@
 #include "download.h"
 #include "recomp.h"
 
+#include <cstdlib>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -782,8 +783,27 @@ void startDownload(const recomp::CatalogEntry *entry)
 	push(std::move(screen));
 }
 
+// whether version a (x.y.z) is newer than b, part by part
+bool newer(const std::string& a, const std::string& b)
+{
+	const char *x = a.c_str(), *y = b.c_str();
+	while (*x != '\0' || *y != '\0')
+	{
+		char *xe, *ye;
+		const unsigned long xn = std::strtoul(x, &xe, 10), yn = std::strtoul(y, &ye, 10);
+		if (xn != yn)
+			return xn > yn;
+		x = *xe == '.' ? xe + 1 : xe;
+		y = *ye == '.' ? ye + 1 : ye;
+		if (x == xe && y == ye)
+			break;	// neither moved: not a number there
+	}
+	return false;
+}
+
 // what the catalog has for this game's disc: newer than the module installed, there to fetch, then
-// fetched if the player says so
+// fetched if the player says so. Never an older one: a module's own menu reads the catalog it was built
+// with, which lists the module before it.
 void checkModule()
 {
 	const recomp::CatalogEntry *entry = recomp::catalogFor(st.discSha1);
@@ -792,7 +812,7 @@ void checkModule()
 		message("Sorry, no recomp module found.");
 		return;
 	}
-	if (st.hasModule && st.module.version == entry->version)
+	if (st.hasModule && !newer(entry->version, st.module.version))
 	{
 		message(moduleName(st.module.name) + " is up to date.");
 		return;
