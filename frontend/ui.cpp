@@ -439,9 +439,9 @@ void drawList(const Screen& screen, int ox)
 			c.pill(left, rowTop - overhang, large.measure(name) + iconWidth + ButtonPadding * 2, PillSize, ColorMain);
 			color = ColorSelectedText;
 		}
-		c.text(large, name, left + ButtonPadding, baseline(large, rowTop, RowPitch), color);
 		if (item.downloadIcon)
-			drawDownloadIcon(large, left + ButtonPadding + large.measure(name) + S(5), baseline(large, rowTop, RowPitch), color);
+			drawDownloadIcon(large, left + ButtonPadding, baseline(large, rowTop, RowPitch), color);
+		c.text(large, name, left + ButtonPadding + iconWidth, baseline(large, rowTop, RowPitch), color);
 		if (!value.empty())
 			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, rowTop, RowPitch),
 					enabled(item) ? White : LightGray);
@@ -1050,14 +1050,15 @@ Screen moduleScreen(const StoreModule& m)
 	return screen;
 }
 
-// the store's page: what is installed, a download icon on what has an update, and what is available, each under
-// its section's name unless it has nothing; every module opens its own page. The cursor on this game's module
-// if it has one.
+// the store's page: what is installed, first and with a download icon what has an update, and what is available,
+// each under its section's name unless it has nothing; every module opens its own page. The cursor on this game's
+// module if it has one.
 Screen storeScreen()
 {
 	Screen screen;
 	screen.title = "Recomp Store";
-	const std::vector<StoreModule> modules = storeModules();
+	std::vector<StoreModule> modules = storeModules();
+	std::stable_partition(modules.begin(), modules.end(), hasUpdate);
 	const char *const sections[] = { "Installed", "Available" };
 	for (int section = 0; section < 2; section++)
 	{

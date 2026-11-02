@@ -80,7 +80,7 @@ struct Item
 	std::function<void()> clear;		// X on a Binding
 	std::function<bool()> available;	// while false: greyed, and the cursor goes past it
 	std::function<void(int ox)> aside;	// drawn at the right while selected (Save, Load: the slot's picture)
-	bool downloadIcon = false;			// after its name (the store's: an update is available)
+	bool downloadIcon = false;			// before its name (the store's: an update is available)
 };
 Item entry(const std::string& name, const std::string& desc, std::function<void()> confirm);
 bool enabled(const Item& item);
