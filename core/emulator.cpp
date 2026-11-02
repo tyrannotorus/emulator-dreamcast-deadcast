@@ -205,6 +205,13 @@ static void loadSpecialSettings()
 			INFO_LOG(BOOT, "Enabling Extra depth scaling for game %s", prod_id.c_str());
 			config::ExtraDepthScale.override(10000.f);
 		}
+		// Deadcast: Daytona USA (US): the decals on the cars lie on their bodies; sorted strip by strip, a body
+		// piece whose farthest point is nearer is drawn over them. Sorted by triangle they show.
+		if (prod_id == "MK-51037")
+		{
+			INFO_LOG(BOOT, "Enabling per-triangle translucent sorting for game %s", prod_id.c_str());
+			config::PerStripSorting.override(false);
+		}
 
 		std::string areas(ip_meta.area_symbols, sizeof(ip_meta.area_symbols));
 		bool region_usa = areas.find('U') != std::string::npos;
