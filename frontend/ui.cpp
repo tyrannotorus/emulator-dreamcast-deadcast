@@ -149,7 +149,6 @@ struct State
 	recomp::StoreEntry downloading;
 	bool updating = false;			// over a version installed
 	std::vector<recomp::StoreEntry> store;		// what the Recomp Store offers, read as it opens
-	bool storeOffline = false;		// no internet as it opened: it offers nothing, and says so
 	std::vector<InfoLine> info;		// a module's page: its text in lines
 	int infoTop = 0;				// the line at the top of it
 };
@@ -645,20 +644,16 @@ std::string moduleName(const std::string& title, const std::string& name)
 
 void refreshStore(const std::string& name);
 
-// the selected row in view, and with it the rows next to it the cursor goes past (a section's name, what is
-// greyed): nothing else would ever bring them into view
+// the selected row in view, and a section's name with the section's first row
 void reveal(Screen& screen)
 {
-	const int count = (int)screen.items.size();
-	int first = screen.selected, last = screen.selected;
-	while (first > 0 && !enabled(screen.items[first - 1]))
-		first--;
-	while (last + 1 < count && !enabled(screen.items[last + 1]))
-		last++;
-	if (first < screen.start)
-		screen.start = first;
-	if (last >= screen.start + MaxRows)
-		screen.start = last - MaxRows + 1;
+	int top = screen.selected;
+	if (top > 0 && screen.items[top - 1].row == Row::Header)
+		top--;
+	if (top < screen.start)
+		screen.start = top;
+	if (screen.selected >= screen.start + MaxRows)
+		screen.start = screen.selected - MaxRows + 1;
 }
 
 // the core picked in Options stored as the game's (from its next start): the module picked, and not the disc's
@@ -1121,6 +1116,7 @@ Screen storeScreen()
 {
 	Screen screen;
 	screen.title = "Recomp Store";
+	screen.status = networkStatus;
 	std::vector<StoreModule> modules = storeModules();
 	std::stable_partition(modules.begin(), modules.end(), hasUpdate);
 	const char *const sections[] = { "Installed", "Downloadable" };
@@ -1146,22 +1142,8 @@ Screen storeScreen()
 			screen.items.push_back(std::move(row));
 		}
 	}
-	if (st.storeOffline)
-	{
-		Item heading;
-		heading.name = sections[1];
-		heading.row = Row::Header;
-		screen.items.push_back(std::move(heading));
-		Item none;
-		none.name = "No internet connection";
-		none.available = [] { return false; };
-		screen.items.push_back(std::move(none));
-	}
 	if (screen.items.empty())
-	{
-		screen.desc = "No recomp modules yet.";
 		screen.buttons = [] { return Buttons { { "B", "BACK" } }; };
-	}
 	else
 		reveal(screen);
 	return screen;
@@ -1185,11 +1167,10 @@ void refreshStore(const std::string& name)
 }
 
 // straight in, no page saying it is checking. With no internet it offers nothing: what is installed is listed
-// to be deleted, and with nothing known of updates, nothing is said of them.
+// to be deleted, and nothing is said of updates or downloads beyond the network's status at the bottom left.
 void openStore()
 {
-	st.storeOffline = !st.network;
-	st.store = st.storeOffline ? std::vector<recomp::StoreEntry>() : recomp::storeCatalog();
+	st.store = st.network ? recomp::storeCatalog() : std::vector<recomp::StoreEntry>();
 	push(storeScreen());
 }
 
@@ -1631,7 +1612,7 @@ bool network()
 
 std::string networkStatus()
 {
-	return st.network ? "Network Connected" : "No Network Connection";
+	return st.network ? "Network Connected" : "No internet connection";
 }
 
 std::string gameName(const std::string& path)
