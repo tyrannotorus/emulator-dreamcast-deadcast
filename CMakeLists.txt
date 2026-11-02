@@ -13,6 +13,8 @@ endif()
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/shell/cmake")
 
 project(deadcast VERSION 1.1.1)
+# no path of the build machine in the binary
+add_compile_options(-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -33,8 +33,6 @@ cmake -S . -B "$B" -G Ninja \
     -DTG5040_ROOT="$TC" \
     -DTG5040_GC_SECTIONS=ON \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_FLAGS="-ffile-prefix-map=$PWD=." \
-    -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$PWD=." \
     -DCMAKE_SKIP_RPATH=ON \
     -DDEADCAST_VULKAN_INCLUDE="$PWD/build-brick/include" \
     -DUSE_HOST_SDL=ON \
