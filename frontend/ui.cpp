@@ -133,9 +133,10 @@ struct State
 	u64 networkAt = 0;
 	bool starting = false;			// the start page up
 	Host host;						// the main page's
-	Core chosen = Core::Emulator;	// the core picked in Options: the game's only once the menu is left
-	bool hasModule = false;			// a recomp module installed for the disc
-	recomp::Module module;
+	std::string chosen;				// the core picked in Options: a module's id, empty for the emulator; the
+									// game's only once the menu is left
+	std::string running;			// the core playing now, the same way
+	std::vector<recomp::Module> modules;	// the recomp modules installed for the disc, by title
 	std::string discSha1;			// the disc's (its CHD header's)
 	// a module being downloaded (its page up until it is done)
 	std::thread download;
@@ -426,6 +427,9 @@ void drawList(const Screen& screen, int ox)
 		std::string value;
 		if (item.row != Row::Action && item.value < (int)item.values.size() && !(selected && st.awaiting))
 			value = item.values[item.value];
+		// a long value (Core's: a module's title) cut to leave room for the row's name and the arrows
+		if (item.row == Row::Choice && !value.empty())
+			value = Canvas::fit(large, value, right - left - large.measure(item.name) - large.measure("<    >") - ButtonPadding * 4);
 		// Left and Right change the selected Choice
 		if (selected && item.row == Row::Choice)
 			value = "<  " + value + "  >";
@@ -613,14 +617,14 @@ void reset()
 	st.result = Result::Open;
 	st.dirty = true;
 	st.held = Button::None;
-	st.chosen = st.host.core;
+	st.chosen = st.running;
 	st.network = checkNetwork();
 	st.networkAt = nowMs() + 1000;
 }
 
 bool moduleInstalled()
 {
-	return st.hasModule;
+	return !st.modules.empty();
 }
 
 // a module as the player is told of it: its title (Rez Recompiled), or with none declared its name as a
@@ -644,40 +648,65 @@ void reveal(Screen& screen)
 		screen.start = screen.selected - MaxRows + 1;
 }
 
-// the core picked in Options stored as the game's (from its next start)
+// the core picked in Options stored as the game's (from its next start): the module picked, and not the disc's
+// others
 void keepChosen()
 {
-	recomp::set("core." + st.module.id, st.chosen == Core::Recomp ? "recomp" : "emulator");
+	for (const recomp::Module& module : st.modules)
+	{
+		const std::string core = module.id == st.chosen ? "recomp" : "emulator";
+		if (recomp::get("core." + module.id) != core)
+			recomp::set("core." + module.id, core);
+	}
 }
 
-// the settings of the game's recomp module, as its manifest declares them, kept in Deadcast's store.
-// Show FPS is always the first row, in every module; a module does not declare it. Getting a module,
-// updating it and deleting it are the Recomp Store's.
+// Continue, or Restart with another core picked: the first page's first row
+void nameContinue()
+{
+	st.screens.front().items.front().name = st.chosen != st.running ? "Restart" : "Continue";
+}
+
+// what Recomp Options is about: the module picked in Options; with the emulator picked, the disc's module if it
+// has just the one
+const recomp::Module *optionsModule()
+{
+	for (const recomp::Module& module : st.modules)
+		if (module.id == st.chosen)
+			return &module;
+	return st.modules.size() == 1 ? &st.modules.front() : nullptr;
+}
+
+// the settings of the module Core is on, as its manifest declares them, kept in Deadcast's store; the module's
+// name and version at the bottom left, whatever is selected. Show FPS is always the first row, in every module;
+// a module does not declare it. A setting applies at once only in the module it is for, if that one is playing.
+// Getting a module, updating it and deleting it are the Recomp Store's.
 Screen recompOptionsScreen()
 {
+	const recomp::Module module = *optionsModule();
+	const bool playing = module.id == st.running;
 	Screen screen;
 	screen.title = "Recomp Options";
-	screen.desc = moduleName(st.module.title, st.module.name) + " " + st.module.version;
+	const std::string label = moduleName(module.title, module.name) + " " + module.version;
+	screen.status = [label] { return label; };
 	// the frame rate in the corner, as the emulator's Show FPS
 	Item fps;
 	fps.name = "Show FPS";
-	fps.desc = "Shows the frame rate.";
 	fps.row = Row::Choice;
 	fps.values = { "Off", "On" };
-	const std::string fpsKey = st.module.id + ".fps";
+	const std::string fpsKey = module.id + ".fps";
 	fps.value = recomp::get(fpsKey, "off") == "on" ? 1 : 0;
-	fps.change = [fpsKey](int i) {
+	fps.change = [fpsKey, playing](int i) {
 		recomp::set(fpsKey, i ? "on" : "off");
-		if (st.host.recompSetting)
+		if (playing && st.host.recompSetting)
 			st.host.recompSetting("fps", i ? "on" : "off");
 	};
 	screen.items.push_back(std::move(fps));
-	for (const recomp::Setting& setting : st.module.settings)
+	for (const recomp::Setting& setting : module.settings)
 	{
 		Item item;
 		item.name = setting.name;
 		item.row = Row::Choice;
-		const std::string key = st.module.id + "." + setting.key;
+		const std::string key = module.id + "." + setting.key;
 		const std::string now = recomp::get(key, setting.def);
 		std::vector<std::string> values;
 		for (const auto& value : setting.values)
@@ -687,9 +716,9 @@ Screen recompOptionsScreen()
 			values.push_back(value.first);
 			item.values.push_back(value.second);
 		}
-		item.change = [key, name = setting.key, values](int i) {
+		item.change = [key, name = setting.key, values, playing](int i) {
 			recomp::set(key, values[i]);
-			if (st.host.recompSetting)
+			if (playing && st.host.recompSetting)
 				st.host.recompSetting(name, values[i]);
 		};
 		screen.items.push_back(std::move(item));
@@ -746,22 +775,27 @@ Screen optionsScreen()
 	Screen screen;
 	screen.title = "Options";
 	screen.status = networkStatus;
-	Item current;
-	current.name = "Current Core";
-	current.row = Row::Choice;
-	current.values = { "Emulator", "Recomp" };
-	current.value = (int)st.chosen;
-	current.available = moduleInstalled;
-	// only picked here: the main page's Continue (the first page's first row) becomes Restart, which
-	// starts the game again in it; leaving the menu otherwise puts the game's own core back (frame())
-	current.change = [](int value) {
-		st.chosen = (Core)value;
-		st.screens.front().items.front().name = st.chosen != st.host.core ? "Restart" : "Continue";
+	Item core;
+	core.name = "Core";
+	core.row = Row::Choice;
+	core.values = { "Emulator" };
+	for (const recomp::Module& module : st.modules)
+	{
+		if (module.id == st.chosen)
+			core.value = (int)core.values.size();
+		core.values.push_back(moduleName(module.title, module.name));
+	}
+	core.available = moduleInstalled;
+	// only picked here: the main page's Continue becomes Restart, which starts the game again in it; leaving
+	// the menu otherwise puts the game's own core back (frame())
+	core.change = [](int value) {
+		st.chosen = value > 0 ? st.modules[value - 1].id : "";
+		nameContinue();
 	};
-	screen.items.push_back(std::move(current));
+	screen.items.push_back(std::move(core));
 	screen.items.push_back(entry("Emulator Options", "", [] { push(emulatorOptionsScreen()); }));
 	Item recompOptions = entry("Recomp Options", "", [] { push(recompOptionsScreen()); });
-	recompOptions.available = moduleInstalled;
+	recompOptions.available = [] { return optionsModule() != nullptr; };
 	screen.items.push_back(std::move(recompOptions));
 	return screen;
 }
@@ -807,12 +841,12 @@ void downloadOver()
 		message(st.downloadError);
 		return;
 	}
-	st.hasModule = recomp::installed(st.discSha1, st.module);
+	st.modules = recomp::installedFor(st.discSha1);
 	const std::string name = moduleName(st.downloading.title, st.downloading.name);
 	pop();
 	refreshStore(name);
 	// the module playing now goes on as it started
-	if (st.host.core == Core::Recomp && st.downloading.id == st.module.id)
+	if (st.downloading.id == st.running)
 		message(name + " is updated: it plays from your game's next start.");
 	else
 		message(name + (st.updating ? " is updated." : " is installed."));
@@ -877,27 +911,22 @@ void getModule(const recomp::StoreEntry& entry, bool updating)
 
 // a module deleted, and everything of it, its saves too. At once, unless it is the module playing now:
 // that one is only marked, and the game starts again emulated; Deadcast deletes it as it starts
-// (recomp::tidy). The emulator is the game's core again, were this game's module picked but not
-// restarted into.
+// (recomp::tidy). Were it picked in Options but not restarted into, the core playing is the one picked again.
 void removeModule(const recomp::Module& module, const std::string& name)
 {
-	const bool thisGame = module.id == st.module.id;
-	if (thisGame && st.host.core == Core::Recomp)
+	if (module.id == st.running)
 	{
 		recomp::markForDeletion(module.id);
-		st.chosen = Core::Emulator;
+		st.chosen.clear();
 		keepChosen();
 		finish(Result::Switch);
 		return;
 	}
 	const bool deleted = recomp::deleteModule(module.id);
-	if (thisGame)
-	{
-		st.module = recomp::Module();
-		st.hasModule = recomp::installed(st.discSha1, st.module);
-		st.chosen = st.host.core;
-		st.screens.front().items.front().name = "Continue";
-	}
+	st.modules = recomp::installedFor(st.discSha1);
+	if (module.id == st.chosen)
+		st.chosen = st.running;
+	nameContinue();
 	pop();
 	refreshStore(name);
 	message(deleted ? name + " is deleted." : name + "\ncould not be fully deleted.\nDeadcast retries at its next start.");
@@ -907,7 +936,7 @@ void removeModule(const recomp::Module& module, const std::string& name)
 void askRemove(const recomp::Module& module, const std::string& name)
 {
 	std::string question = "Delete\n" + name + " " + module.version + "\nand its saves?";
-	if (st.host.core == Core::Recomp && module.id == st.module.id)
+	if (module.id == st.running)
 		question += "\nYour game restarts in the emulator.";
 	ask(question, "DELETE", [module, name] { removeModule(module, name); });
 }
@@ -1097,7 +1126,7 @@ Screen storeScreen()
 				screen.items.push_back(std::move(heading));
 				named = true;
 			}
-			if (m.plays)
+			if (m.plays && screen.selected == 0)
 				screen.selected = (int)screen.items.size();
 			Item row = entry(m.title, "", [m] { push(moduleScreen(m)); });
 			row.downloadIcon = hasUpdate(m);
@@ -1149,7 +1178,7 @@ Screen mainScreen(const std::string& title, Host host)
 	screen.status = networkStatus;
 	// Continue; Restart with another core picked in Options: the game starts again in it
 	screen.items.push_back(entry("Continue", "", [] {
-		if (st.chosen == st.host.core)
+		if (st.chosen == st.running)
 			finish(Result::Resume);
 		else
 		{
@@ -1169,7 +1198,8 @@ Screen mainScreen(const std::string& title, Host host)
 	screen.items.push_back(entry("Recomp Store", "", openStore));
 	screen.items.push_back(entry("Quit", "", [] { finish(Result::Quit); }));
 	st.discSha1 = recomp::chdSha1(host.disc);
-	st.hasModule = recomp::installed(st.discSha1, st.module);
+	st.modules = recomp::installedFor(st.discSha1);
+	st.running = host.core == Core::Recomp ? recomp::runningModule() : "";
 	st.host = std::move(host);
 	return screen;
 }
@@ -1356,8 +1386,8 @@ Result frame()
 	// another core picked in Options: back to the game (B, MENU) puts the game's own core back; quitting
 	// keeps the one picked for the game's next start (Restart starts the game again in it: mainScreen)
 	if (st.result == Result::Resume)
-		st.chosen = st.host.core;
-	if (st.result == Result::Quit && st.chosen != st.host.core)
+		st.chosen = st.running;
+	if (st.result == Result::Quit && st.chosen != st.running)
 		keepChosen();
 	// work once its screen is up
 	if (st.work && !st.dirty)

@@ -99,7 +99,7 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 ### Controls
 
 MENU opens Deadcast's menu, drawn like NextUI's own emulators' (`frontend/`, `core/deadcast/menu.cpp`):
-Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Current Core,
+Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Core,
 Emulator Options (Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it
 changes) and Recomp Options (the settings of the game's module, once it is installed). Recomp Store lists
 every recomp module: download, update, delete. Picking the other core turns Continue into Restart, which starts the game again in

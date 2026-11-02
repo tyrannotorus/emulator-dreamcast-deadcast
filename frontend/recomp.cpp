@@ -182,24 +182,42 @@ std::vector<Module> allInstalled()
 	return modules;
 }
 
-bool installed(const std::string& discSha1, Module& module)
+std::vector<Module> installedFor(const std::string& discSha1)
 {
+	std::vector<Module> modules;
 	if (discSha1.empty())
-		return false;
+		return modules;
 	for (Module& m : allInstalled())
 		if (std::find(m.discs.begin(), m.discs.end(), discSha1) != m.discs.end())
-		{
-			module = std::move(m);
-			return true;
-		}
-	return false;
+			modules.push_back(std::move(m));
+	std::sort(modules.begin(), modules.end(), [](const Module& a, const Module& b) {
+		return (a.title.empty() ? a.name : a.title) < (b.title.empty() ? b.name : b.title);
+	});
+	return modules;
+}
+
+std::string runningModule()
+{
+	char path[4096];
+	const ssize_t size = readlink("/proc/self/exe", path, sizeof(path) - 1);
+	if (size <= 0)
+		return "";
+	const std::string exe(path, (size_t)size);
+	const size_t file = exe.find_last_of('/');
+	if (file == std::string::npos || file == 0)
+		return "";
+	return exe.substr(exe.find_last_of('/', file - 1) + 1, file - exe.find_last_of('/', file - 1) - 1);
 }
 
 void runChosen(const std::string& disc)
 {
-	Module module;
-	if (!installed(chdSha1(disc), module) || get("core." + module.id) != "recomp")
+	const std::vector<Module> modules = installedFor(chdSha1(disc));
+	const auto chosen = std::find_if(modules.begin(), modules.end(), [](const Module& m) {
+		return get("core." + m.id) == "recomp";
+	});
+	if (chosen == modules.end())
 		return;
+	const Module& module = *chosen;
 	// the module's last run never ended (it died, or would not start): emulated this time, so the
 	// player can still reach Options
 	if (access(RunMarker, F_OK) == 0)

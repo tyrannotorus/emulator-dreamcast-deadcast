@@ -4,13 +4,15 @@ A recomp module is a recompiled build of one Dreamcast game: the game's SH-4 cod
 and compiled for the TrimUI Brick, played instead of Deadcast's emulation. Where a module exists for
 the disc being played, Deadcast's menu offers it under **Options**:
 
-- **Current Core** picks Emulator or Recomp for that game. Once another core is picked, the main
+- **Core** cycles through Emulator and each module installed for that disc, as a disc may have several.
+  Once another core is picked, the main
   page's **Continue** reads **Restart**, which starts the game again in it. Leaving the menu any
   other way puts the game's own core back.
 - **Emulator Options** and **Recomp Options** hold each core's settings. Both can be set from either
   core: each core reads its settings when it starts.
-- **Recomp Options** is greyed until the game's module is installed. It starts with **Show FPS**,
-  followed by the module's own settings.
+- **Recomp Options** shows the settings of the module Core is on. With Core on Emulator it shows the disc's
+  module if it has just the one, and is greyed otherwise. It starts with **Show FPS**, followed by the
+  module's own settings.
 
 **Recomp Store**, on the main page, lists every recomp module, for any game: those installed, any with an
 update first and marked with a download icon, then those downloadable. A module's own page there says what it is (its `store.json`)
@@ -108,7 +110,7 @@ module, copied into each frame as it is presented, so the frames keep the engine
 Deadcast keeps installed modules in `<DEADCAST_HOME>/recomp/<id>/`. When a game's core is Recomp,
 Deadcast's first act is to `exec` the module, `<exec> <disc>`, so the emulator never starts. A module
 keeps its own files (its settings file, memory card, caches) in `<DEADCAST_HOME>/recomp-data/<id>/`.
-Restarting in the other core (Current Core, then Restart) ends the process with exit code 86, and
+Restarting in another core (Core, then Restart) ends the process with exit code 86, and
 Deadcast's `launch.sh` starts the game again in the core now chosen.
 
 A module keeps nothing outside those two folders: deleting it in the **Recomp Store** removes both, saves
