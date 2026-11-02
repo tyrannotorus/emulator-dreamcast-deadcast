@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Build the store's list from the latest release of each repository in the registry. A release's module is its
 # recomp-*.tar.gz, with module.cfg and store.json at the archive's root. A module whose release cannot be read
-# keeps its last entry. Nothing from a release is run.
+# keeps its last entry while that entry's file is still there. Nothing from a release is run.
 #   build-list.py REGISTRY LIST       LIST: read for the last entries, then written. GH_TOKEN: for the GitHub API
 import hashlib, io, json, os, re, sys, tarfile, urllib.error, urllib.request
 
@@ -18,6 +18,18 @@ def request(url, api):
         if token:
             headers["Authorization"] = "Bearer " + token
     return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120)
+
+
+def gone(url):
+    """its file is known to be removed: not merely out of reach"""
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "deadcast-store"})
+        urllib.request.urlopen(req, timeout=60).close()
+        return False
+    except urllib.error.HTTPError as error:
+        return error.code in (404, 410)
+    except OSError:
+        return False
 
 
 def read_list(path):
@@ -100,9 +112,10 @@ for repo in open(registry, encoding="utf-8").read().splitlines():
         else:
             entry = module_entry(assets[0])
     except (OSError, ValueError, KeyError, AttributeError, tarfile.TarError, urllib.error.URLError) as error:
-        print(f"{repo}: {error}: keeping its last entry" if kept else f"{repo}: {error}: not listed")
-        if not kept:
+        if not kept or gone(dict(kept[0])["url"]):
+            print(f"{repo}: {error}: not listed")
             continue
+        print(f"{repo}: {error}: keeping its last entry")
         entry = kept[0]
     mid = dict(entry)["module"]
     if mid in entries:
