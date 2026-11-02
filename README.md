@@ -34,11 +34,10 @@ Deadcast execs in its place.
 
 - `core/`: the emulator, a Flycast fork changed in place (nothing on the device says Flycast). Deadcast's
   own code is in `core/deadcast/`: the menu's emulator side, save states, the two-Brick link.
-- `frontend/`: the menu library the emulator and every recomp module share: pages, Options, Emulator
-  Options' settings (`options.h`), the module store, and the catalog of downloadable modules
-  (`catalog.h`, each file by SHA-256).
-- `recomp/`: the recomp engine, the port layer modules share, and the modules (`recomp/modules/<id>/`).
-- `shell/brick/`: build, package and release scripts. `pak.json`: the Pak Store's entry.
+- `ui/`: the menu library the emulator and every recomp module share, a submodule: pages, the module
+  store, and the tg5040 toolchain.
+- `core/deadcast/catalog.h`: the recomp modules this build offers, each file by SHA-256.
+- `shell/brick/`: build and package scripts. `pak.json`: the Pak Store's entry.
 
 Only source, build scripts and READMEs go in git; never disc images or anything extracted from them.
 
@@ -48,21 +47,20 @@ On an x86-64 Linux host with clang, lld, CMake, Ninja, Docker (only to copy the 
 sysroot) and these packages installed: `curl`, `vulkan-headers`, `glslang`.
 
 ```
-shell/brick/toolchain.sh                 # the tg5040 sysroot, out of ghcr.io/loveretro/tg5040-toolchain
-shell/brick/devlibs.sh SERIAL            # the Brick's libcurl.so.4, over adb
-git submodule update --init core/deps/{asio,freetype,libchdr,rcheevos,tinygettext}
+git submodule update --init ui core/deps/{asio,freetype,libchdr,rcheevos,tinygettext}
+ui/toolchain/toolchain.sh                # the tg5040 sysroot, out of ghcr.io/loveretro/tg5040-toolchain
+ui/toolchain/devlibs.sh SERIAL           # the Brick's libcurl.so.4, over adb
 shell/brick/build.sh                     # build-brick/deadcast/deadcast
 shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DEADCAST.pak.zip
 ```
 
 ### Recomp modules
 
-- Adding one: `recomp/README.md` (the rules, the folder, `module.cfg`), with `recomp/modules/rez/` as
-  the example. Its README follows `recomp/modules/rez/README.md`.
-- Building one: `shell/brick/recomp.sh <id> <disc.chd>` makes `build-brick/recomp/<id>/`.
-- Releasing one: `shell/brick/recomp-release.sh <id> <version>` packs it and writes its size and
-  SHA-256 into `frontend/catalog.h`; build Deadcast after. Any change to the module's binary changes
-  its SHA-256, so pack it again before every release.
+- Each is its own repository, built on the
+  [recomp SDK](https://github.com/tyrannotorus/emulator-dreamcast-deadcast-recomp-sdk): the rules, the
+  folder and `module.cfg` are in its README.
+- Listing one: `shell/brick/catalog.sh <tarball> <url>` writes its size and SHA-256 into
+  `core/deadcast/catalog.h`; build Deadcast after. Its release must not change after that.
 - In the menu a module goes by its manifest's `title` (`Rez Recompiled`); in the docs it is the
   "<game title> recomp module". Never the game's title alone.
 - Recomp Options: Show FPS first, the module's settings after. Getting, updating and deleting a module
@@ -71,9 +69,8 @@ shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DE
 ### Releasing
 
 The version is `project(deadcast VERSION ...)` in `CMakeLists.txt` and `version` in `pak.json`; the
-release's tag is the version. Its assets are `build-brick/DC-DEADCAST.pak.zip` and each
-`build-brick/release/recomp-<id>-<version>.tar.gz`, which Deadcast downloads from
-`releases/download/<version>/`.
+release's tag is the version, and its asset is `build-brick/DC-DEADCAST.pak.zip`. Recomp modules have
+their own releases.
 
 ### Install
 
@@ -98,7 +95,7 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 
 ### Controls
 
-MENU opens Deadcast's menu, drawn like NextUI's own emulators' (`frontend/`, `core/deadcast/menu.cpp`):
+MENU opens Deadcast's menu, drawn like NextUI's own emulators' (`ui/`, `core/deadcast/menu.cpp`):
 Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Core,
 Emulator Options (Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it
 changes) and Recomp Options (the settings of the game's module, once it is installed). Recomp Store lists

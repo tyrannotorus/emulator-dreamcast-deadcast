@@ -1,21 +1,21 @@
 #!/bin/sh
 # Cross-build Deadcast (Flycast) for NextUI's tg5040 handhelds (TrimUI Brick, aarch64) into build-brick/deadcast.
 # Needs:
-#  - the toolchain (shell/brick/toolchain.sh)
-#  - the device's libcurl.so.4 (shell/brick/devlibs.sh SERIAL), to link against
+#  - the toolchain (ui/toolchain/toolchain.sh), in TG5040_ROOT or build-brick/toolchain
+#  - the device's libcurl.so.4 (ui/toolchain/devlibs.sh SERIAL), in TG5040_DEVLIBS or build-brick/devlibs
 #  - the host's curl headers (curl); the sysroot has none
 #  - the host's Vulkan headers (vulkan-headers; the sysroot's are too old) and glslangValidator
 #    (glslang), which compiles the shaders to SPIR-V
-#  - the submodules asio, freetype, libchdr, rcheevos and tinygettext
+#  - the submodules ui, asio, freetype, libchdr, rcheevos and tinygettext
 # Vulkan only, to the screen through fb0 (core/rend/vulkan/panel.h); SDL2 (the device's) for the pad
 # and the audio. Arguments go to ninja.
 set -e
 cd "$(dirname "$0")/../.."
 B=build-brick/deadcast
-TC="$PWD/build-brick/toolchain"
-[ -d "$TC/aarch64-nextui-linux-gnu/libc" ] || { echo "brick: no toolchain (shell/brick/toolchain.sh)"; exit 2; }
-CURLLIB="$PWD/build-brick/devlibs/libcurl.so.4"
-[ -f "$CURLLIB" ] || { echo "brick: no $CURLLIB (shell/brick/devlibs.sh SERIAL)"; exit 2; }
+TC=${TG5040_ROOT:-$PWD/build-brick/toolchain}
+[ -d "$TC/aarch64-nextui-linux-gnu/libc" ] || { echo "brick: no toolchain (ui/toolchain/toolchain.sh)"; exit 2; }
+CURLLIB=${TG5040_DEVLIBS:-$PWD/build-brick/devlibs}/libcurl.so.4
+[ -f "$CURLLIB" ] || { echo "brick: no $CURLLIB (ui/toolchain/devlibs.sh SERIAL)"; exit 2; }
 for dep in asio freetype libchdr rcheevos tinygettext; do
     [ -n "$(ls -A "core/deps/$dep" 2>/dev/null)" ] || { echo "brick: core/deps/$dep is empty (git submodule update --init core/deps/$dep)"; exit 2; }
 done
@@ -29,8 +29,9 @@ export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
 unset PKG_CONFIG_PATH
 mkdir -p "$B"
 cmake -S . -B "$B" -G Ninja \
-    -DCMAKE_TOOLCHAIN_FILE="$PWD/shell/brick/tg5040.cmake" \
-    -DDEADCAST_TG5040_ROOT="$TC" \
+    -DCMAKE_TOOLCHAIN_FILE="$PWD/ui/toolchain/tg5040.cmake" \
+    -DTG5040_ROOT="$TC" \
+    -DTG5040_GC_SECTIONS=ON \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_SKIP_RPATH=ON \
     -DDEADCAST_VULKAN_INCLUDE="$PWD/build-brick/include" \

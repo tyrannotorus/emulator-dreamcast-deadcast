@@ -28,6 +28,11 @@
 // session's), its save states, the BIOS page, and the screen and pad it is shown with.
 namespace deadcast::menu
 {
+
+namespace ui = deadui::ui;
+namespace options = deadui::options;
+using deadui::Canvas;
+using deadui::Font;
 namespace
 {
 

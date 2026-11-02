@@ -28,5 +28,3 @@ build-brick/
 /local/
 
 # Recomp modules: what a builder's own disc gives (never in git: the game's code)
-recomp/modules/*/game/extracted/
-recomp/modules/*/.rez_recompiled/

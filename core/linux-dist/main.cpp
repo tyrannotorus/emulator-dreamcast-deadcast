@@ -12,6 +12,7 @@
 #include "oslib/i18n.h"
 #include "stdclass.h"
 #include "deadcast/menu.h"
+#include "deadcast/catalog.h"
 #include "recomp.h"
 #include "version.h"
 
@@ -256,11 +257,12 @@ int main(int argc, char* argv[])
 	selfPath = argv[0];
 	// Deadcast: recomp modules marked for deletion deleted, an install cut short tidied away; then the
 	// disc's recomp module instead, if that is its chosen core (no emulator started)
-	deadcast::recomp::tidy();
-	if (deadcast::recomp::get("deadcast.version") != DEADCAST_VERSION)
-		deadcast::recomp::set("deadcast.version", DEADCAST_VERSION);
+	deadui::recomp::tidy();
+	deadui::recomp::publishCatalog(deadcast::catalog());
+	if (deadui::recomp::get("app.version") != DEADCAST_VERSION)
+		deadui::recomp::set("app.version", DEADCAST_VERSION);
 	if (argc > 1)
-		deadcast::recomp::runChosen(argv[1]);
+		deadui::recomp::runChosen(argv[1]);
 #if defined(USE_BREAKPAD)
 	google_breakpad::MinidumpDescriptor descriptor("/tmp");
 	google_breakpad::ExceptionHandler eh(descriptor, nullptr, dumpCallback, nullptr, true, -1);
@@ -309,7 +311,7 @@ int main(int argc, char* argv[])
 
 	// Deadcast: the other core chosen in Core Settings: the launcher starts the game again in it (the
 	// start page left up meanwhile, frontend/ui.cpp)
-	return deadcast::menu::switching() ? deadcast::recomp::SwitchExit : 0;
+	return deadcast::menu::switching() ? deadui::recomp::SwitchExit : 0;
 }
 
 [[noreturn]] void os_DebugBreak()
