@@ -1050,8 +1050,8 @@ Screen moduleScreen(const StoreModule& m)
 	return screen;
 }
 
-// the store's page: what is installed, first and with a download icon what has an update, and what is available,
-// each under its section's name unless it has nothing; every module opens its own page. The cursor on this game's
+// the store's page: what is installed, first and with a download icon what has an update, and what can be
+// downloaded, each under its section's name unless it has nothing; every module opens its own page. The cursor on this game's
 // module if it has one.
 Screen storeScreen()
 {
@@ -1059,7 +1059,7 @@ Screen storeScreen()
 	screen.title = "Recomp Store";
 	std::vector<StoreModule> modules = storeModules();
 	std::stable_partition(modules.begin(), modules.end(), hasUpdate);
-	const char *const sections[] = { "Installed", "Available" };
+	const char *const sections[] = { "Installed", "Downloadable" };
 	for (int section = 0; section < 2; section++)
 	{
 		bool named = false;
