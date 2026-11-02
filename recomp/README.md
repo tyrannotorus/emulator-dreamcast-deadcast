@@ -12,8 +12,8 @@ the disc being played, Deadcast's menu offers it under **Options**:
 - **Recomp Options** is greyed until the game's module is installed. It starts with **Show FPS**,
   followed by the module's own settings.
 
-**Recomp Store**, on the main page, lists every recomp module, for any game: A downloads or updates
-one, X deletes one installed.
+**Recomp Store**, on the main page, lists every recomp module, for any game: those installed, then those
+available. A module's own page there downloads, updates or deletes it.
 
 Modules live in this repository. A module is added by a pull request and reviewed like any other
 code. Deadcast downloads modules only from Deadcast's own releases, and only files whose SHA-256 the

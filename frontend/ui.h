@@ -64,11 +64,9 @@ Fonts& fonts();
 // what pages are drawn on, the screen's size
 Canvas& canvas();
 
-using Buttons = std::vector<std::pair<const char *, const char *>>;
-
-// A row of a page: does something (A), picks one of its values (Left/Right), or shows what a control is
-// bound to (A waits for a control, X clears it)
-enum class Row { Action, Choice, Binding };
+// A row of a page: does something (A), picks one of its values (Left/Right), shows what a control is
+// bound to (A waits for a control, X clears it), or names the section under it (the cursor goes past it)
+enum class Row { Action, Choice, Binding, Header };
 struct Item
 {
 	std::string name;
@@ -79,14 +77,14 @@ struct Item
 	std::function<void(int)> change;	// Choice: a value picked
 	std::function<void()> confirm;		// A
 	std::function<void(int)> shift;		// Left/Right on an Action, -1 or 1 (Save, Load: the slot)
-	std::function<void()> clear;		// X
+	std::function<void()> clear;		// X on a Binding
 	std::function<bool()> available;	// while false: greyed, and the cursor goes past it
 	std::function<void(int ox)> aside;	// drawn at the right while selected (Save, Load: the slot's picture)
-	Buttons hints;						// the buttons shown while selected, instead of its kind's
 };
 Item entry(const std::string& name, const std::string& desc, std::function<void()> confirm);
 bool enabled(const Item& item);
 
+using Buttons = std::vector<std::pair<const char *, const char *>>;
 struct Screen
 {
 	std::string title;

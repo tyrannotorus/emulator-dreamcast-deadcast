@@ -217,7 +217,7 @@ void actList(Button code)
 		break;
 	}
 	case Button::A:
-		if (item.confirm)
+		if (item.confirm && enabled(item))
 		{
 			// it may change the pages, this one's items with them
 			const std::function<void()> confirm = item.confirm;
@@ -225,7 +225,7 @@ void actList(Button code)
 		}
 		break;
 	case Button::X:
-		if (item.clear)
+		if (item.row == Row::Binding && item.clear)
 			item.clear();
 		break;
 	default:
@@ -353,8 +353,13 @@ void drawList(const Screen& screen, int ox)
 	{
 		const int index = screen.start + i;
 		const Item& item = screen.items[index];
-		const bool selected = index == screen.selected;
+		const bool selected = index == screen.selected && enabled(item);
 		const int rowTop = top + i * RowPitch;
+		if (item.row == Row::Header)
+		{
+			c.text(loaded->small, item.name, left + ButtonPadding, baseline(loaded->small, rowTop, RowPitch), Gray);
+			continue;
+		}
 		std::string value;
 		if (item.row != Row::Action && item.value < (int)item.values.size() && !(selected && st.awaiting))
 			value = item.values[item.value];
@@ -413,15 +418,13 @@ Buttons pageButtons(const Screen& screen)
 {
 	if (screen.buttons)
 		return screen.buttons();
-	if (!screen.items.empty() && !screen.items[screen.selected].hints.empty())
-		return screen.items[screen.selected].hints;
 	Buttons buttons { { "B", "BACK" } };
 	if (!screen.items.empty() && screen.items[screen.selected].row == Row::Binding)
 	{
 		buttons.push_back({ "X", "CLEAR" });
 		buttons.push_back({ "A", "SET" });
 	}
-	else if (screen.items.empty() || screen.items[screen.selected].row == Row::Action)
+	else if (screen.items.empty() || (screen.items[screen.selected].row == Row::Action && enabled(screen.items[screen.selected])))
 		buttons.push_back({ "A", "OKAY" });
 	return buttons;
 }
@@ -537,7 +540,19 @@ std::string moduleName(const std::string& title, const std::string& name)
 	return title.empty() ? name + " recomp module" : title;
 }
 
-void refreshStore();
+void refreshStore(const std::string& name);
+
+// the selected row in view, and a section's name with the section's first row
+void reveal(Screen& screen)
+{
+	int top = screen.selected;
+	if (top > 0 && screen.items[top - 1].row == Row::Header)
+		top--;
+	if (top < screen.start)
+		screen.start = top;
+	if (screen.selected >= screen.start + MaxRows)
+		screen.start = screen.selected - MaxRows + 1;
+}
 
 // the core picked in Options stored as the game's (from its next start)
 void keepChosen()
@@ -692,7 +707,7 @@ void drawDownload(int ox)
 }
 
 // the download over (installed, failed or stopped): its page gone, what came of it said; installed, the
-// store's rows as they now are
+// store again, with the module where it now is
 void downloadOver()
 {
 	st.download.join();
@@ -703,8 +718,9 @@ void downloadOver()
 		return;
 	}
 	st.hasModule = recomp::installed(st.discSha1, st.module);
-	refreshStore();
 	const std::string name = moduleName(st.downloading.title, st.downloading.name);
+	pop();
+	refreshStore(name);
 	// the module playing now goes on as it started
 	if (st.host.core == Core::Recomp && st.downloading.id == st.module.id)
 		message(name + " is updated: it plays from your game's next start.");
@@ -792,7 +808,8 @@ void removeModule(const recomp::Module& module, const std::string& name)
 		st.chosen = st.host.core;
 		st.screens.front().items.front().name = "Continue";
 	}
-	refreshStore();
+	pop();
+	refreshStore(name);
 	message(deleted ? name + " is deleted." : name + "\ncould not be fully deleted.\nDeadcast retries at its next start.");
 }
 
@@ -810,108 +827,132 @@ bool playsThisDisc(const std::vector<std::string>& discs)
 	return std::find(discs.begin(), discs.end(), st.discSha1) != discs.end();
 }
 
-// A store's row shows the module's title and no more: the buttons it offers say what state it is in.
-// Installed: delete it
-Item installedRow(const recomp::Module& module, const std::string& title)
+// a module as the store knows it: on offer, installed, or both
+struct StoreModule
 {
-	Item item;
-	item.name = title;
-	item.hints = { { "B", "BACK" }, { "X", "DELETE" } };
-	item.clear = [module, title] { askRemove(module, title); };
-	return item;
-}
+	std::string title;
+	bool offered = false;
+	recomp::StoreEntry entry;
+	bool installed = false;
+	recomp::Module own;
+	bool usable = true;		// this Deadcast can run what is on offer
+	bool plays = false;		// it plays this game's disc
+};
 
-// not installed: download it, or told what it takes when this Deadcast cannot run it
-Item offeredRow(const recomp::StoreEntry& entry, const std::string& title, bool usable)
+// every module offered and every one installed, offered or not, so that one can always be deleted; by title
+std::vector<StoreModule> storeModules()
 {
-	Item item;
-	item.name = title;
-	if (usable)
+	std::vector<recomp::Module> mine = recomp::allInstalled();
+	const std::string deadcast = recomp::get("deadcast.version");
+	std::vector<StoreModule> modules;
+	for (const recomp::StoreEntry& offer : st.store)
 	{
-		item.hints = { { "B", "BACK" }, { "A", "DOWNLOAD" } };
-		item.confirm = [entry] { getModule(entry, false); };
+		StoreModule m;
+		m.title = moduleName(offer.title, offer.name);
+		m.offered = true;
+		m.entry = offer;
+		m.usable = offer.needs.empty() || !newer(offer.needs, deadcast);
+		m.plays = playsThisDisc(offer.discs);
+		const auto own = std::find_if(mine.begin(), mine.end(), [&offer](const recomp::Module& module) {
+			return module.id == offer.id;
+		});
+		if (own != mine.end())
+		{
+			m.installed = true;
+			m.own = *own;
+			m.plays = m.plays || playsThisDisc(own->discs);
+			mine.erase(own);
+		}
+		modules.push_back(std::move(m));
 	}
-	else
+	for (const recomp::Module& module : mine)
 	{
-		item.hints = { { "B", "BACK" }, { "A", "UPDATE DEADCAST" } };
-		item.confirm = [title] { message("Update Deadcast to use\n" + title + "."); };
+		StoreModule m;
+		m.title = moduleName(module.title, module.name);
+		m.installed = true;
+		m.own = module;
+		m.plays = playsThisDisc(module.discs);
+		modules.push_back(std::move(m));
 	}
-	return item;
+	std::stable_sort(modules.begin(), modules.end(), [](const StoreModule& a, const StoreModule& b) {
+		return strcasecmp(a.title.c_str(), b.title.c_str()) < 0;
+	});
+	return modules;
 }
 
-// installed with a newer version offered: update it, or delete it
-Item updateRow(const recomp::Module& module, const recomp::StoreEntry& entry, const std::string& title)
+// a module's own page: what can be done with it as it stands
+Screen moduleScreen(const StoreModule& m)
 {
-	Item item = installedRow(module, title);
-	item.hints = { { "B", "BACK" }, { "X", "DELETE" }, { "A", "UPDATE" } };
-	item.confirm = [entry] { getModule(entry, true); };
-	return item;
+	Screen screen;
+	screen.title = m.title;
+	if (!m.installed)
+	{
+		Item download = entry("Download", "", [m] { getModule(m.entry, false); });
+		if (!m.usable)
+		{
+			download.available = [] { return false; };
+			screen.desc = "Needs a newer Deadcast.";
+		}
+		screen.items.push_back(std::move(download));
+		return screen;
+	}
+	if (m.offered && m.usable && newer(m.entry.version, m.own.version))
+		screen.items.push_back(entry("Update", "", [m] { getModule(m.entry, true); }));
+	screen.items.push_back(entry("Delete", "", [m] { askRemove(m.own, m.title); }));
+	return screen;
 }
 
-// every module offered and every one installed, offered or not, so that one can always be deleted; by
-// name, the cursor on this game's module if it has one
+// the store's page: Installed (if any) and Available (if any), each module opening its own page; the
+// cursor on this game's module if it has one
 Screen storeScreen()
 {
 	Screen screen;
 	screen.title = "Recomp Store";
-	std::vector<recomp::Module> mine = recomp::allInstalled();
-	const std::string deadcast = recomp::get("deadcast.version");
-	struct StoreRow
+	const std::vector<StoreModule> modules = storeModules();
+	for (const bool installed : { true, false })
 	{
-		std::string title;
-		Item item;
-		bool thisGame;
-	};
-	std::vector<StoreRow> rows;
-	for (const recomp::StoreEntry& entry : st.store)
-	{
-		const std::string title = moduleName(entry.title, entry.name);
-		const bool usable = entry.needs.empty() || !newer(entry.needs, deadcast);
-		const auto own = std::find_if(mine.begin(), mine.end(), [&entry](const recomp::Module& module) {
-			return module.id == entry.id;
-		});
-		if (own == mine.end())
-			rows.push_back({ title, offeredRow(entry, title, usable), playsThisDisc(entry.discs) });
-		else
+		bool named = false;
+		for (const StoreModule& m : modules)
 		{
-			rows.push_back({ title, usable && newer(entry.version, own->version) ? updateRow(*own, entry, title)
-					: installedRow(*own, title), playsThisDisc(own->discs) });
-			mine.erase(own);
+			if (m.installed != installed)
+				continue;
+			if (!named)
+			{
+				Item section;
+				section.name = installed ? "Installed" : "Available";
+				section.row = Row::Header;
+				screen.items.push_back(std::move(section));
+				named = true;
+			}
+			if (m.plays)
+				screen.selected = (int)screen.items.size();
+			screen.items.push_back(entry(m.title, "", [m] { push(moduleScreen(m)); }));
 		}
-	}
-	for (const recomp::Module& module : mine)
-	{
-		const std::string title = moduleName(module.title, module.name);
-		rows.push_back({ title, installedRow(module, title), playsThisDisc(module.discs) });
-	}
-	std::stable_sort(rows.begin(), rows.end(), [](const StoreRow& a, const StoreRow& b) {
-		return strcasecmp(a.title.c_str(), b.title.c_str()) < 0;
-	});
-	for (StoreRow& row : rows)
-	{
-		if (row.thisGame)
-		{
-			screen.selected = (int)screen.items.size();
-			screen.start = std::max(0, screen.selected - MaxRows + 1);
-		}
-		screen.items.push_back(std::move(row.item));
 	}
 	if (screen.items.empty())
 	{
 		screen.desc = "No recomp modules yet.";
 		screen.buttons = [] { return Buttons { { "B", "BACK" } }; };
 	}
+	else
+		reveal(screen);
 	return screen;
 }
 
-// the store's page again, its rows as they now are and the cursor where it was
-void refreshStore()
+// the store's page again, its rows as they now are: the cursor on the module named, wherever it went, or
+// where it was if it has gone
+void refreshStore(const std::string& name)
 {
 	Screen& shown = page();
 	Screen fresh = storeScreen();
 	const int count = (int)fresh.items.size();
 	fresh.selected = std::min(shown.selected, std::max(count - 1, 0));
+	for (int i = 0; i < count; i++)
+		if (fresh.items[i].row != Row::Header && fresh.items[i].name == name)
+			fresh.selected = i;
 	fresh.start = std::min(shown.start, std::max(count - MaxRows, 0));
+	if (count > 0)
+		reveal(fresh);
 	shown = std::move(fresh);
 }
 
@@ -984,7 +1025,7 @@ Item entry(const std::string& name, const std::string& desc, std::function<void(
 
 bool enabled(const Item& item)
 {
-	return !item.available || item.available();
+	return item.row != Row::Header && (!item.available || item.available());
 }
 
 bool open(const std::vector<u8>& frame, int frameWidth, int frameHeight, Screen first)
@@ -1060,10 +1101,7 @@ void move(Screen& screen, int step)
 			break;
 		}
 	}
-	if (screen.selected < screen.start)
-		screen.start = screen.selected;
-	if (screen.selected >= screen.start + MaxRows)
-		screen.start = screen.selected - MaxRows + 1;
+	reveal(screen);
 }
 
 void redraw()
