@@ -119,7 +119,6 @@ void CommandPool::EndFrame()
 	// Deadcast: measured, two command buffers of its own around the frame's (gputimer.h)
 	if (gpuTimer.active() && !commandBuffers.empty())
 	{
-		// (the order is settled above: Allocate's mark for it no longer matters)
 		const vk::CommandBuffer first = Allocate();
 		const vk::CommandBuffer last = Allocate();
 		const vk::CommandBufferBeginInfo once(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);

@@ -1,7 +1,5 @@
-// Deadcast: how long the GPU took over a submission's work, from two timestamps written around it, both
-// at the bottom of the pipe (the end of the work before it, the end of its own), read back once its fence
-// has signalled. One pair of queries for each slot (a frame in flight). Only while the emulator measures
-// itself (DEADCAST_PERF, spg.cpp); otherwise nothing is recorded.
+// Deadcast: the GPU's time over a submission's work, from two bottom-of-pipe timestamps around it, read
+// back once its fence has signalled; a pair of queries per frame in flight. Only with DEADCAST_PERF.
 #pragma once
 #include "vulkan.h"
 #include "hw/pvr/spg.h"

@@ -56,9 +56,9 @@ bool Panel::init(vk::PhysicalDevice physicalDevice, vk::Device device, std::stri
 	const double hz = var.pixclock != 0 ? 1e12 / (var.pixclock * line * rows) : 60.0;
 	refresh = hz >= 30 && hz <= 120 ? (float)hz : 60.f;
 
-	// 640 x 480, scaled by the display engine (DEADCAST_PANEL_1024=1: the panel's own size, the GPU scaling)
+	// 640 x 480, scaled by the display engine
 	mode = var;
-	if (getenv("DEADCAST_PANEL_1024") == nullptr && var.xres >= 640 && var.yres >= 480)
+	if (var.xres >= 640 && var.yres >= 480)
 	{
 		mode.xres = 640;
 		mode.yres = 480;
