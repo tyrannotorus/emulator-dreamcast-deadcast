@@ -380,6 +380,25 @@ void drawArrows(int left, bool above, bool below)
 	}
 }
 
+// A download icon: an arrow down onto a bar, as high as the font's capitals and about as heavy. Drawn, as Noto
+// Sans has no such glyph; x is its left, y the text's baseline.
+void drawDownloadIcon(Font& font, int x, int y, u32 color)
+{
+	const float h = (float)font.capHeight();
+	const float stem = h * 0.22f, bar = h * 0.18f, gap = h * 0.1f;
+	const float left = (float)x, right = left + h, bottom = (float)y, top = bottom - h;
+	const float tip = bottom - bar - gap;
+	const float shoulder = top + (tip - top) * 0.45f;
+	const float middle = left + h / 2;
+	const float arrow[] {
+		middle - stem / 2, top, middle + stem / 2, top, middle + stem / 2, shoulder,
+		right - h * 0.08f, shoulder, middle, tip, left + h * 0.08f, shoulder, middle - stem / 2, shoulder
+	};
+	st.canvas.polygon(arrow, 7, color);
+	const float tray[] { left, bottom - bar, right, bottom - bar, right, bottom, left, bottom };
+	st.canvas.polygon(tray, 4, color);
+}
+
 // a page's rows, from the same top on every page (pages sliding by line up), the selected one in a pill, a
 // Choice's or Binding's value at the right; arrows above and below when there are more
 void drawList(const Screen& screen, int ox)
@@ -410,16 +429,19 @@ void drawList(const Screen& screen, int ox)
 		if (selected && item.row == Row::Choice)
 			value = "<  " + value + "  >";
 		const int valueWidth = value.empty() ? 0 : large.measure(value) + ButtonPadding * 2;
-		const std::string name = Canvas::fit(large, item.name, right - left - valueWidth - ButtonPadding * 2);
+		const int iconWidth = item.downloadIcon ? S(5) + large.capHeight() : 0;
+		const std::string name = Canvas::fit(large, item.name, right - left - valueWidth - iconWidth - ButtonPadding * 2);
 		u32 color = enabled(item) ? White : LightGray;
 		if (selected)
 		{
 			if (item.row != Row::Action)
 				c.pill(left, rowTop - overhang, right - left, PillSize, ColorAccent);
-			c.pill(left, rowTop - overhang, large.measure(name) + ButtonPadding * 2, PillSize, ColorMain);
+			c.pill(left, rowTop - overhang, large.measure(name) + iconWidth + ButtonPadding * 2, PillSize, ColorMain);
 			color = ColorSelectedText;
 		}
 		c.text(large, name, left + ButtonPadding, baseline(large, rowTop, RowPitch), color);
+		if (item.downloadIcon)
+			drawDownloadIcon(large, left + ButtonPadding + large.measure(name) + S(5), baseline(large, rowTop, RowPitch), color);
 		if (!value.empty())
 			c.text(large, value, right - valueWidth + ButtonPadding, baseline(large, rowTop, RowPitch),
 					enabled(item) ? White : LightGray);
@@ -1028,20 +1050,21 @@ Screen moduleScreen(const StoreModule& m)
 	return screen;
 }
 
-// the store's page: what has an update, what else is installed, what is available, each under its section's
-// name unless it has nothing; every module opens its own page. The cursor on this game's module if it has one.
+// the store's page: what is installed, a download icon on what has an update, and what is available, each under
+// its section's name unless it has nothing; every module opens its own page. The cursor on this game's module
+// if it has one.
 Screen storeScreen()
 {
 	Screen screen;
 	screen.title = "Recomp Store";
 	const std::vector<StoreModule> modules = storeModules();
-	const char *const sections[] = { "Updates Available", "Installed", "Available" };
-	for (int section = 0; section < 3; section++)
+	const char *const sections[] = { "Installed", "Available" };
+	for (int section = 0; section < 2; section++)
 	{
 		bool named = false;
 		for (const StoreModule& m : modules)
 		{
-			if ((hasUpdate(m) ? 0 : m.installed ? 1 : 2) != section)
+			if ((m.installed ? 0 : 1) != section)
 				continue;
 			if (!named)
 			{
@@ -1053,7 +1076,9 @@ Screen storeScreen()
 			}
 			if (m.plays)
 				screen.selected = (int)screen.items.size();
-			screen.items.push_back(entry(m.title, "", [m] { push(moduleScreen(m)); }));
+			Item row = entry(m.title, "", [m] { push(moduleScreen(m)); });
+			row.downloadIcon = hasUpdate(m);
+			screen.items.push_back(std::move(row));
 		}
 	}
 	if (screen.items.empty())
