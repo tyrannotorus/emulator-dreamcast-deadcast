@@ -45,7 +45,8 @@ constexpr int RowPitch = S(28);		// from one row to the next (its pill, PillSize
 constexpr int RowOverhang = (PillSize - RowPitch) / 2;
 constexpr int InfoLeading = S(12);	// a module's page: from one line of its text to the next
 constexpr int InfoIndent = S(8);	// a list's lines, past the dot
-constexpr int InfoRows = (MaxRows * RowPitch + 2 * RowOverhang) / InfoLeading;
+constexpr int InfoHeadingGap = S(4);	// and under a section's name
+constexpr int InfoHeight = MaxRows * RowPitch + 2 * RowOverhang;	// the room for its text, that of the rows
 constexpr int SlideMs = 150;		// a page's rows sliding in, the ones before them out
 constexpr float BackdropBrightness = 0.4f;	// the paused game behind the menu (white: 40% grey)
 
@@ -451,23 +452,44 @@ void drawList(const Screen& screen, int ox)
 		screen.items[screen.selected].aside(ox);
 }
 
+int infoLineHeight(const InfoLine& line)
+{
+	return InfoLeading + (line.heading ? InfoHeadingGap : 0);
+}
+
+// the top line that leaves the last line of a module's page at the bottom of its room
+int infoLastTop()
+{
+	int height = 0;
+	for (int i = (int)st.info.size() - 1; i >= 0; i--)
+	{
+		height += infoLineHeight(st.info[i]);
+		if (height > InfoHeight)
+			return i + 1;
+	}
+	return 0;
+}
+
 // a module's page: its text, from the line at the top, in the room of the rows
 void drawInfo(int ox)
 {
 	Font& tiny = loaded->tiny;
 	const int left = ox + Padding;
 	const int x = left + ButtonPadding;
-	const int shown = std::min((int)st.info.size() - st.infoTop, InfoRows);
-	for (int i = 0; i < shown; i++)
+	const int bottom = rowsTop() + InfoHeight;
+	int top = rowsTop();
+	int index = st.infoTop;
+	for (; index < (int)st.info.size() && top + InfoLeading <= bottom; index++)
 	{
-		const InfoLine& line = st.info[st.infoTop + i];
+		const InfoLine& line = st.info[index];
 		Font& font = line.heading ? loaded->small : tiny;
-		const int y = baseline(font, rowsTop() + i * InfoLeading, InfoLeading);
+		const int y = baseline(font, top, InfoLeading);
 		if (line.marked)
 			st.canvas.text(font, "\xe2\x80\xa2", x, y, line.color);	// a dot
 		st.canvas.text(font, line.text, line.indented ? x + InfoIndent : x, y, line.color);
+		top += infoLineHeight(line);
 	}
-	drawArrows(left, st.infoTop > 0, st.infoTop + InfoRows < (int)st.info.size());
+	drawArrows(left, st.infoTop > 0, index < (int)st.info.size());
 }
 
 // a page's rows (or its own body) with their left edge at ox, off the screen while they slide
@@ -1041,7 +1063,7 @@ Screen moduleScreen(const StoreModule& m)
 	screen.buttons = [buttons] { return buttons; };
 	screen.act = [m, update, download](Button code) {
 		if (code == Button::Up || code == Button::Down)
-			st.infoTop = std::max(0, std::min(st.infoTop + (code == Button::Up ? -1 : 1), (int)st.info.size() - InfoRows));
+			st.infoTop = std::max(0, std::min(st.infoTop + (code == Button::Up ? -1 : 1), infoLastTop()));
 		else if (code == Button::A && (update || download))
 			getModule(m.entry, update);
 		else if (code == Button::X && m.installed)
