@@ -20,10 +20,10 @@ struct CatalogEntry
 };
 
 // where the release's files are
-constexpr const char *Release = "https://github.com/tyrannotorus/emulator-dreamcast-deadcast/releases/download/1.1.0/";
+constexpr const char *Release = "https://github.com/tyrannotorus/emulator-dreamcast-deadcast/releases/download/1.1.1/";
 
 constexpr CatalogEntry Catalog[] = {
-	{ "rez", "Rez", "1.0.1", "recomp-rez-1.0.1.tar.gz", 44290432, "cd85fb482de0c09055b767018eefee8202fb1dc1c67a1fee52b8dae91e4aa422",
+	{ "rez", "Rez", "1.0.2", "recomp-rez-1.0.2.tar.gz", 44298064, "1ea0aa645130c96fda3ad38b72b6ee080c931165dc92f973c1e52d9455fdd8b1",
 		{ "9711a0d0c21af3685672b9a42c72abf999fc7150", "01b7c1cc29a840b141a4ae713037eb1224fac233" } },
 };
 
