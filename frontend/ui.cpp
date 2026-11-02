@@ -89,16 +89,15 @@ bool loadFonts()
 	return true;
 }
 
-// a line of a module's page; marked: a dot before it, a list entry's first line; cells: a table's row instead
-// of text, ruled: with a line under it
+// a line of a module's page; heading: a section's name, drawn as the store's are; marked: a dot before it, a
+// list entry's first line
 struct InfoLine
 {
 	std::string text;
 	u32 color = White;
+	bool heading = false;
 	bool indented = false;
 	bool marked = false;
-	std::vector<std::string> cells;
-	bool ruled = false;
 };
 
 struct State
@@ -150,7 +149,6 @@ struct State
 	std::vector<recomp::StoreEntry> store;		// what the Recomp Store offers, read as it opens
 	std::vector<InfoLine> info;		// a module's page: its text in lines
 	int infoTop = 0;				// the line at the top of it
-	int infoColumns[2] = { 0, 0 };	// the widths of its table's first two columns
 };
 State st;
 
@@ -441,22 +439,11 @@ void drawInfo(int ox)
 	for (int i = 0; i < shown; i++)
 	{
 		const InfoLine& line = st.info[st.infoTop + i];
-		const int rowTop = rowsTop() + i * InfoLeading;
-		const int y = baseline(tiny, rowTop, InfoLeading);
-		if (!line.cells.empty())
-		{
-			// the last column takes what is left: a SHA-1 is wide
-			const int x1 = x + st.infoColumns[0], x2 = x1 + st.infoColumns[1], right = ox + st.canvas.width() - Padding;
-			st.canvas.text(tiny, line.cells[0], x, y, line.color);
-			st.canvas.text(tiny, line.cells[1], x1, y, line.color);
-			st.canvas.text(tiny, Canvas::fit(tiny, line.cells[2], right - x2), x2, y, line.color);
-			if (line.ruled)
-				st.canvas.fill(x, rowTop + InfoLeading - S(1), right - x, 2, LightGray);
-			continue;
-		}
+		Font& font = line.heading ? loaded->small : tiny;
+		const int y = baseline(font, rowsTop() + i * InfoLeading, InfoLeading);
 		if (line.marked)
-			st.canvas.text(tiny, "\xe2\x80\xa2", x, y, line.color);	// a dot
-		st.canvas.text(tiny, line.text, line.indented ? x + InfoIndent : x, y, line.color);
+			st.canvas.text(font, "\xe2\x80\xa2", x, y, line.color);	// a dot
+		st.canvas.text(font, line.text, line.indented ? x + InfoIndent : x, y, line.color);
 	}
 	drawArrows(left, st.infoTop > 0, st.infoTop + InfoRows < (int)st.info.size());
 }
@@ -944,8 +931,9 @@ bool hasUpdate(const StoreModule& m)
 	return m.installed && m.offered && m.usable && newer(m.entry.version, m.own.version);
 }
 
-// a module's page's text: its store.json (of the version on offer, unless it is the one installed), around
-// the version
+// a module's page's text, from its store.json (of the version on offer, unless it is the one installed), in
+// sections under their names: Description, Features, Supported Formats, Changelog (for the version named first)
+// and Source. A section with nothing to say is left out.
 std::vector<InfoLine> moduleInfo(const StoreModule& m)
 {
 	std::string json = m.installed && !hasUpdate(m) ? recomp::readText(m.own.dir + "/store.json") : "";
@@ -955,60 +943,58 @@ std::vector<InfoLine> moduleInfo(const StoreModule& m)
 	Font& tiny = loaded->tiny;
 	const int width = st.canvas.width() - 2 * (Padding + ButtonPadding);
 	std::vector<InfoLine> lines;
-	// a paragraph, after a gap
-	const auto text = [&](const std::string& paragraph, u32 color) {
-		if (paragraph.empty())
-			return;
+	// a section's name, after a gap
+	const auto heading = [&lines](const char *name) {
 		if (!lines.empty())
 			lines.emplace_back();
-		for (const std::string& line : wrap(tiny, paragraph, width))
-			lines.push_back({ line, color, false, false });
+		lines.push_back({ name, Gray, true, false, false });
 	};
-	// a heading and its list
-	const auto list = [&](const std::string& heading, const std::vector<std::string>& entries) {
-		text(heading, Gray);
+	const auto paragraph = [&](const std::string& text, u32 color) {
+		for (const std::string& line : wrap(tiny, text, width))
+			lines.push_back({ line, color, false, false, false });
+	};
+	const auto list = [&](const std::vector<std::string>& entries) {
 		for (const std::string& entry : entries)
 		{
 			bool first = true;
 			for (const std::string& line : wrap(tiny, entry, width - InfoIndent))
 			{
-				lines.push_back({ line, White, true, first });
+				lines.push_back({ line, White, false, true, first });
 				first = false;
 			}
 		}
 	};
 	if (!m.installed && !m.usable)
-		text("Needs a newer Deadcast.", White);
-	text(info.description, White);
-	if (!info.formats.empty())
+		paragraph("Needs a newer Deadcast.", White);
+	if (!info.description.empty())
 	{
-		text("Supported Formats", Gray);
-		const int gap = S(8);
-		st.infoColumns[0] = tiny.measure("Format") + gap;
-		st.infoColumns[1] = tiny.measure("Region") + gap;
-		for (const recomp::ModuleInfo::Format& disc : info.formats)
-		{
-			st.infoColumns[0] = std::max(st.infoColumns[0], tiny.measure(disc.format) + gap);
-			st.infoColumns[1] = std::max(st.infoColumns[1], tiny.measure(disc.region) + gap);
-		}
-		InfoLine header;
-		header.cells = { "Format", "Region", "SHA-1" };
-		header.color = Gray;
-		header.ruled = true;
-		lines.push_back(std::move(header));
-		for (const recomp::ModuleInfo::Format& disc : info.formats)
-		{
-			InfoLine row;
-			row.cells = { disc.format, disc.region, disc.sha1 };
-			lines.push_back(std::move(row));
-		}
+		heading("Description");
+		paragraph(info.description, White);
 	}
 	if (!info.features.empty())
-		list("Features", info.features);
-	list(hasUpdate(m) ? "Version " + m.entry.version + ", you have " + m.own.version
-			: "Version " + (m.installed ? m.own.version : m.entry.version), info.changelog);
-	const size_t scheme = info.repo.find("://");
-	text(scheme == std::string::npos ? info.repo : info.repo.substr(scheme + 3), Gray);
+	{
+		heading("Features");
+		list(info.features);
+	}
+	if (!info.formats.empty())
+	{
+		heading("Supported Formats");
+		for (const recomp::ModuleInfo::Format& disc : info.formats)
+		{
+			paragraph(disc.region + " (" + disc.format + ")", White);
+			paragraph(disc.sha1, TextGray);
+		}
+	}
+	heading("Changelog");
+	paragraph(hasUpdate(m) ? "Version " + m.entry.version + ", you have " + m.own.version
+			: "Version " + (m.installed ? m.own.version : m.entry.version), White);
+	list(info.changelog);
+	if (!info.repo.empty())
+	{
+		heading("Source");
+		const size_t scheme = info.repo.find("://");
+		paragraph(scheme == std::string::npos ? info.repo : info.repo.substr(scheme + 3), White);
+	}
 	return lines;
 }
 
