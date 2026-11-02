@@ -124,7 +124,7 @@ static bool rendererEnabled = true;
 
 static bool presented;
 // Deadcast: dumps a frame's polygons, one per line (list, texture and format, blending, shading, depth,
-// culling, PCW, vertex positions and colors), to debug rendering (DEADCAST_DUMP_POLYS, spg.cpp)
+// culling, PCW, vertex positions, depths (1/w) and colors), to debug rendering (DEADCAST_DUMP_POLYS, spg.cpp)
 static std::atomic<int> polyDumpAt { -1 };
 
 void rend_dumpPolysAt(int seconds) {
@@ -140,7 +140,7 @@ static void dumpPolys(rend_context& rc, const std::string& path)
 		for (size_t i = 0; i < list.size(); i++)
 		{
 			const PolyParam& pp = list[i];
-			float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+			float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
 			int a0 = 255, a1 = 0;
 			int c0[3] = { 255, 255, 255 }, c1[3] = { 0, 0, 0 };
 			for (u32 j = 0; j < pp.count; j++)
@@ -151,6 +151,7 @@ static void dumpPolys(rend_context& rc, const std::string& path)
 				const Vertex& vt = rc.verts[v];
 				x0 = std::min(x0, vt.x); x1 = std::max(x1, vt.x);
 				y0 = std::min(y0, vt.y); y1 = std::max(y1, vt.y);
+				z0 = std::min(z0, vt.z); z1 = std::max(z1, vt.z);
 				a0 = std::min(a0, (int)vt.col[3]); a1 = std::max(a1, (int)vt.col[3]);
 				for (int k = 0; k < 3; k++) {
 					c0[k] = std::min(c0[k], (int)vt.col[k]);
@@ -158,15 +159,18 @@ static void dumpPolys(rend_context& rc, const std::string& path)
 				}
 			}
 			fprintf(f, "%s %zu n %u tex %d addr %06x fmt %u vq %u mip %u | src %u dst %u ua %u ita %u shad %u fog %u filt %u clamp %u%u flip %u%u"
-					" | depth %u cull %u zwd %u | off %u gour %u coltype %u vol %u | x %.0f-%.0f y %.0f-%.0f alpha %d-%d rgb %d,%d,%d-%d,%d,%d\n",
+					" | depth %u cull %u zwd %u | off %u gour %u coltype %u vol %u | x %.0f-%.0f y %.0f-%.0f z %.7g-%.7g alpha %d-%d rgb %d,%d,%d-%d,%d,%d\n",
 				name, i, pp.count, pp.pcw.Texture, pp.tcw.TexAddr << 3, pp.tcw.PixelFmt, pp.tcw.VQ_Comp, pp.tcw.MipMapped,
 				pp.tsp.SrcInstr, pp.tsp.DstInstr, pp.tsp.UseAlpha, pp.tsp.IgnoreTexA, pp.tsp.ShadInstr, pp.tsp.FogCtrl, pp.tsp.FilterMode,
 				pp.tsp.ClampU, pp.tsp.ClampV, pp.tsp.FlipU, pp.tsp.FlipV,
 				pp.isp.DepthMode, pp.isp.CullMode, pp.isp.ZWriteDis,
 				pp.pcw.Offset, pp.pcw.Gouraud, pp.pcw.Col_Type, pp.pcw.Volume,
-				x0, x1, y0, y1, a0, a1, c0[0], c0[1], c0[2], c1[0], c1[1], c1[2]);
+				x0, x1, y0, y1, z0, z1, a0, a1, c0[0], c0[1], c0[2], c1[0], c1[1], c1[2]);
 		}
 	};
+	for (size_t i = 0; i < rc.render_passes.size(); i++)
+		fprintf(f, "PASS %zu autosort %d op %u pt %u tr %u\n", i, (int)rc.render_passes[i].autosort,
+				rc.render_passes[i].op_count, rc.render_passes[i].pt_count, rc.render_passes[i].tr_count);
 	dumpList("OP", rc.global_param_op);
 	dumpList("PT", rc.global_param_pt);
 	dumpList("TR", rc.global_param_tr);
