@@ -64,7 +64,8 @@ shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DE
 - In the menu a module goes by its manifest's `title` (`Rez Recompiled`); in the docs it is the
   "<game title> recomp module". Never the game's title alone.
 - A module's options, in Options with Core on it: Show FPS first, the module's settings after, then its own
-  Controls if it declares any (nothing is shared with the emulator's). Getting, updating and deleting a module
+  Controls if it declares any (nothing is shared with the emulator's). They are kept in its own
+  `recomp-data/<id>/settings.cfg`, and go when it is deleted. Getting, updating and deleting a module
   are the Recomp Store's (on the main page).
 
 ### Releasing
