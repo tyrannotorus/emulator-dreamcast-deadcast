@@ -378,10 +378,6 @@ extern Option<bool> AutoLoadState;
 extern Option<bool> AutoSaveState;
 extern Option<int, false> SavestateSlot;
 extern Option<bool> ForceFreePlay;
-extern Option<bool, false> FetchBoxart;
-extern Option<bool, false> BoxartDisplayMode;
-extern Option<int, false> UIScaling;
-extern Option<int, false> UITheme;          // 0 -> Dark, 1 -> Light, 2 -> Dreamcast, 3 -> High Contrast, 4 -> Nintendo, 5 -> Aqua Chill
 
 // Sound
 
@@ -509,7 +505,6 @@ extern Option<std::vector<std::string>, false> SavestatePath;
 extern Option<std::string, false> SavePath;
 extern Option<std::vector<std::string>, false> TexturePath;
 extern Option<std::string, false> TextureDumpPath;
-extern Option<std::string, false> BoxartPath;
 extern Option<std::vector<std::string>, false> MappingsPath;
 extern Option<std::vector<std::string>, false> CheatPath;
 extern Option<bool, false> HideLegacyNaomiRoms;
@@ -522,7 +517,6 @@ extern OptionString LogServer;
 
 // Profiling
 extern Option<bool> ProfilerEnabled;
-extern Option<bool> ProfilerDrawToGUI;
 extern Option<bool> ProfilerOutputTTY;
 extern Option<float> ProfilerFrameWarningTime;
 
@@ -538,7 +532,6 @@ extern Option<bool> EmulateBBA;
 extern Option<bool> EnableUPnP;
 extern Option<bool> GGPOEnable;
 extern Option<int> GGPODelay;
-extern Option<bool> NetworkStats;
 extern Option<int> GGPOAnalogAxes;
 extern Option<bool> GGPOChat;
 extern Option<bool> GGPOChatTimeoutToggle;
@@ -557,8 +550,6 @@ extern Option<bool> OmxAudioHdmi;
 // Maple
 
 extern Option<int> MouseSensitivity;
-extern Option<int> VirtualGamepadVibration;
-extern Option<int> VirtualGamepadTransparency;
 extern std::array<Option<MapleDeviceType>, 4> MapleMainDevices;
 extern std::array<std::array<Option<MapleDeviceType>, 2>, 4> MapleExpansionDevices;
 extern std::array<std::array<Option<int>, 2>, 4> NetworkExpansionDevices;
@@ -570,16 +561,5 @@ constexpr bool UseRawInput = false;
 #endif
 extern Option<bool> UsePhysicalVmuMemory;
 
-#ifdef USE_LUA
-extern Option<std::string, false> LuaFileName;
-#endif
-
-// RetroAchievements
-
-extern Option<bool> EnableAchievements;
-extern Option<bool> AchievementsHardcoreMode;
-extern OptionString AchievementsUserName;
-extern OptionString AchievementsToken;
-extern OptionString AchievementsHostUrl;
 
 } // namespace config

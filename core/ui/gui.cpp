@@ -162,7 +162,10 @@ void gui_open_settings()
 		}
 	}
 	else if (gui_state == GuiState::Loading)
+	{
 		gameLoader.cancel();
+		dc_exit();
+	}
 }
 
 static void reset_vmus()
@@ -241,6 +244,7 @@ static void startPageMissing()
 void gui_display_ui()
 {
 	const LockGuard lock(guiMutex);
+	uiThreadRunner.execTasks();
 
 	switch (gui_state)
 	{

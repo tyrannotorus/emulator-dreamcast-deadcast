@@ -958,7 +958,7 @@ void sdl_window_create()
 	try {
 		initRenderApi();
 	} catch (const FlycastException& e) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, i18n::T("Flycast Error"), e.what(), nullptr);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Deadcast", e.what(), nullptr);
 		throw;
 	}
 #ifdef TARGET_UWP

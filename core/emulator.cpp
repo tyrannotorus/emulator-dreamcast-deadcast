@@ -681,14 +681,6 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 			// Must be done after the maple devices are created and EEPROM is accessible
 			naomi_cart_ConfigureEEPROM();
 
-#ifdef USE_RACHIEVEMENTS
-		// RA probably isn't expecting to travel back in the past so disable it
-		if (config::GGPOEnable)
-			config::EnableAchievements.override(false);
-		// Hardcore mode disables all cheats, under/overclocking, load state, lua and forces dynarec on
-		settings.raHardcoreMode = config::EnableAchievements && config::AchievementsHardcoreMode
-			&& !naomiNetworkSupported();
-#endif
 		cheatManager.reset(settings.content.gameId);
 		if (cheatManager.isWidescreen())
 		{
@@ -902,13 +894,8 @@ void loadGameSpecificSettings()
 	// Reload per-game settings
 	config::Settings::instance().load(true);
 
-	if (config::GGPOEnable || settings.raHardcoreMode)
+	if (config::GGPOEnable)
 		config::Sh4Clock.override(200);
-	if (settings.raHardcoreMode)
-	{
-		config::WidescreenGameHacks.override(false);
-		config::DynarecEnabled.override(true);
-	}
 }
 
 void Emulator::step()

@@ -9,7 +9,6 @@ void input_sdl_quit();
 bool input_sdl_pad_open();
 void input_sdl_pad_read();
 void input_sdl_pad_close();
-bool sdl_queue_open_file(const char *path);
 void sdl_window_create();
 void sdl_window_destroy();
 bool sdl_recreate_window(u32 flags);

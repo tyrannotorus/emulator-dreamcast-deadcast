@@ -16,6 +16,7 @@
 #include "version.h"
 
 #include <csignal>
+#include <cstdio>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -264,6 +265,8 @@ static void setDirectories()
 int main(int argc, char* argv[])
 {
 	selfPath = argv[0];
+	std::printf("Deadcast %s\n", GIT_VERSION);
+	std::fflush(stdout);
 	// Deadcast: recomp modules marked for deletion deleted, an install cut short tidied away; then the
 	// disc's recomp module hosted, if that is its chosen core (no emulator started)
 	deadui::recomp::tidy();
@@ -298,7 +301,7 @@ int main(int argc, char* argv[])
 	common_linux_setup();
 
 	if (flycast_init(argc, argv))
-		die("Flycast initialization failed\n");
+		die("Deadcast initialization failed\n");
 
 #if defined(USE_BREAKPAD)
 	auto async = std::async(std::launch::async, uploadCrashes, "/tmp");

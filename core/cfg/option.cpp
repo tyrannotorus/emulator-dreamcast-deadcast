@@ -38,10 +38,6 @@ Option<bool> AutoLoadState("Dreamcast.AutoLoadState");
 Option<bool> AutoSaveState("Dreamcast.AutoSaveState");
 Option<int, false> SavestateSlot("Dreamcast.SavestateSlot");
 Option<bool> ForceFreePlay("ForceFreePlay", true);
-Option<bool, false> FetchBoxart("FetchBoxart", true);
-Option<bool, false> BoxartDisplayMode("BoxartDisplayMode", true);
-Option<int, false> UIScaling("UIScaling", 100);
-Option<int, false> UITheme("UITheme", 0);
 
 // Sound
 
@@ -149,7 +145,6 @@ Option<std::vector<std::string>, false> SavestatePath("Dreamcast.SavestatePath")
 Option<std::string, false> SavePath("Dreamcast.SavePath");
 Option<std::vector<std::string>, false> TexturePath("Dreamcast.TexturePath");
 Option<std::string, false> TextureDumpPath("Dreamcast.TextureDumpPath");
-Option<std::string, false> BoxartPath("Dreamcast.BoxartPath");
 Option<std::vector<std::string>, false> MappingsPath("Dreamcast.MappingsPath");
 Option<std::vector<std::string>, false> CheatPath("Dreamcast.CheatPath");
 Option<bool, false> HideLegacyNaomiRoms("Dreamcast.HideLegacyNaomiRoms", true);
@@ -162,7 +157,6 @@ OptionString LogServer("LogServer", "", "log");
 
 // Profiler
 Option<bool> ProfilerEnabled("Profiler.Enabled");
-Option<bool> ProfilerDrawToGUI("Profiler.DrawGUI");
 Option<bool> ProfilerOutputTTY("Profiler.OutputTTY");
 Option<float> ProfilerFrameWarningTime("Profiler.FrameWarningTime", 1.0f / 55.0f);
 
@@ -178,7 +172,6 @@ Option<bool> EmulateBBA("EmulateBBA", false, "network");
 Option<bool> EnableUPnP("EnableUPnP", true, "network");
 Option<bool> GGPOEnable("GGPO", false, "network");
 Option<int> GGPODelay("GGPODelay", 0, "network");
-Option<bool> NetworkStats("Stats", true, "network");
 Option<int> GGPOAnalogAxes("GGPOAnalogAxes", 0, "network");
 Option<bool> GGPOChat("GGPOChat", true, "network");
 Option<bool> GGPOChatTimeoutToggle("GGPOChatTimeoutToggle", true, "network");
@@ -197,8 +190,6 @@ Option<bool> OmxAudioHdmi("audio_hdmi", true, "omx");
 // Maple
 
 Option<int> MouseSensitivity("MouseSensitivity", 100, "input");
-Option<int> VirtualGamepadVibration("VirtualGamepadVibration", 20, "input");
-Option<int> VirtualGamepadTransparency("VirtualGamepadTransparency", 37, "input");
 
 std::array<Option<MapleDeviceType>, 4> MapleMainDevices {
 	Option<MapleDeviceType>("device1", MDT_SegaController, "input"),
@@ -239,16 +230,5 @@ Option<bool, false> UseRawInput("RawInput", false, "input");
 #endif
 Option<bool> UsePhysicalVmuMemory("UsePhysicalVmuMemory", false);
 
-#ifdef USE_LUA
-Option<std::string, false> LuaFileName("LuaFileName", "flycast.lua");
-#endif
-
-// RetroAchievements
-
-Option<bool> EnableAchievements("Enabled", false, "achievements");
-Option<bool> AchievementsHardcoreMode("HardcoreMode", false, "achievements");
-OptionString AchievementsUserName("UserName", "", "achievements");
-OptionString AchievementsToken("Token", "", "achievements");
-OptionString AchievementsHostUrl("HostUrl", "", "achievements");
 
 } // namespace config

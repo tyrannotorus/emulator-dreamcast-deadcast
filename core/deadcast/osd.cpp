@@ -23,6 +23,7 @@ std::string details;
 u64 messageEnd = 0;
 
 // the render thread's
+u64 lastFrameAt = 0;
 u64 countedAt = 0;
 u64 countedFrames = 0;
 float framesPerSecond = -1.f;
@@ -40,7 +41,8 @@ std::string counter(GraphicsContext *context, u64 now)
 		return fastForward ? ">>" : "";
 	}
 	const u64 frames = context->framesShown();
-	if (countedAt == 0)
+	// the time in the menu is not the game's
+	if (countedAt == 0 || now - lastFrameAt > 500)
 	{
 		countedAt = now;
 		countedFrames = frames;
@@ -75,6 +77,7 @@ void frame()
 		return;
 	const u64 now = getTimeMs();
 	const std::string count = counter(context, now);
+	lastFrameAt = now;
 	std::string text, under;
 	{
 		std::lock_guard<std::mutex> lock(mutex);

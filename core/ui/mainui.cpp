@@ -66,8 +66,7 @@ bool mainui_rend_frame()
 			if (!emu.render())
 				return false;
 		} catch (const RendererException& e) {
-			gui_error(i18n::Ts("Renderer error:") + "\n" + e.what() + "\n\n"
-					+ i18n::Ts("The game has been paused but it is recommended to restart Flycast"));
+			gui_error(std::string("Renderer error: ") + e.what());
 			rend_term_renderer();
 			if (!rend_init_renderer())
 				ERROR_LOG(RENDERER, "Renderer re-initialization failed");
@@ -88,7 +87,7 @@ void mainui_init()
 {
 	if (!rend_init_renderer()) {
 		ERROR_LOG(RENDERER, "Renderer initialization failed");
-		gui_error(i18n::T("Renderer initialization failed.\nPlease select a different graphics API"));
+		gui_error("Renderer initialization failed");
 	}
 }
 

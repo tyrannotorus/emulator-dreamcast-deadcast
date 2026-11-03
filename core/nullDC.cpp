@@ -259,7 +259,7 @@ fail:
 
 void dc_loadstate(int index)
 {
-	if (!dc_savestateAllowed() || settings.raHardcoreMode)
+	if (!dc_savestateAllowed())
 		return;
 	u32 total_size = 0;
 

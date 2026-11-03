@@ -451,7 +451,7 @@ void CheatManager::reset(const std::string& gameId)
 		this->gameId = gameId;
 
 #ifndef LIBRETRO
-		if (!settings.raHardcoreMode && !gameId.empty())
+		if (!gameId.empty())
 		{
 			std::string cheatFile = config::loadStr("cheats", gameId);
 			if (!cheatFile.empty())
@@ -597,7 +597,7 @@ found_cheats:
 		if (cheats.size() > cheatCount)
 			setActive(true);
 	}
-	if (config::WidescreenGameHacks && !settings.raHardcoreMode)
+	if (config::WidescreenGameHacks)
 	{
 		if (settings.platform.isConsole())
 		{

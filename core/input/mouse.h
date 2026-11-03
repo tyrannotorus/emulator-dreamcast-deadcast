@@ -102,11 +102,10 @@ public:
 
 class SystemMouse : public Mouse
 {
-	bool touchMouse;
 
 protected:
-	SystemMouse(const char *apiName, int maplePort = 0, bool touchMouse = false)
-		: Mouse(apiName, maplePort), touchMouse(touchMouse)
+	SystemMouse(const char *apiName, int maplePort = 0)
+		: Mouse(apiName, maplePort)
 	{}
 
 public:
@@ -118,7 +117,7 @@ public:
 class TouchMouse : public SystemMouse
 {
 public:
-	TouchMouse() : SystemMouse("Flycast", -1, true)
+	TouchMouse() : SystemMouse("Flycast", -1)
 	{
 		refreshName();
 		_unique_id = "touch_mouse";
