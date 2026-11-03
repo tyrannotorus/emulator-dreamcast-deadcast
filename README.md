@@ -35,7 +35,7 @@ stay Deadcast's.
 
 - `core/`: the emulator, a Flycast fork changed in place (nothing on the device says Flycast). Deadcast's
   own code is in `core/deadcast/`: the menu's emulator side, save states, the two-Brick link.
-- `ui/`: the menu library, a submodule: pages, the module host, the store, downloads and the fonts.
+- `ui/`: the menu library, a submodule: pages, the module host, the store, and the tg5040 toolchain.
 - `store/`: the recomp modules the store lists (`registry.txt`). An Action rebuilds the list hourly, on the
   `store` branch.
 - `shell/brick/`: build and package scripts. `pak.json`: the Pak Store's entry.
