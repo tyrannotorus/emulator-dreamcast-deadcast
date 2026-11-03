@@ -12,7 +12,7 @@ endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/shell/cmake")
 
-project(deadcast VERSION 1.1.1)
+project(deadcast VERSION 1.2.0)
 # no path of the build machine in the binary
 add_compile_options(-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
 
@@ -236,7 +236,6 @@ add_subdirectory(core/deadcast)
 set(DEADUI_APP_NAME Deadcast)
 set(DEADUI_HOME_ENV DEADCAST_HOME)
 set(DEADUI_LINK_PREFIX dclink)
-set(DEADUI_RUN_MARKER /tmp/deadcast-recomp-run)
 set(DEADUI_STORE_URL https://raw.githubusercontent.com/tyrannotorus/emulator-dreamcast-deadcast/store/catalog.cfg)
 set(DEADUI_CONSOLE dreamcast)
 add_subdirectory(ui)
