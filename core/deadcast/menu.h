@@ -1,8 +1,9 @@
-// The in-game menu (MENU button), styled after NextUI's minarch: Continue, Save, Load, Options, Quit.
+// The emulator's side of the menu (MENU button), styled after NextUI's minarch: Continue, Save, Load, Options,
+// Recomp Store, Quit.
 // Every page of it looks like that first one (its title in a pill, its rows, the buttons at the bottom
 // right) over the paused game blurred; a page opened slides its rows in from the right, the ones before
 // them out to the left (the other way back), while the pills stay in place. Drawn on the CPU by the
-// frontend shared with the recomp modules (frontend/ui.h), shown through the graphics context's pictures.
+// shared UI library (ui/src/ui.h), shown through the graphics context's pictures.
 // The game is stopped while it is open; everything runs on the render thread, where SDL input is read too.
 #pragma once
 #include "types.h"
@@ -26,7 +27,7 @@ bool openSession();
 void openHostedControls();
 
 bool isOpen();
-// Options switched the game's core: Deadcast ends with recomp::SwitchExit (frontend/recomp.h)
+// Options switched the game's core: Deadcast ends with recomp::SwitchExit (ui/src/recomp.h)
 bool switching();
 // Raw pad input (SDL button and axis codes) while the menu is open.
 void button(u32 code, bool pressed);

@@ -232,7 +232,7 @@ add_subdirectory(core/oslib)
 add_subdirectory(core/audio)
 add_subdirectory(core/reios)
 add_subdirectory(core/deadcast)
-# the menu and pages, shared with the recomp modules
+# the menu and pages, the store, and hosting recomp modules
 set(DEADUI_APP_NAME Deadcast)
 set(DEADUI_HOME_ENV DEADCAST_HOME)
 set(DEADUI_LINK_PREFIX dclink)

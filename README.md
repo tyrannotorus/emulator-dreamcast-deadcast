@@ -36,8 +36,8 @@ stay Deadcast's.
 - `core/`: the emulator, a Flycast fork changed in place (nothing on the device says Flycast). Deadcast's
   own code is in `core/deadcast/`: the menu's emulator side, save states, the two-Brick link.
 - `ui/`: the menu library, a submodule: pages, the module host, the store, and the tg5040 toolchain.
-- `store/`: the recomp modules the store lists (`registry.txt`). An Action rebuilds the list hourly, on the
-  `store` branch.
+- `store/`: the recomp modules the store lists (`registry.txt`). An Action rebuilds the list on the `store`
+  branch, hourly if GitHub keeps to its schedule, so run it by hand after publishing a module.
 - `shell/brick/`: build and package scripts. `pak.json`: the Pak Store's entry.
 
 Only source, build scripts and READMEs go in git; never disc images or anything extracted from them.
@@ -100,7 +100,7 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 MENU opens Deadcast's menu (`ui/`, `core/deadcast/menu.cpp`):
 Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Core and, under it, the options of the core picked: the emulator's Console, Video, Audio,
 Controls and Local Multiplayer (each setting is saved as it changes), or the module's settings. Recomp Store lists
-every recomp module: download, update, delete. Updating the module being played restarts the game in the new version. Going back from Options with another core picked asks to restart: Okay starts the game again in
+every recomp module: download, update, delete. Updating the module being played says it requires a restart, and A restarts the game in the new version. Going back from Options with another core picked asks to restart: Okay starts the game again in
 it, Cancel puts the core back. Each core's options can be set from either core; Local Multiplayer, which plays in
 the emulator, asks for that restart first. The menu shows whether the Brick is connected to a
 network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the

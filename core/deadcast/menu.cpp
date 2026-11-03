@@ -24,8 +24,8 @@
 #include <memory>
 #include <thread>
 
-// Deadcast's side of the menu (frontend/ui.h draws it): its live settings for Emulator Options
-// (frontend/options.h), its own pages (Controls, Local Multiplayer and the link, a two-player
+// Deadcast's side of the menu (ui/src/ui.h draws it): its live settings for Options
+// (ui/src/options.h), its own pages (Controls, Local Multiplayer and the link, a two-player
 // session's), its save states, the BIOS page, and the screen and pad it is shown with.
 namespace deadcast::menu
 {
@@ -96,7 +96,7 @@ struct State
 };
 State st;
 
-// Emulator Options' settings (frontend/options.h): the emulator's own, live, saved as they change
+// The emulator's settings (ui/src/options.h): live, saved as they change
 template<typename T>
 config::Option<T> *option(const options::Setting& setting)
 {

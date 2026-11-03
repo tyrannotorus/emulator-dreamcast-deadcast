@@ -315,8 +315,8 @@ int main(int argc, char* argv[])
 	flycast_term();
 	os_UninstallFaultHandler();
 
-	// Deadcast: the other core chosen in Core Settings: the launcher starts the game again in it (the
-	// start page left up meanwhile, frontend/ui.cpp)
+	// Deadcast: another core chosen in Options: the launcher starts the game again in it (the
+	// start page left up meanwhile, ui/src/ui.cpp)
 	return deadcast::menu::switching() ? deadui::recomp::SwitchExit : 0;
 }
 
