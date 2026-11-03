@@ -209,6 +209,19 @@ static void checkRawInput()
 #endif
 }
 
+static void addControllerList()
+{
+	std::string db = get_readonly_data_path("gamecontrollerdb.txt");
+	int rv = SDL_GameControllerAddMappingsFromFile(db.c_str());
+	if (rv < 0)
+	{
+		db = get_readonly_config_path("gamecontrollerdb.txt");
+		rv = SDL_GameControllerAddMappingsFromFile(db.c_str());
+	}
+	if (rv > 0)
+		DEBUG_LOG(INPUT ,"%d mappings loaded from %s", rv, db.c_str());
+}
+
 void input_sdl_init()
 {
 	if (SDL_WasInit(SDL_INIT_JOYSTICK) == 0)
@@ -225,15 +238,7 @@ void input_sdl_init()
 		// Don't close the app when pressing the B button
 		SDL_SetHint(SDL_HINT_WINRT_HANDLE_BACK_BUTTON, "1");
 #endif
-		std::string db = get_readonly_data_path("gamecontrollerdb.txt");
-		int rv = SDL_GameControllerAddMappingsFromFile(db.c_str());
-		if (rv < 0)
-		{
-			db = get_readonly_config_path("gamecontrollerdb.txt");
-			rv = SDL_GameControllerAddMappingsFromFile(db.c_str());
-		}
-		if (rv > 0)
-			DEBUG_LOG(INPUT ,"%d mappings loaded from %s", rv, db.c_str());
+		addControllerList();
 
 		if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
 			die("SDL: error initializing Joystick subsystem");
@@ -350,6 +355,120 @@ bool sdl_queue_open_file(const char *path)
 		return false;
 	}
 	return true;
+}
+
+// a joystick's event, to its gamepad
+static void joystickEvent(const SDL_Event& event)
+{
+	switch (event.type)
+	{
+	case SDL_JOYBUTTONDOWN:
+	case SDL_JOYBUTTONUP:
+		{
+			std::shared_ptr<SDLGamepad> device = SDLGamepad::GetSDLGamepad((SDL_JoystickID)event.jbutton.which);
+			if (device != NULL)
+				device->gamepad_btn_input(event.jbutton.button, event.type == SDL_JOYBUTTONDOWN);
+		}
+		break;
+	case SDL_JOYAXISMOTION:
+		{
+			std::shared_ptr<SDLGamepad> device = SDLGamepad::GetSDLGamepad((SDL_JoystickID)event.jaxis.which);
+			if (device != NULL)
+				device->gamepad_axis_input(event.jaxis.axis, event.jaxis.value);
+		}
+		break;
+	case SDL_JOYHATMOTION:
+		{
+			std::shared_ptr<SDLGamepad> device = SDLGamepad::GetSDLGamepad((SDL_JoystickID)event.jhat.which);
+			if (device != NULL)
+			{
+				u32 hatid = (event.jhat.hat + 1) << 8;
+				if (event.jhat.value & SDL_HAT_UP)
+				{
+					device->gamepad_btn_input(hatid + 0, true);
+					device->gamepad_btn_input(hatid + 1, false);
+				}
+				else if (event.jhat.value & SDL_HAT_DOWN)
+				{
+					device->gamepad_btn_input(hatid + 0, false);
+					device->gamepad_btn_input(hatid + 1, true);
+				}
+				else
+				{
+					device->gamepad_btn_input(hatid + 0, false);
+					device->gamepad_btn_input(hatid + 1, false);
+				}
+				if (event.jhat.value & SDL_HAT_LEFT)
+				{
+					device->gamepad_btn_input(hatid + 2, true);
+					device->gamepad_btn_input(hatid + 3, false);
+				}
+				else if (event.jhat.value & SDL_HAT_RIGHT)
+				{
+					device->gamepad_btn_input(hatid + 2, false);
+					device->gamepad_btn_input(hatid + 3, true);
+				}
+				else
+				{
+					device->gamepad_btn_input(hatid + 2, false);
+					device->gamepad_btn_input(hatid + 3, false);
+				}
+			}
+		}
+		break;
+	}
+}
+
+// Deadcast: the pad alone, while a recomp module's host shows Controls: no emulator in this process, no window. Until
+// every button is up nothing is passed on: the one that opened the page is still down.
+static SDL_Joystick *padOnly;
+static bool padOnlySettled;
+
+bool input_sdl_pad_open()
+{
+	SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+	addControllerList();
+	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
+	{
+		std::printf("Deadcast: Controls: no SDL joysticks: %s\n", SDL_GetError());
+		std::fflush(stdout);
+		return false;
+	}
+	padOnlySettled = false;
+	padOnly = SDL_JoystickOpen(0);
+	if (padOnly == nullptr)
+	{
+		std::printf("Deadcast: Controls: no pad: %s\n", SDL_GetError());
+		std::fflush(stdout);
+		SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+		return false;
+	}
+	sdl_open_joystick(0);
+	return true;
+}
+
+void input_sdl_pad_read()
+{
+	SDL_Event event;
+	while (SDL_PollEvent(&event))
+		if (padOnlySettled)
+			joystickEvent(event);
+	if (padOnlySettled)
+		return;
+	padOnlySettled = true;
+	for (int i = 0; i < SDL_JoystickNumButtons(padOnly); i++)
+		padOnlySettled = padOnlySettled && SDL_JoystickGetButton(padOnly, i) == 0;
+	for (int i = 0; i < SDL_JoystickNumHats(padOnly); i++)
+		padOnlySettled = padOnlySettled && SDL_JoystickGetHat(padOnly, i) == SDL_HAT_CENTERED;
+}
+
+void input_sdl_pad_close()
+{
+	SDLGamepad::closeAllGamepads();
+	SDL_JoystickClose(padOnly);
+	padOnly = nullptr;
+	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
 }
 
 void input_sdl_handle()
@@ -474,57 +593,9 @@ void input_sdl_handle()
 
 			case SDL_JOYBUTTONDOWN:
 			case SDL_JOYBUTTONUP:
-				{
-					std::shared_ptr<SDLGamepad> device = SDLGamepad::GetSDLGamepad((SDL_JoystickID)event.jbutton.which);
-					if (device != NULL)
-						device->gamepad_btn_input(event.jbutton.button, event.type == SDL_JOYBUTTONDOWN);
-				}
-				break;
 			case SDL_JOYAXISMOTION:
-				{
-					std::shared_ptr<SDLGamepad> device = SDLGamepad::GetSDLGamepad((SDL_JoystickID)event.jaxis.which);
-					if (device != NULL)
-						device->gamepad_axis_input(event.jaxis.axis, event.jaxis.value);
-				}
-				break;
 			case SDL_JOYHATMOTION:
-				{
-					std::shared_ptr<SDLGamepad> device = SDLGamepad::GetSDLGamepad((SDL_JoystickID)event.jhat.which);
-					if (device != NULL)
-					{
-						u32 hatid = (event.jhat.hat + 1) << 8;
-						if (event.jhat.value & SDL_HAT_UP)
-						{
-							device->gamepad_btn_input(hatid + 0, true);
-							device->gamepad_btn_input(hatid + 1, false);
-						}
-						else if (event.jhat.value & SDL_HAT_DOWN)
-						{
-							device->gamepad_btn_input(hatid + 0, false);
-							device->gamepad_btn_input(hatid + 1, true);
-						}
-						else
-						{
-							device->gamepad_btn_input(hatid + 0, false);
-							device->gamepad_btn_input(hatid + 1, false);
-						}
-						if (event.jhat.value & SDL_HAT_LEFT)
-						{
-							device->gamepad_btn_input(hatid + 2, true);
-							device->gamepad_btn_input(hatid + 3, false);
-						}
-						else if (event.jhat.value & SDL_HAT_RIGHT)
-						{
-							device->gamepad_btn_input(hatid + 2, false);
-							device->gamepad_btn_input(hatid + 3, true);
-						}
-						else
-						{
-							device->gamepad_btn_input(hatid + 2, false);
-							device->gamepad_btn_input(hatid + 3, false);
-						}
-					}
-				}
+				joystickEvent(event);
 				break;
 
 			case SDL_MOUSEMOTION:

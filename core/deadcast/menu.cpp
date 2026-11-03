@@ -9,6 +9,7 @@
 #include "input/gamepad_device.h"
 #include "log/Log.h"
 #include "oslib/oslib.h"
+#include "sdl/sdl.h"
 #include "sdl/sdl_gamepad.h"
 #include "version.h"
 #include "wsi/context.h"
@@ -833,6 +834,38 @@ bool openSession()
 		return true;
 	st.shownPause = netplay::pauseState();
 	return openWith(sessionScreen());
+}
+
+void openHostedControls()
+{
+	// its own reading of the pad takes over: an arrow held is let go of, either way
+	const auto letGo = [] {
+		for (ui::Button arrow : { ui::Button::Up, ui::Button::Down, ui::Button::Left, ui::Button::Right })
+			ui::button(arrow, false);
+	};
+	struct PadOnly
+	{
+		std::function<void()> letGo;
+		bool opened = input_sdl_pad_open();
+		~PadOnly()
+		{
+			if (opened)
+				input_sdl_pad_close();
+			letGo();
+		}
+	};
+	letGo();
+	auto padOnly = std::make_shared<PadOnly>();
+	padOnly->letGo = letGo;
+	if (!padOnly->opened)
+	{
+		ui::message("The pad could not be opened.");
+		return;
+	}
+	Screen screen = bindingsScreen();
+	screen.readsPad = true;
+	screen.tick = [padOnly] { input_sdl_pad_read(); };
+	ui::push(std::move(screen));
 }
 
 bool isOpen()

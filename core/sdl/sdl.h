@@ -5,6 +5,10 @@
 void input_sdl_init();
 void input_sdl_handle();
 void input_sdl_quit();
+// the pad alone, with no emulator in the process (a recomp module's host, Controls)
+bool input_sdl_pad_open();
+void input_sdl_pad_read();
+void input_sdl_pad_close();
 bool sdl_queue_open_file(const char *path);
 void sdl_window_create();
 void sdl_window_destroy();

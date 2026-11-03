@@ -22,6 +22,9 @@ bool open();
 // The menu of a paused two-player session (deadcast/netplay.h): Continue, Leave two-player game, Quit,
 // why it is paused on top. The emulator is not stopped (the session waits); Continue there closes it here.
 bool openSession();
+// In a recomp module's host, whose menu is open with no emulator: Controls, with the pad open for the page's time.
+void openHostedControls();
+
 bool isOpen();
 // Options switched the game's core: Deadcast ends with recomp::SwitchExit (frontend/recomp.h)
 bool switching();

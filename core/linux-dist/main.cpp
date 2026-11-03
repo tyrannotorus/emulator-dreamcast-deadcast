@@ -251,6 +251,16 @@ static bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, 
 }
 #endif
 
+static void setDirectories()
+{
+	set_user_config_dir(find_user_config_dir());
+	set_user_data_dir(find_user_data_dir());
+	for (const auto& dir : find_system_config_dirs())
+		add_system_config_dir(dir);
+	for (const auto& dir : find_system_data_dirs())
+		add_system_data_dir(dir);
+}
+
 int main(int argc, char* argv[])
 {
 	selfPath = argv[0];
@@ -260,7 +270,11 @@ int main(int argc, char* argv[])
 	if (deadui::recomp::get("app.version") != DEADCAST_VERSION)
 		deadui::recomp::set("app.version", DEADCAST_VERSION);
 	if (argc > 1)
-		deadui::recomp::runChosen(argv[1]);
+		deadui::recomp::runChosen(argv[1], [] {
+			static const bool once = (setDirectories(), true);
+			(void)once;
+			deadcast::menu::openHostedControls();
+		});
 #if defined(USE_BREAKPAD)
 	google_breakpad::MinidumpDescriptor descriptor("/tmp");
 	google_breakpad::ExceptionHandler eh(descriptor, nullptr, dumpCallback, nullptr, true, -1);
@@ -269,13 +283,7 @@ int main(int argc, char* argv[])
 	LogManager::Init();
 	i18n::init();
 
-	// Set directories
-	set_user_config_dir(find_user_config_dir());
-	set_user_data_dir(find_user_data_dir());
-	for (const auto& dir : find_system_config_dirs())
-		add_system_config_dir(dir);
-	for (const auto& dir : find_system_data_dirs())
-		add_system_data_dir(dir);
+	setDirectories();
 	INFO_LOG(BOOT, "Config dir is: %s", get_writable_config_path("").c_str());
 	INFO_LOG(BOOT, "Data dir is:   %s", get_writable_data_path("").c_str());
 
