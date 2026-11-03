@@ -35,7 +35,7 @@ stay Deadcast's.
 
 - `core/`: the emulator, a Flycast fork changed in place (nothing on the device says Flycast). Deadcast's
   own code is in `core/deadcast/`: the menu's emulator side, save states, the on-screen text (`osd.h`), the
-  two-Brick link. Flycast's ImGui menus and overlay are gone: everything on the screen is drawn on the CPU by `ui/`.
+  two-Brick link. Everything on the screen is drawn on the CPU by `ui/`.
 - `ui/`: the menu library, a submodule: pages, the module host, the store, and the tg5040 toolchain.
 - `store/`: the recomp modules the store lists (`registry.txt`). An Action rebuilds the list on the `store`
   branch, hourly if GitHub keeps to its schedule, so run it by hand after publishing a module.
@@ -68,12 +68,14 @@ shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DE
   Controls if it declares any (nothing is shared with the emulator's). They are kept in its own
   `recomp-data/<id>/settings.cfg`, and go when it is deleted. Getting, updating and deleting a module
   are the Recomp Store's (on the main page).
+- Any error of a module's shows the error with one button, `A TRY EMULATOR CORE`: Core becomes the emulator and the
+  game starts again in it. The module stays installed, to switch back to in Options or to update in the store.
 
 ### Releasing
 
 The version is `project(deadcast VERSION ...)` in `CMakeLists.txt` and `version` in `pak.json`; the
-release's tag is the version, and its asset is `build-brick/DC-DEADCAST.pak.zip`. Recomp modules have
-their own releases.
+release's tag is the version, and its asset is `build-brick/DC-DEADCAST.pak.zip`. The Pak Store reads `pak.json`
+from `main`, so the release must exist before the new version reaches `main`. Recomp modules have their own releases.
 
 ### Install
 
