@@ -100,7 +100,7 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 MENU opens Deadcast's menu (`ui/`, `core/deadcast/menu.cpp`):
 Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Core and, under it, the options of the core picked: the emulator's Console, Video, Audio,
 Controls and Local Multiplayer (each setting is saved as it changes), or the module's settings. Recomp Store lists
-every recomp module: download, update, delete. Going back from Options with another core picked asks to restart: Okay starts the game again in
+every recomp module: download, update, delete. Updating the module being played restarts the game in the new version. Going back from Options with another core picked asks to restart: Okay starts the game again in
 it, Cancel puts the core back. Each core's options can be set from either core; Local Multiplayer, which plays in
 the emulator, asks for that restart first. The menu shows whether the Brick is connected to a
 network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the
