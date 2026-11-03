@@ -20,6 +20,7 @@
 #include "gui.h"
 #include "settings.h"
 #include "oslib/resources.h"
+#include "ui.h"
 #include "IconsFontAwesome6.h"
 #include "imgui/misc/freetype/imgui_freetype.h"
 
@@ -258,18 +259,19 @@ void gui_loadFonts()
 	ImGuiStyle& style = ImGui::GetStyle();
 	const float fontSize = uiScaled(17.f);
 	
-	size_t dataSize;
-	std::unique_ptr<u8[]> data = resource::load("fonts/Roboto-Medium.ttf", dataSize);
-	verify(data != nullptr);
-	ImFont *regularFont = io.Fonts->AddFontFromMemoryTTF(data.release(), (int)dataSize, fontSize, nullptr, nullptr);
+	// Deadcast: the menu's font, Noto Sans Bold, for all text; it stays in the binary, not the atlas's to free
+	const unsigned char *noto = nullptr;
+	size_t notoSize = 0;
+	deadui::ui::fontData(noto, notoSize);
+	ImFontConfig notoConfig;
+	notoConfig.FontDataOwnedByAtlas = false;
+	ImFont *regularFont = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char *>(noto), (int)notoSize, fontSize, &notoConfig, nullptr);
 	ImFontConfig fontConfig;
 	fontConfig.MergeMode = true;
 	fontConfig.DstFont = regularFont;
 	
 	// Bold font
-	data = resource::load("fonts/Roboto-Bold.ttf", dataSize);
-	verify(data != nullptr);
-	boldFont = io.Fonts->AddFontFromMemoryTTF(data.release(), (int)dataSize, fontSize, nullptr, nullptr);
+	boldFont = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char *>(noto), (int)notoSize, fontSize, &notoConfig, nullptr);
 	ImFontConfig boldFontConfig;
 	boldFontConfig.MergeMode = true;
 	boldFontConfig.DstFont = boldFont;
@@ -469,7 +471,8 @@ void gui_loadFonts()
 	loadFonts(boldFonts, boldFontConfig);
 	
 	// Font Awesome symbols
-	data = resource::load("fonts/" FONT_ICON_FILE_NAME_FAS, dataSize);
+	size_t dataSize;
+	std::unique_ptr<u8[]> data = resource::load("fonts/" FONT_ICON_FILE_NAME_FAS, dataSize);
 	verify(data != nullptr);
 	
 	ImFontConfig faFontConfig = fontConfig;
