@@ -1492,29 +1492,9 @@ void gui_display_ui()
 		emu.start();
 }
 
+// Deadcast: once for each frame drawn, on the render thread
 void gui_draw_osd()
 {
-	gui_newFrame();
-	ImGui::NewFrame();
-
-#ifdef USE_RACHIEVEMENTS
-	if (!achievements::notifier.draw())
-#endif
-		{}
-
-	if (ggpo::active())
-	{
-		if (config::NetworkStats)
-			ggpo::displayStats();
-		chat.display();
-	}
-	else if (config::NetworkStats) {
-		ice::displayStats();
-	}
-	if (!settings.raHardcoreMode)
-		lua::overlay();
-	vgamepad::draw();
-    ImGui::Render();
 	uiThreadRunner.execTasks();
 	deadcast::osd::frame();
 }

@@ -543,7 +543,6 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 				DrawFrame(imageView, extent, aspectRatio);
 
 			DrawOverlay(settings.display.uiScale, config::FloatVMUs, true);
-			imguiDriver->renderDrawData(ImGui::GetDrawData(), false);
 			EndFrame(overlayCmdBuffer);
 
 		} catch (const InvalidVulkanContext&) {
