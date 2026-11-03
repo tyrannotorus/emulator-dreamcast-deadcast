@@ -31,8 +31,9 @@ void gui_open_settings();
 void gui_netplay_check();
 // while gui_is_open(): the start page, or the menu
 void gui_display_ui();
-// once for each frame drawn, on the render thread
-void gui_frame();
+// each time round the main loop while the game plays, with whether it drew a frame: true if a frame goes to the screen
+// because of it (deadcast/osd.h)
+bool gui_frame(bool rendered);
 void gui_cancel_load();
 
 void gui_stop_game(const std::string& message = "");

@@ -62,9 +62,9 @@ bool mainui_rend_frame()
 	}
 	else
 	{
+		bool rendered = false;
 		try {
-			if (!emu.render())
-				return false;
+			rendered = emu.render();
 		} catch (const RendererException& e) {
 			gui_error(std::string("Renderer error: ") + e.what());
 			rend_term_renderer();
@@ -76,6 +76,9 @@ bool mainui_rend_frame()
 			gui_stop_game(e.what());
 			return false;
 		}
+		const bool repeated = gui_frame(rendered);
+		if (!rendered)
+			return repeated;
 	}
 	MainFrameCount++;
 	perfPresented();

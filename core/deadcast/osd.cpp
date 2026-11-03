@@ -26,6 +26,7 @@ u64 messageEnd = 0;
 u64 lastFrameAt = 0;
 u64 countedAt = 0;
 u64 countedFrames = 0;
+u64 repeatedFrames = 0;		// shown only for text to change: not the game's
 float framesPerSecond = -1.f;
 std::string shownCounter;
 std::string shownMessage;
@@ -40,7 +41,8 @@ std::string counter(GraphicsContext *context, u64 now)
 		framesPerSecond = -1.f;
 		return fastForward ? ">>" : "";
 	}
-	const u64 frames = context->framesShown();
+	const u64 shown = context->framesShown();
+	const u64 frames = shown > repeatedFrames ? shown - repeatedFrames : 0;
 	// the time in the menu is not the game's
 	if (countedAt == 0 || now - lastFrameAt > 500)
 	{
@@ -49,7 +51,7 @@ std::string counter(GraphicsContext *context, u64 now)
 	}
 	else if (now - countedAt >= 1000)
 	{
-		framesPerSecond = (float)(frames - countedFrames) * 1000.f / (float)(now - countedAt);
+		framesPerSecond = (float)(frames > countedFrames ? frames - countedFrames : 0) * 1000.f / (float)(now - countedAt);
 		countedAt = now;
 		countedFrames = frames;
 	}
@@ -70,11 +72,11 @@ void notify(const std::string& text, int durationMs, const std::string& under)
 	messageEnd = getTimeMs() + durationMs;
 }
 
-void frame()
+bool frame(bool rendered)
 {
 	GraphicsContext *context = GraphicsContext::Instance();
 	if (context == nullptr)
-		return;
+		return false;
 	const u64 now = getTimeMs();
 	const std::string count = counter(context, now);
 	lastFrameAt = now;
@@ -88,7 +90,7 @@ void frame()
 	}
 	const std::string all = text.empty() ? "" : text + "\n" + under;
 	if (count == shownCounter && all == shownMessage)
-		return;
+		return false;
 	shownCounter = count;
 	shownMessage = all;
 
@@ -118,6 +120,10 @@ void frame()
 			add(*line);
 	}
 	context->setCorners(std::move(corners));
+	if (rendered || !context->showLastFrameAgain())
+		return false;
+	repeatedFrames++;
+	return true;
 }
 
 }

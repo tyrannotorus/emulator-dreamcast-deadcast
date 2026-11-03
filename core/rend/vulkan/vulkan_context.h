@@ -170,6 +170,7 @@ public:
 	int frameWidth() const override { return (int)panel.extent().width; }
 	int frameHeight() const override { return (int)panel.extent().height; }
 	u64 framesShown() override { return panel.framesShown(); }
+	bool showLastFrameAgain() override;
 	bool hasProvokingVertex() { return provokingVertexSupported; }
 	bool recreateSwapChainIfNeeded();
 	void addToFlight(Deletable *object) override {

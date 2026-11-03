@@ -504,7 +504,6 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 		try {
 			NewFrame();
 			auto overlayCmdBuffer = PrepareOverlay(config::FloatVMUs, true);
-			gui_frame();
 			BeginRenderPass();
 
 			if (lastFrameView) // Might have been nullified if swap chain recreated
@@ -517,6 +516,22 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 			// Re-create swap chain
 			resized = true;
 		}
+	}
+}
+
+bool VulkanContext::showLastFrameAgain()
+{
+	if (renderer == nullptr || !renderer->RenderLastFrame() || !lastFrameView || !IsValid())
+		return false;
+	try {
+		NewFrame();
+		BeginRenderPass();
+		DrawFrame(lastFrameView, lastFrameExtent, lastFrameAR);
+		EndFrame();
+		return true;
+	} catch (const InvalidVulkanContext&) {
+		resized = true;
+		return false;
 	}
 }
 

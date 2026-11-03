@@ -348,10 +348,10 @@ void gui_display_ui()
 	}
 }
 
-void gui_frame()
+bool gui_frame(bool rendered)
 {
 	uiThreadRunner.execTasks();
-	deadcast::osd::frame();
+	return deadcast::osd::frame(rendered);
 }
 
 void gui_runOnUiThread(std::function<void()> function)
