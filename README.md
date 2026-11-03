@@ -28,7 +28,7 @@ Notes for agents working on this repo. Everything above the line is the maintain
 Deadcast runs on the TrimUI Brick (NextUI, tg5040) only, as `Emus/tg5040/DC-DEADCAST.pak`. It renders
 with Vulkan on the Brick's PowerVR GE8300 straight to the panel through fb0; SDL2 reads the pad and
 plays the audio; the SH4 runs on the ARM64 dynarec. A recomp module is a separate executable that
-Deadcast hosts: it starts the module as a child process and sleeps until MENU, and the menu, Recomp Options and the store
+Deadcast hosts: it starts the module as a child process and sleeps until MENU, and the menu, the module's options and the store
 stay Deadcast's.
 
 ### Layout
@@ -63,7 +63,7 @@ shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DE
 - Listing one: add its repository to `store/registry.txt`. The store then offers its latest release.
 - In the menu a module goes by its manifest's `title` (`Rez Recompiled`); in the docs it is the
   "<game title> recomp module". Never the game's title alone.
-- Recomp Options: Show FPS first, the module's settings after. Getting, updating and deleting a module
+- A module's options, in Options with Core on it: Show FPS first, the module's settings after. Getting, updating and deleting a module
   are the Recomp Store's (on the main page).
 
 ### Releasing
@@ -96,9 +96,8 @@ kept in `.userdata/tg5040/DC-DEADCAST/`.
 ### Controls
 
 MENU opens Deadcast's menu (`ui/`, `core/deadcast/menu.cpp`):
-Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Core,
-Emulator Options (Console, Video, Audio, Controls, Local Multiplayer; each setting is saved as it
-changes) and Recomp Options (the settings of the game's module, once it is installed). Recomp Store lists
+Continue, Save and Load (ten slots, with pictures), Options, Recomp Store and Quit. Options holds Core and, under it, the options of the core picked: the emulator's Console, Video, Audio,
+Controls and Local Multiplayer (each setting is saved as it changes), or the module's settings. Recomp Store lists
 every recomp module: download, update, delete. Picking the other core turns Continue into Restart, which starts the game again in
 it; each core's options can be set from either core. The menu shows whether the Brick is connected to a
 network. FN2 saves a state, FN1 loads it and L2 takes a screenshot. SELECT swaps the d-pad between the
