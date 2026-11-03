@@ -255,7 +255,7 @@ int main(int argc, char* argv[])
 {
 	selfPath = argv[0];
 	// Deadcast: recomp modules marked for deletion deleted, an install cut short tidied away; then the
-	// disc's recomp module instead, if that is its chosen core (no emulator started)
+	// disc's recomp module hosted, if that is its chosen core (no emulator started)
 	deadui::recomp::tidy();
 	if (deadui::recomp::get("app.version") != DEADCAST_VERSION)
 		deadui::recomp::set("app.version", DEADCAST_VERSION);

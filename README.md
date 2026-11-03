@@ -28,14 +28,14 @@ Notes for agents working on this repo. Everything above the line is the maintain
 Deadcast runs on the TrimUI Brick (NextUI, tg5040) only, as `Emus/tg5040/DC-DEADCAST.pak`. It renders
 with Vulkan on the Brick's PowerVR GE8300 straight to the panel through fb0; SDL2 reads the pad and
 plays the audio; the SH4 runs on the ARM64 dynarec. A recomp module is a separate executable that
-Deadcast execs in its place.
+Deadcast hosts: it starts the module as a child process and sleeps until MENU, and the menu, Recomp Options and the store
+stay Deadcast's.
 
 ### Layout
 
 - `core/`: the emulator, a Flycast fork changed in place (nothing on the device says Flycast). Deadcast's
   own code is in `core/deadcast/`: the menu's emulator side, save states, the two-Brick link.
-- `ui/`: the menu library the emulator and every recomp module share, a submodule: pages, the module
-  store, and the tg5040 toolchain.
+- `ui/`: the menu library, a submodule: pages, the module host, the store, downloads and the fonts.
 - `store/`: the recomp modules the store lists (`registry.txt`). An Action rebuilds the list hourly, on the
   `store` branch.
 - `shell/brick/`: build and package scripts. `pak.json`: the Pak Store's entry.
