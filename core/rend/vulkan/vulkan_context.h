@@ -168,7 +168,6 @@ public:
 	void endPictures(AfterPictures after) override { panel.endPictures(after); }
 	void setCorners(std::vector<Corner> corners) override { panel.setCorners(std::move(corners)); }
 	int frameWidth() const override { return (int)panel.extent().width; }
-	int frameHeight() const override { return (int)panel.extent().height; }
 	u64 framesShown() override { return panel.framesShown(); }
 	bool showLastFrameAgain() override;
 	bool hasProvokingVertex() { return provokingVertexSupported; }

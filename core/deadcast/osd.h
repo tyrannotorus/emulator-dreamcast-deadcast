@@ -1,6 +1,7 @@
 // What the emulator says over the game: the frame counter (Show FPS) and its messages, in the menu's font. Each line
-// is a small picture (ui::label) copied onto every frame just before it is shown (GraphicsContext::setCorners), at the
-// bottom left: the counter, with any message above it. A hosted module's counter looks the same (ui/src/ui.h).
+// is a small picture (ui::label, from characters drawn in advance) copied onto every frame just before it is shown
+// (GraphicsContext::setCorners), at the bottom left: the counter, with any message above it. A hosted module's counter
+// looks the same (ui/src/ui.h).
 #pragma once
 #include <string>
 

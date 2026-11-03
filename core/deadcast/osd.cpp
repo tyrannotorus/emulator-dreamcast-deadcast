@@ -94,15 +94,12 @@ bool frame(bool rendered)
 	shownCounter = count;
 	shownMessage = all;
 
-	const int frameHeight = context->frameHeight();
 	const int maxWidth = context->frameWidth();
 	std::vector<GraphicsContext::Corner> corners;
 	int bottom = 0;
 	const auto add = [&](const std::string& line) {
 		GraphicsContext::Corner corner;
-		corner.pixels = deadui::ui::label(line, frameHeight, corner.width, corner.height);
-		if (corner.pixels.empty())
-			return;
+		corner.pixels = deadui::ui::label(line, corner.width, corner.height);
 		corner.bottom = bottom;
 		bottom += corner.height;
 		corners.push_back(std::move(corner));
@@ -111,8 +108,8 @@ bool frame(bool rendered)
 		add(count);
 	if (!text.empty())
 	{
-		std::vector<std::string> lines = deadui::ui::labelLines(text, frameHeight, maxWidth);
-		const std::vector<std::string> more = deadui::ui::labelLines(under, frameHeight, maxWidth);
+		std::vector<std::string> lines = deadui::ui::labelLines(text, maxWidth);
+		const std::vector<std::string> more = deadui::ui::labelLines(under, maxWidth);
 		lines.insert(lines.end(), more.begin(), more.end());
 		if (lines.size() > MaxMessageLines)
 			lines.resize(MaxMessageLines);

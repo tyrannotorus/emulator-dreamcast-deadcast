@@ -60,7 +60,6 @@ public:
 	};
 	virtual void setCorners(std::vector<Corner> corners) {}
 	virtual int frameWidth() const { return 0; }
-	virtual int frameHeight() const { return 0; }
 	// frames that have reached the screen
 	virtual u64 framesShown() { return 0; }
 	// the last frame drawn once more, between frames, for what is on it to change on a still screen; present() follows
