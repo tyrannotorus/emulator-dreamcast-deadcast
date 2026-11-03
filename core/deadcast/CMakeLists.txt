@@ -10,6 +10,8 @@ target_sources(${PROJECT_NAME} PRIVATE
         menu.h
         netplay.cpp
         netplay.h
+        osd.cpp
+        osd.h
         profiler.cpp
         profiler.h
         waitloops.cpp

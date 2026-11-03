@@ -55,6 +55,7 @@
 #include "gui_font.h"
 #include "deadcast/menu.h"
 #include "deadcast/netplay.h"
+#include "deadcast/osd.h"
 using namespace i18n;
 
 #ifdef _WIN32
@@ -80,9 +81,6 @@ static float mouseWheel;
 static bool mouseTouchscreen;
 static std::string error_msg;
 static bool error_msg_shown;
-static std::string osd_message;
-static u64 osd_message_end;
-static std::mutex osd_message_mutex;
 static void (*showOnScreenKeyboard)(bool show);
 static bool keysUpNextFrame[512];
 bool uiUserScaleUpdated;
@@ -790,23 +788,7 @@ static void contentpath_warning_popup()
 
 void os_notify(const char *msg, int durationMs, const char *details)
 {
-	if (gui_state != GuiState::Closed && gui_state != GuiState::Pause)
-	{
-		std::lock_guard<std::mutex> _{osd_message_mutex};
-		osd_message = msg;
-		osd_message_end = getTimeMs() + durationMs;
-	}
-	else {
-		toast.show(msg, details != nullptr ? details : "", durationMs);
-	}
-}
-
-static std::string get_notification()
-{
-	std::lock_guard<std::mutex> lock(osd_message_mutex);
-	if (!osd_message.empty() && getTimeMs() >= osd_message_end)
-		osd_message.clear();
-	return osd_message;
+	deadcast::osd::notify(msg, durationMs, details != nullptr ? details : "");
 }
 
 static void drawPauseIcon()
@@ -1164,7 +1146,6 @@ static void gui_network_start()
 			if (NetworkHandshake::instance->canStartNow())
 				ImGui::TextWrapped("%s", T("Press Start to start the game now."));
 		}
-		ImGui::Text("%s", get_notification().c_str());
 
 		float currentwidth = ImGui::GetContentRegionAvail().x;
 		float buttonWidth = ImGui::CalcTextSize(T("Cancel")).x + ImGui::GetStyle().FramePadding.x * 2;
@@ -1511,30 +1492,6 @@ void gui_display_ui()
 		emu.start();
 }
 
-static u64 LastFPSTime;
-static int lastFrameCount = 0;
-static float fps = -1;
-
-static std::string getFPSNotification()
-{
-	if (config::ShowFPS)
-	{
-		u64 now = getTimeMs();
-		if (now - LastFPSTime >= 1000) {
-			fps = ((float)MainFrameCount - lastFrameCount) * 1000.f / (now - LastFPSTime);
-			LastFPSTime = now;
-			lastFrameCount = MainFrameCount;
-		}
-		if (fps >= 0.f && fps < 9999.f) {
-			char text[32];
-			snprintf(text, sizeof(text), "F:%4.1f%s", fps, settings.input.fastForwardMode ? " >>" : "");
-
-			return std::string(text);
-		}
-	}
-	return std::string(settings.input.fastForwardMode ? ">>" : "");
-}
-
 void gui_draw_osd()
 {
 	gui_newFrame();
@@ -1543,25 +1500,7 @@ void gui_draw_osd()
 #ifdef USE_RACHIEVEMENTS
 	if (!achievements::notifier.draw())
 #endif
-		if (!toast.draw())
-		{
-			std::string message = getFPSNotification();
-			if (!message.empty())
-			{
-				const float maxW = uiScaled(640.f);
-				ImDrawList *dl = ImGui::GetForegroundDrawList();
-				const ScaledVec2 padding(5.f, 5.f);
-				const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(uiLargeFontSize(), FLT_MAX, maxW, &message.front(), &message.back() + 1)
-						+ padding * 2.f;
-				ImVec2 pos(insetLeft, ImGui::GetIO().DisplaySize.y - size.y);
-				constexpr float alpha = 0.7f;
-				const ImU32 bg_col = alphaOverride(0x00202020, alpha / 2.f);
-				dl->AddRectFilled(pos, pos + size, bg_col, 0.f);
-				pos += padding;
-				const ImU32 col = alphaOverride(0x0000FFFF, alpha);
-				dl->AddText(nullptr, uiLargeFontSize(), pos, col, &message.front(), &message.back() + 1, maxW);
-			}
-		}
+		{}
 
 	if (ggpo::active())
 	{
@@ -1577,6 +1516,7 @@ void gui_draw_osd()
 	vgamepad::draw();
     ImGui::Render();
 	uiThreadRunner.execTasks();
+	deadcast::osd::frame();
 }
 
 void gui_display_osd() {

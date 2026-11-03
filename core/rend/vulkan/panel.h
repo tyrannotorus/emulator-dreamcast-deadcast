@@ -52,8 +52,13 @@ public:
 	void showPicture(const u32 *bgra);
 	void endPictures(GraphicsContext::AfterPictures after);
 
+	// Deadcast: copied onto every frame once it is drawn, just before it is shown (GraphicsContext::setCorners)
+	void setCorners(std::vector<GraphicsContext::Corner> corners);
+	u64 framesShown();
+
 private:
 	void showLoop();
+	void drawCorners(u32 page);
 	void frameMode(u32 page);
 	void pan(u32 page);
 	void restoreMode();
@@ -95,4 +100,6 @@ private:
 	u64 queuedCount = 0;
 	u64 shownCount = 0;
 	bool stopping = false;
+	std::mutex cornersMutex;
+	std::vector<GraphicsContext::Corner> corners;
 };

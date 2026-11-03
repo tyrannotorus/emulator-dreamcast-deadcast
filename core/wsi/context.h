@@ -21,6 +21,7 @@
 #pragma once
 #include "emulator.h"
 #include <string>
+#include <vector>
 #include <cassert>
 
 void initRenderApi(void *window = nullptr, void *display = nullptr);
@@ -46,6 +47,20 @@ public:
 	virtual bool beginPictures(int& width, int& height) { return false; }
 	virtual void showPicture(const u32 *bgra) {}
 	virtual void endPictures(AfterPictures after) {}
+	// Deadcast: small pictures on every frame from now on, at its left edge, `bottom` rows above its bottom: the
+	// counter and the messages (deadcast/osd.h); BGRA8, width x height
+	struct Corner
+	{
+		std::vector<u32> pixels;
+		int width = 0;
+		int height = 0;
+		int bottom = 0;
+	};
+	virtual void setCorners(std::vector<Corner> corners) {}
+	virtual int frameWidth() const { return 0; }
+	virtual int frameHeight() const { return 0; }
+	// frames that have reached the screen
+	virtual u64 framesShown() { return 0; }
 
 	void setWindow(void *window, void *display = nullptr) {
 		this->window = window;

@@ -275,6 +275,7 @@ void Panel::showLoop()
 		vk::Result res = device.waitForFences(frame.fence, true, UINT64_MAX);
 		if (res != vk::Result::eSuccess)
 			WARN_LOG(RENDERER, "Panel: waitForFences failed %d", (int)res);
+		drawCorners(frame.page);
 		if (modeAtFrame.exchange(false))
 			frameMode(frame.page);
 		pan(frame.page);
@@ -284,6 +285,37 @@ void Panel::showLoop()
 		frames.pop_front();
 		shownCount++;
 		changed.notify_all();
+	}
+}
+
+void Panel::setCorners(std::vector<GraphicsContext::Corner> pictures)
+{
+	if (mapped == nullptr && !pictures.empty())
+		ERROR_LOG(RENDERER, "Panel: fb0 is not mapped: no counter or messages on the screen");
+	std::lock_guard<std::mutex> lock(cornersMutex);
+	corners = std::move(pictures);
+}
+
+u64 Panel::framesShown()
+{
+	std::lock_guard<std::mutex> lock(mutex);
+	return shownCount;
+}
+
+// the frame's fence has signalled and nothing shows this page yet
+void Panel::drawCorners(u32 page)
+{
+	std::lock_guard<std::mutex> lock(cornersMutex);
+	if (mapped == nullptr)
+		return;
+	for (const GraphicsContext::Corner& corner : corners)
+	{
+		const int top = (int)mode.yres - corner.bottom - corner.height;
+		if (top < 0 || corner.width > (int)mode.xres)
+			continue;
+		for (int y = 0; y < corner.height; y++)
+			memcpy(mapped + (size_t)lineLength * (firstRow + page * mode.yres + top + y),
+					&corner.pixels[(size_t)y * corner.width], (size_t)corner.width * 4);
 	}
 }
 

@@ -165,6 +165,10 @@ public:
 	bool beginPictures(int& width, int& height) override { return panel.beginPictures(width, height); }
 	void showPicture(const u32 *bgra) override { panel.showPicture(bgra); }
 	void endPictures(AfterPictures after) override { panel.endPictures(after); }
+	void setCorners(std::vector<Corner> corners) override { panel.setCorners(std::move(corners)); }
+	int frameWidth() const override { return (int)panel.extent().width; }
+	int frameHeight() const override { return (int)panel.extent().height; }
+	u64 framesShown() override { return panel.framesShown(); }
 	bool hasProvokingVertex() { return provokingVertexSupported; }
 	bool recreateSwapChainIfNeeded();
 	void addToFlight(Deletable *object) override {
