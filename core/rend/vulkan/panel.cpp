@@ -292,8 +292,35 @@ void Panel::setCorners(std::vector<GraphicsContext::Corner> pictures)
 {
 	if (mapped == nullptr && !pictures.empty())
 		ERROR_LOG(RENDERER, "Panel: fb0 is not mapped: no counter or messages on the screen");
+	std::vector<u32> pixels;
+	std::vector<CornerRun> runs;
+	for (const GraphicsContext::Corner& corner : pictures)
+	{
+		const int top = (int)mode.yres - corner.bottom - corner.height;
+		if (top < 0 || corner.width > (int)mode.xres)
+			continue;
+		for (int y = 0; y < corner.height; y++)
+		{
+			const u32 *row = &corner.pixels[(size_t)y * corner.width];
+			for (int x = 0; x < corner.width; )
+			{
+				if ((row[x] & 0xffffff) == 0x202020)
+				{
+					x++;
+					continue;
+				}
+				int end = x;
+				while (end < corner.width && (row[end] & 0xffffff) != 0x202020)
+					end++;
+				runs.push_back({ (size_t)lineLength * (top + y) + (size_t)x * 4, (u32)pixels.size(), (u32)(end - x) });
+				pixels.insert(pixels.end(), row + x, row + end);
+				x = end;
+			}
+		}
+	}
 	std::lock_guard<std::mutex> lock(cornersMutex);
-	corners = std::move(pictures);
+	cornerPixels = std::move(pixels);
+	cornerRuns = std::move(runs);
 }
 
 u64 Panel::framesShown()
@@ -308,15 +335,9 @@ void Panel::drawCorners(u32 page)
 	std::lock_guard<std::mutex> lock(cornersMutex);
 	if (mapped == nullptr)
 		return;
-	for (const GraphicsContext::Corner& corner : corners)
-	{
-		const int top = (int)mode.yres - corner.bottom - corner.height;
-		if (top < 0 || corner.width > (int)mode.xres)
-			continue;
-		for (int y = 0; y < corner.height; y++)
-			memcpy(mapped + (size_t)lineLength * (firstRow + page * mode.yres + top + y),
-					&corner.pixels[(size_t)y * corner.width], (size_t)corner.width * 4);
-	}
+	u8 *start = mapped + (size_t)lineLength * (firstRow + page * mode.yres);
+	for (const CornerRun& run : cornerRuns)
+		memcpy(start + run.offset, &cornerPixels[run.source], (size_t)run.count * 4);
 }
 
 bool Panel::readShown(std::vector<u8>& rgb, int& width, int& height)

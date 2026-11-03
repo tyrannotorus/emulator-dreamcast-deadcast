@@ -50,7 +50,8 @@ public:
 	virtual void showPicture(const u32 *bgra) {}
 	virtual void endPictures(AfterPictures after) {}
 	// Deadcast: small pictures on every frame from now on, at its left edge, `bottom` rows above its bottom: the
-	// counter and the messages (deadcast/osd.h); BGRA8, width x height
+	// counter and the messages (deadcast/osd.h); BGRA8, width x height. Their box colour (ui::label's) is left out, so
+	// that only the text is written and the game shows around it
 	struct Corner
 	{
 		std::vector<u32> pixels;

@@ -101,5 +101,13 @@ private:
 	u64 shownCount = 0;
 	bool stopping = false;
 	std::mutex cornersMutex;
-	std::vector<GraphicsContext::Corner> corners;
+	// the pictures as runs of text pixels, worked out when they change
+	struct CornerRun
+	{
+		size_t offset;	// in a page, in bytes
+		u32 source;		// in cornerPixels
+		u32 count;
+	};
+	std::vector<u32> cornerPixels;
+	std::vector<CornerRun> cornerRuns;
 };
