@@ -26,7 +26,6 @@
 #include "emulator.h"
 #include "log/LogManager.h"
 #include "ui/gui.h"
-#include "ui/gui_util.h"
 #include "stdclass.h"
 #include "hw/sh4/sh4_sched.h"
 #include "oslib/i18n.h"
@@ -1136,46 +1135,6 @@ std::vector<std::string> getChat()
 
 void term() {
 	session.reset();
-}
-
-void displayStats()
-{
-	if (getState() != Playing)
-		return;
-
-	IceSession::Stats s = session->getStats();
-	ImguiStyleVar _(ImGuiStyleVar_WindowRounding, 0);
-	ImguiStyleVar _1(ImGuiStyleVar_WindowBorderSize, 0);
-	ImGui::SetNextWindowPos(ImVec2(10, 10));
-	ImGui::SetNextWindowSize(ScaledVec2(95, 0));
-	ImGui::SetNextWindowBgAlpha(0.7f);
-	if (ImGui::Begin("##icestats", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs))
-	{
-		ImguiStyleColor _2(ImGuiCol_PlotHistogram, ImVec4(0.557f, 0.268f, 0.965f, 1.f));
-
-		// Games set serial speed:
-		// vonot	260416
-		// f355		223214
-		// aero i	38109
-		// aero f	28935
-		// tetris	111607
-		// maxspeed	223214
-		// hell gate 57870
-
-		// TX/RX Queues
-		ImGui::Text("Send Q");
-		ImGui::ProgressBar(s.txQueueSize / 100.f, ImVec2(-1, uiScaled(10.f)), "");
-		ImGui::Text("Tx Speed");
-		ImGui::ProgressBar(s.txSpeed / 20000.f, ImVec2(-1, uiScaled(10.f)), "");
-
-		ImGui::Text("Recv Q");
-		ImGui::ProgressBar(s.rxQueueSize / 100.f, ImVec2(-1, uiScaled(10.f)), "");
-		ImGui::Text("Rx Speed");
-		ImGui::ProgressBar(s.rxSpeed / 20000.f, ImVec2(-1, uiScaled(10.f)), "");
-
-		ImGui::TextWrapped("%s", session->getStatusText().c_str());
-	}
-	ImGui::End();
 }
 
 }	// namespace ice

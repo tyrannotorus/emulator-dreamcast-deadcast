@@ -2,9 +2,6 @@
 	path = core/deps/libchdr
 	url = https://github.com/flyinghead/libchdr.git
 	ignore = dirty
-[submodule "core/deps/rcheevos"]
-	path = core/deps/rcheevos
-	url = https://github.com/RetroAchievements/rcheevos.git
 [submodule "core/deps/asio"]
 	path = core/deps/asio
 	url = https://github.com/flyinghead/asio.git

@@ -6,7 +6,7 @@
 #  - the host's curl headers (curl); the sysroot has none
 #  - the host's Vulkan headers (vulkan-headers; the sysroot's are too old) and glslangValidator
 #    (glslang), which compiles the shaders to SPIR-V
-#  - the submodules ui, asio, freetype, libchdr, rcheevos and tinygettext
+#  - the submodules ui, asio, freetype, libchdr and tinygettext
 # Vulkan only, to the screen through fb0 (core/rend/vulkan/panel.h); SDL2 (the device's) for the pad
 # and the audio. Arguments go to ninja.
 set -e
@@ -16,7 +16,7 @@ TC=${TG5040_ROOT:-$PWD/build-brick/toolchain}
 [ -d "$TC/aarch64-nextui-linux-gnu/libc" ] || { echo "brick: no toolchain (ui/toolchain/toolchain.sh)"; exit 2; }
 CURLLIB=${TG5040_DEVLIBS:-$PWD/build-brick/devlibs}/libcurl.so.4
 [ -f "$CURLLIB" ] || { echo "brick: no $CURLLIB (ui/toolchain/devlibs.sh SERIAL)"; exit 2; }
-for dep in asio freetype libchdr rcheevos tinygettext; do
+for dep in asio freetype libchdr tinygettext; do
     [ -n "$(ls -A "core/deps/$dep" 2>/dev/null)" ] || { echo "brick: core/deps/$dep is empty (git submodule update --init core/deps/$dep)"; exit 2; }
 done
 mkdir -p build-brick/include
@@ -42,7 +42,6 @@ cmake -S . -B "$B" -G Ninja \
     -DFT_DISABLE_PNG=ON \
     -DWITH_SYSTEM_ZSTD=OFF \
     -DUSE_BREAKPAD=OFF \
-    -DUSE_LUA=OFF \
     -DUSE_PULSEAUDIO=OFF \
     -DUSE_LIBAO=OFF \
     -DUSE_OPENMP=OFF \

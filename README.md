@@ -34,7 +34,8 @@ stay Deadcast's.
 ### Layout
 
 - `core/`: the emulator, a Flycast fork changed in place (nothing on the device says Flycast). Deadcast's
-  own code is in `core/deadcast/`: the menu's emulator side, save states, the two-Brick link.
+  own code is in `core/deadcast/`: the menu's emulator side, save states, the on-screen text (`osd.h`), the
+  two-Brick link. Flycast's ImGui menus and overlay are gone: everything on the screen is drawn on the CPU by `ui/`.
 - `ui/`: the menu library, a submodule: pages, the module host, the store, and the tg5040 toolchain.
 - `store/`: the recomp modules the store lists (`registry.txt`). An Action rebuilds the list on the `store`
   branch, hourly if GitHub keeps to its schedule, so run it by hand after publishing a module.
@@ -48,7 +49,7 @@ On an x86-64 Linux host with clang, lld, CMake, Ninja, Docker (only to copy the 
 sysroot) and these packages installed: `curl`, `vulkan-headers`, `glslang`.
 
 ```
-git submodule update --init ui core/deps/{asio,freetype,libchdr,rcheevos,tinygettext}
+git submodule update --init ui core/deps/{asio,freetype,libchdr,tinygettext}
 ui/toolchain/toolchain.sh                # the tg5040 sysroot, out of ghcr.io/loveretro/tg5040-toolchain
 ui/toolchain/devlibs.sh SERIAL           # the Brick's libcurl.so.4, over adb
 shell/brick/build.sh                     # build-brick/deadcast/deadcast

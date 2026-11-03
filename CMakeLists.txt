@@ -27,7 +27,6 @@ endif()
 option(ENABLE_LOG "Enable full logging" OFF)
 option(ENABLE_GDB_SERVER "Build with GDB debugging support" OFF)
 option(ENABLE_DC_PROFILER "Build with support for target machine (SH4) profiler" OFF)
-option(ENABLE_FC_PROFILER "Build with support for host app (Flycast) profiler" OFF)
 set(USE_VULKAN ON)
 
 include(CMakeRC)
@@ -185,37 +184,12 @@ target_sources(${PROJECT_NAME} PRIVATE core/deps/lzma/7zArcIn.c core/deps/lzma/7
 add_subdirectory(core/deps/libelf)
 target_link_libraries(${PROJECT_NAME} PRIVATE elf)
 
-# the menus
-target_compile_definitions(${PROJECT_NAME} PRIVATE
-	IMGUI_DISABLE_DEMO_WINDOWS
-	IMGUI_DISABLE_DEBUG_TOOLS
-	IMGUI_DEFINE_MATH_OPERATORS)
-target_include_directories(${PROJECT_NAME} PRIVATE core/deps/imgui core/deps/imgui/backends)
-target_sources(${PROJECT_NAME} PRIVATE
-	core/deps/imgui/imgui.cpp
-	core/deps/imgui/imgui_demo.cpp
-	core/deps/imgui/imgui_draw.cpp
-	core/deps/imgui/imgui_cjk.cpp
-	core/deps/imgui/imgui_stdlib.cpp
-	core/deps/imgui/imgui_tables.cpp
-	core/deps/imgui/imgui_widgets.cpp
-	core/deps/imgui/misc/freetype/imgui_freetype.cpp)
-set(IMGUI_BACKENDS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/core/deps/imgui/backends")
-
 set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
 add_subdirectory(core/deps/freetype EXCLUDE_FROM_ALL)
 target_link_libraries(${PROJECT_NAME} PRIVATE freetype)
 
-if(ENABLE_FC_PROFILER)
-	target_include_directories(${PROJECT_NAME} PRIVATE core/deps/implot)
-	target_sources(${PROJECT_NAME} PRIVATE
-		core/deps/implot/implot.h
-		core/deps/implot/implot.cpp
-		core/deps/implot/implot_internal.h
-		core/deps/implot/implot_items.cpp)
-endif()
 target_sources(${PROJECT_NAME} PRIVATE core/deps/xbrz/xbrz.cpp)
 target_sources(${PROJECT_NAME} PRIVATE core/deps/md5/md5.cpp)
 
@@ -242,7 +216,6 @@ add_subdirectory(ui)
 target_link_libraries(${PROJECT_NAME} PRIVATE deadui)
 add_subdirectory(core/achievements)
 add_subdirectory(core/ui)
-add_subdirectory(core/lua)
 add_subdirectory(core/profiler)
 add_subdirectory(core/wsi)
 
@@ -257,40 +230,6 @@ target_sources(${PROJECT_NAME} PRIVATE
 		core/linux-dist/evdev.h
 		core/linux-dist/icon.h
 		core/linux-dist/main.cpp)
-
-# RetroAchievements
-target_sources(${PROJECT_NAME} PRIVATE
-		core/deps/rcheevos/src/rc_client_raintegration.c
-		core/deps/rcheevos/src/rc_client.c
-		core/deps/rcheevos/src/rc_compat.c
-		core/deps/rcheevos/src/rc_util.c
-		core/deps/rcheevos/src/rc_version.c
-		core/deps/rcheevos/src/rapi/rc_api_common.c
-		core/deps/rcheevos/src/rapi/rc_api_editor.c
-		core/deps/rcheevos/src/rapi/rc_api_info.c
-		core/deps/rcheevos/src/rapi/rc_api_runtime.c
-		core/deps/rcheevos/src/rapi/rc_api_user.c
-		core/deps/rcheevos/src/rcheevos/alloc.c
-		core/deps/rcheevos/src/rcheevos/condition.c
-		core/deps/rcheevos/src/rcheevos/condset.c
-		core/deps/rcheevos/src/rcheevos/consoleinfo.c
-		core/deps/rcheevos/src/rcheevos/format.c
-		core/deps/rcheevos/src/rcheevos/lboard.c
-		core/deps/rcheevos/src/rcheevos/memref.c
-		core/deps/rcheevos/src/rcheevos/operand.c
-		core/deps/rcheevos/src/rcheevos/rc_validate.c
-		core/deps/rcheevos/src/rcheevos/richpresence.c
-		core/deps/rcheevos/src/rcheevos/runtime_progress.c
-		core/deps/rcheevos/src/rcheevos/runtime.c
-		core/deps/rcheevos/src/rcheevos/trigger.c
-		core/deps/rcheevos/src/rcheevos/value.c
-		core/deps/rcheevos/src/rhash/aes.c
-		core/deps/rcheevos/src/rhash/cdreader.c
-		core/deps/rcheevos/src/rhash/hash.c
-		core/deps/rcheevos/src/rhash/md5.c
-		core/deps/rcheevos/src/rurl/url.c)
-target_include_directories(${PROJECT_NAME} PRIVATE core/deps/rcheevos/include)
-target_compile_definitions(${PROJECT_NAME} PRIVATE USE_RACHIEVEMENTS RC_DISABLE_LUA)
 
 target_sources(${PROJECT_NAME} PRIVATE
 		core/build.h

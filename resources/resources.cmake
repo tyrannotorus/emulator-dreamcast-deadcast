@@ -32,8 +32,6 @@ cmrc_add_resources(flycast-resources
         fonts/printer_kanji24x24.bin.zip)
 
 if(NOT LIBRETRO)
-    cmrc_add_resources(flycast-resources
-            fonts/fa-solid-900.ttf.zip)
     if(ANDROID OR IOS)
         cmrc_add_resources(flycast-resources
                 WHENCE resources

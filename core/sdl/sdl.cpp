@@ -18,7 +18,6 @@
 #include "ui/gui.h"
 #include "emulator.h"
 #include "stdclass.h"
-#include "imgui.h"
 #include "hw/naomi/card_reader.h"
 #include "hw/naomi/multiboard.h"
 #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__SWITCH__)
@@ -52,7 +51,6 @@ static bool window_maximized;
 static SDL_Rect windowPos { SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT };
 static bool gameRunning;
 static bool mouseCaptured;
-static std::string clipboardText;
 static std::string barcode;
 static u64 lastBarcodeTime;
 
@@ -266,20 +264,6 @@ void input_sdl_init()
 #endif
 	if (SDL_HasScreenKeyboardSupport())
 		NOTICE_LOG(INPUT, "On-screen keyboard supported");
-	// This is used for both on-screen and regular keyboards. For the latter, it disables
-	// text input processing when not required, which fixes the accent menu showing up on macOS
-	// and may improve performance on all platforms.
-#ifndef __SWITCH__
-	gui_setOnScreenKeyboardCallback([](bool show) {
-		if (window != nullptr)
-		{
-			if (show && !SDL_IsTextInputActive())
-				SDL_StartTextInput();
-			else if (!show && SDL_IsTextInputActive())
-				SDL_StopTextInput();
-		}
-	});
-#endif
 
 	if (settings.input.keyboardLangId == KeyboardLayout::US)
 		settings.input.keyboardLangId = detectKeyboardLayout();
@@ -326,35 +310,6 @@ static std::shared_ptr<SDLMouse> getMouse(u32 mouseId)
 		GamepadDevice::Register(mouse);
 	}
 	return mouse;
-}
-
-static u32 openFileEventType()
-{
-	static const u32 eventType = SDL_RegisterEvents(1);
-	return eventType;
-}
-
-// Queue a game to be started from the main loop.
-// A user event is used rather than SDL_DROPFILE because sdl2-compat doesn't carry over
-// the file name of drop events pushed by the application, and crashes when converting them back.
-bool sdl_queue_open_file(const char *path)
-{
-	if (openFileEventType() == (u32)-1)
-		return false;
-	if (SDL_WasInit(SDL_INIT_EVENTS) == 0 && SDL_InitSubSystem(SDL_INIT_EVENTS) != 0)
-		return false;
-
-	SDL_Event event = {};
-	event.type = openFileEventType();
-	event.user.data1 = SDL_strdup(path);
-	if (event.user.data1 == nullptr)
-		return false;
-	if (SDL_PushEvent(&event) != 1)
-	{
-		SDL_free(event.user.data1);
-		return false;
-	}
-	return true;
 }
 
 // a joystick's event, to its gamepad
@@ -478,12 +433,6 @@ void input_sdl_handle()
 	SDL_Event event;
 	while (SDL_PollEvent(&event))
 	{
-		if (event.type == openFileEventType())
-		{
-			gui_start_game((const char *)event.user.data1);
-			SDL_free(event.user.data1);
-			continue;
-		}
 		switch (event.type)
 		{
 			case SDL_QUIT:
@@ -560,10 +509,6 @@ void input_sdl_handle()
 				}
 				break;
 
-			case SDL_TEXTINPUT:
-				gui_keyboard_inputUTF8(event.text.text);
-				break;
-
 			case SDL_WINDOWEVENT:
 			{
 				bool displayMetricsEvent = event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED
@@ -573,10 +518,8 @@ void input_sdl_handle()
 						|| event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED;
 				if (displayMetricsEvent)
 				{
-					bool scaleChanged = sdl_update_display_metrics(window, windowFlags);
+					sdl_update_display_metrics(window, windowFlags);
 					GraphicsContext::Instance()->resize();
-					if (scaleChanged)
-						gui_updateStyle();
 				}
 				else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
 				{
@@ -599,7 +542,6 @@ void input_sdl_handle()
 				break;
 
 			case SDL_MOUSEMOTION:
-				gui_set_mouse_position(event.motion.x, event.motion.y, false);
 				checkRawInput();
 				if (!config::UseRawInput)
 				{
@@ -623,13 +565,6 @@ void input_sdl_handle()
 			case SDL_MOUSEBUTTONDOWN:
 			case SDL_MOUSEBUTTONUP:
 				{
-					Uint8 button;
-					gui_set_mouse_position(event.button.x, event.button.y, false);
-					// Swap middle and right clicks for GUI
-					button = event.button.button;
-					if (button == SDL_BUTTON_MIDDLE || button == SDL_BUTTON_RIGHT)
-						button ^= 1;
-					gui_set_mouse_button(button - 1, event.button.state == SDL_PRESSED, false);
 					checkRawInput();
 					if (!config::UseRawInput)
 					{
@@ -659,7 +594,6 @@ void input_sdl_handle()
 				break;
 
 			case SDL_MOUSEWHEEL:
-				gui_set_mouse_wheel(-event.wheel.y * 35);
 				checkRawInput();
 				if (!config::UseRawInput) {
 					auto mouse = getMouse(event.wheel.which);
@@ -675,11 +609,6 @@ void input_sdl_handle()
 				sdl_close_joystick((SDL_JoystickID)event.jdevice.which);
 				break;
 
-			case SDL_DROPFILE:
-				gui_start_game(event.drop.file);
-				SDL_free(event.drop.file);
-				break;
-
 			// Switch touchscreen support
 			case SDL_FINGERDOWN:
 			case SDL_FINGERMOTION:
@@ -687,7 +616,6 @@ void input_sdl_handle()
 					auto mouse = getMouse(0);
 					int x = event.tfinger.x * settings.display.width;
 					int y = event.tfinger.y * settings.display.height;
-					gui_set_mouse_position(x, y, true);
 					if (mouseCaptured && gameRunning && event.type == SDL_FINGERMOTION)
 					{
 						int dx = event.tfinger.dx * settings.display.width;
@@ -698,7 +626,6 @@ void input_sdl_handle()
 						mouse->setAbsPos(x, y);
 					if (event.type == SDL_FINGERDOWN) {
 						mouse->setButton(Mouse::LEFT_BUTTON, true);
-						gui_set_mouse_button(0, true, true);
 					}
 				}
 				break;
@@ -707,8 +634,6 @@ void input_sdl_handle()
 					auto mouse = getMouse(0);
 					int x = event.tfinger.x * settings.display.width;
 					int y = event.tfinger.y * settings.display.height;
-					gui_set_mouse_position(x, y, true);
-					gui_set_mouse_button(0, false, true);
 					mouse->setAbsPos(x, y);
 					mouse->setButton(Mouse::LEFT_BUTTON, false);
 				}
@@ -1007,23 +932,6 @@ bool sdl_recreate_window(u32 flags)
 	return true;
 }
 
-static const char *getClipboardText(void *)
-{
-	clipboardText.clear();
-	if (SDL_HasClipboardText())
-	{
-		char *text = SDL_GetClipboardText();
-		clipboardText = text;
-		SDL_free(text);
-	}
-	return clipboardText.c_str();
-}
-
-static void setClipboardText(void *, const char *text)
-{
-	SDL_SetClipboardText(text);
-}
-
 #ifdef TARGET_UWP
 static int suspendEventFilter(void *userdata, SDL_Event *event)
 {
@@ -1053,9 +961,6 @@ void sdl_window_create()
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, i18n::T("Flycast Error"), e.what(), nullptr);
 		throw;
 	}
-	// ImGui copy & paste
-	ImGui::GetIO().GetClipboardTextFn = getClipboardText;
-	ImGui::GetIO().SetClipboardTextFn = setClipboardText;
 #ifdef TARGET_UWP
 	// Must be fast so an event filter is required
 	SDL_SetEventFilter(suspendEventFilter, nullptr);
@@ -1530,47 +1435,3 @@ void pauseHaptic() {
 void resumeHaptic() {
 	SDLGamepad::SetTorque(0, torque);
 }
-
-#if 0
-#include "ui/gui_util.h"
-
-void sdl_displayHapticStats()
-{
-	ImguiStyleVar _(ImGuiStyleVar_WindowRounding, 0);
-	ImguiStyleVar _1(ImGuiStyleVar_WindowBorderSize, 0);
-	ImGui::SetNextWindowPos(ImVec2(10, 10));
-	ImGui::SetNextWindowSize(ScaledVec2(120, 0));
-	ImGui::SetNextWindowBgAlpha(0.7f);
-	ImGui::Begin("##ggpostats", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs);
-	ImguiStyleColor _2(ImGuiCol_PlotHistogram, ImVec4(0.557f, 0.268f, 0.965f, 1.f));
-
-	ImGui::Text("Torque");
-	char s[32];
-	snprintf(s, sizeof(s), "%.1f", torque);
-	ImGui::ProgressBar(0.5f - torque / 2.f, ImVec2(-1, 0), s);
-
-	ImGui::Text("Spring Sat");
-	snprintf(s, sizeof(s), "%.1f", springSat);
-	ImGui::ProgressBar(springSat, ImVec2(-1, 0), s);
-
-	ImGui::Text("Spring Speed");
-	snprintf(s, sizeof(s), "%.1f", springSpeed);
-	ImGui::ProgressBar(springSpeed, ImVec2(-1, 0), s);
-
-	ImGui::Text("Damper Param");
-	snprintf(s, sizeof(s), "%.1f", damperParam);
-	ImGui::ProgressBar(damperParam, ImVec2(-1, 0), s);
-
-	ImGui::Text("Damper Speed");
-	snprintf(s, sizeof(s), "%.1f", damperSpeed);
-	ImGui::ProgressBar(damperSpeed, ImVec2(-1, 0), s);
-
-	ImGui::Text("Rumble");
-	snprintf(s, sizeof(s), "%.1f", rumblePower);
-	ImGui::ProgressBar(rumblePower, ImVec2(-1, 0), s);
-	snprintf(s, sizeof(s), "%.0f Hz", rumbleFreq);
-	ImGui::ProgressBar(rumbleFreq / 200.f, ImVec2(-1, 0), s);
-
-	ImGui::End();
-}
-#endif

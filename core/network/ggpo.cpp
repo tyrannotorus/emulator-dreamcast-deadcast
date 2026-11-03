@@ -85,7 +85,6 @@ static void getLocalInput(MapleInputState inputState[4])
 #include "ggponet.h"
 #include "emulator.h"
 #include "ui/gui.h"
-#include "ui/gui_util.h"
 #include "hw/mem/mem_watch.h"
 #include "hw/sh4/sh4_mem.h"
 #include "hw/pvr/spg.h"
@@ -96,7 +95,6 @@ static void getLocalInput(MapleInputState inputState[4])
 #include <mutex>
 #include <unordered_map>
 #include <numeric>
-#include "imgui.h"
 #include "miniupnp.h"
 #include "hw/naomi/naomi_cart.h"
 
@@ -1426,64 +1424,6 @@ std::future<bool> startNetwork()
 	});
 }
 
-void displayStats()
-{
-	if (!active() || ggpoSession == nullptr)
-		return;
-	GGPONetworkStats stats;
-	ggpo_get_network_stats(ggpoSession, remotePlayer, &stats);
-
-	ImguiStyleVar _(ImGuiStyleVar_WindowRounding, 0);
-	ImguiStyleVar _1(ImGuiStyleVar_WindowBorderSize, 0);
-	ImGui::SetNextWindowPos(ImVec2(10, 10));
-	ImGui::SetNextWindowSize(ScaledVec2(95, 0));
-	ImGui::SetNextWindowBgAlpha(0.7f);
-	ImGui::Begin("##ggpostats", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs);
-	ImguiStyleColor _2(ImGuiCol_PlotHistogram, ImVec4(0.557f, 0.268f, 0.965f, 1.f));
-
-	// Send Queue
-	ImGui::Text("Send Q");
-	ImGui::ProgressBar(stats.network.send_queue_len / 10.f, ImVec2(-1, uiScaled(10.f)), "");
-
-	// Frame Delay
-	ImGui::Text("Delay");
-	std::string delay = std::to_string(config::GGPODelay.get());
-	ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(delay.c_str()).x);
-	ImGui::Text("%s", delay.c_str());
-
-	// Ping
-	ImGui::Text("Ping");
-	std::string ping = std::to_string(stats.network.ping);
-	ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(ping.c_str()).x);
-	ImGui::Text("%s", ping.c_str());
-
-	// Predicted Frames
-	if (stats.sync.predicted_frames >= 7)
-		// red
-	    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1, 0, 0, 1));
-	else if (stats.sync.predicted_frames >= 5)
-		// yellow
-	    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(.9f, .9f, .1f, 1));
-	ImGui::Text("Predicted");
-	ImGui::ProgressBar(stats.sync.predicted_frames / 7.f, ImVec2(-1, uiScaled(10.f)), "");
-	if (stats.sync.predicted_frames >= 5)
-		ImGui::PopStyleColor();
-
-	// Frames behind
-	int timesync = timesyncOccurred;
-	if (timesync > 0)
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0, 0, 1));
-	ImGui::Text("Behind");
-	ImGui::ProgressBar(0.5f + stats.timesync.local_frames_behind / 16.f, ImVec2(-1, uiScaled(10.f)), "");
-	if (timesync > 0)
-	{
-		ImGui::PopStyleColor();
-		timesyncOccurred--;
-	}
-
-	ImGui::End();
-}
-
 void endOfFrame()
 {
 	if (active())
@@ -1534,9 +1474,6 @@ bool active() {
 
 std::future<bool> startNetwork() {
 	return std::async(std::launch::deferred, []{ return false; });
-}
-
-void displayStats() {
 }
 
 void endOfFrame() {

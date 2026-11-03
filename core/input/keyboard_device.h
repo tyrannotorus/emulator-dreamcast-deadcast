@@ -98,7 +98,7 @@ protected:
 				|| (settings.platform.isArcade() && settings.input.keyboardGame))
 		{
 			if (keycode == input_mapper->get_button_code(0, EMU_BTN_BYPASS_KB))
-				bypass_kb = pressed && !gui_keyboard_captured();
+				bypass_kb = pressed;
 
 			if (bypass_kb)
 			{
@@ -139,7 +139,6 @@ protected:
 
 		if (keycode != 0)
 		{
-			gui_keyboard_key(keycode, pressed);
 			if (keycode < 0xE0 && portIsValid)
 			{
 				if (pressed)
@@ -173,16 +172,9 @@ protected:
 				kb_shift[port] |= modifier_keys;
 			}
 		}
-		if (gui_keyboard_captured())
-		{
-			// chat: disable the keyboard controller. Only accept emu keys (menu, escape...)
-			set_maple_port(-1);
-			gamepad_btn_input(keycode, pressed);
-			set_maple_port(port);
-		}
 		// Do not map keyboard keys to gamepad buttons unless the GUI is open
 		// or the corresponding maple device (if any) isn't a keyboard
-		else if (gui_is_open()
+		if (gui_is_open()
 				|| port == (int)std::size(kb_key)
 				|| (settings.platform.isConsole() && (!portIsValid || config::MapleMainDevices[port] != MDT_Keyboard))
 				|| (settings.platform.isArcade() && !settings.input.keyboardGame))

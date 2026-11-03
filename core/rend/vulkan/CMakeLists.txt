@@ -1,5 +1,4 @@
 target_compile_definitions(${PROJECT_NAME} PRIVATE USE_VULKAN HAVE_VULKAN)
-target_compile_definitions(${PROJECT_NAME} PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 
 target_sources(${PROJECT_NAME} PRIVATE
         allocator.cpp
@@ -27,11 +26,8 @@ target_sources(${PROJECT_NAME} PRIVATE
         vulkan.h
         vulkan_context.cpp
         vulkan_context.h
-        vulkan_driver.h
         vulkan_renderer.cpp
-        vulkan_renderer.h
-        "${IMGUI_BACKENDS_DIR}/imgui_impl_vulkan.cpp"
-        "${IMGUI_BACKENDS_DIR}/imgui_impl_vulkan.h")
+        vulkan_renderer.h)
 
 # Deadcast: the shaders (shaders/*) are compiled to SPIR-V here, by the host's glslangValidator (glslang),
 # into headers shaders.cpp includes: one for each set of the preprocessor's switches a shader takes.

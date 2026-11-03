@@ -44,7 +44,6 @@ void respondChallenge(bool accept);
 void say(const std::string& msg);
 std::vector<std::string> getChat();
 void term();
-void displayStats();
 
 #else
 
@@ -52,7 +51,6 @@ static inline State getState() {
 	return Offline;
 }
 static inline void term() {}
-static inline void displayStats() {}
 #endif
 
 }

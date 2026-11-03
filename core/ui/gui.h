@@ -19,71 +19,43 @@
 #pragma once
 #include "types.h"
 
-#include <string>
 #include <functional>
+#include <string>
 
+// Deadcast: what stands between the emulator and its menu: which of the menu's states the game is in, starting a game,
+// save states and screenshots. Everything drawn is the menu's (deadcast/menu.h) or the on-screen text (deadcast/osd.h).
 void gui_init();
-void gui_updateStyle();
-void gui_open_settings();
-// Deadcast: a paused two-player session's menu, once paused (called every main loop iteration)
-void gui_netplay_check();
-void gui_display_ui();
-void gui_draw_osd();
-void gui_display_osd();
-void gui_display_profiler();
-void gui_open_onboarding();
 void gui_term();
+void gui_open_settings();
+// a paused two-player session's menu, once paused (called every main loop iteration)
+void gui_netplay_check();
+// while gui_is_open(): the start page, or the menu
+void gui_display_ui();
+// once for each frame drawn, on the render thread
+void gui_frame();
 void gui_cancel_load();
-void gui_refresh_files();
-void gui_cheats();
-void gui_keyboard_input(u32 wc);
-void gui_keyboard_inputUTF8(const std::string& s);
-void gui_keyboard_key(u8 keyCode, bool pressed);
-bool gui_keyboard_captured();
-bool gui_mouse_captured();
-void gui_set_mouse_position(int x, int y, bool touchscreen);
-// 0: left, 1: right, 2: middle/wheel, 3: button 4
-void gui_set_mouse_button(int button, bool pressed, bool touchscreen);
-void gui_set_mouse_wheel(float delta);
-void gui_set_insets(int left, int right, int top, int bottom);
+
 void gui_stop_game(const std::string& message = "");
 void gui_start_game(const std::string& path);
 void gui_error(const std::string& what);
-void gui_setOnScreenKeyboardCallback(void (*callback)(bool show));
+
 void gui_loadState(bool inRam = false);
 void gui_saveState(bool stopRestart = true, bool inRam = false);
 void gui_cycleSaveStateSlot(int step);
-void gui_togglePause();
-std::string gui_getCurGameBoxartUrl();
 void gui_takeScreenshot();
 void gui_saveFrame(const std::string& path);
 void gui_runOnUiThread(std::function<void()> function);
 
 enum class GuiState {
-	Closed,
-	Commands,
-	Pause,
-	Settings,
-	Main,
-	Onboarding,
-	VJoyEdit,
-	VJoyEditCommands,
-	SelectDisk,
+	Closed,		// the game plays
+	Starting,	// nothing loaded yet
 	Loading,
 	NetworkStart,
-	Cheats,
-	Achievements,
-	Menu,		// Deadcast's own (deadcast/menu.cpp)
+	Menu,
 };
 extern GuiState gui_state;
-
 void gui_setState(GuiState newState);
-
 static inline bool gui_is_open()
 {
 	return gui_state != GuiState::Closed;
-}
-static inline bool gui_is_content_browser()
-{
-	return gui_state == GuiState::Main;
 }

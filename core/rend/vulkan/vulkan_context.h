@@ -106,6 +106,7 @@ public:
 	void BeginRenderPass();
 	void EndFrame(vk::CommandBuffer cmdBuffer = vk::CommandBuffer());
 	void Present() noexcept;
+	void present() override;
 	void PresentFrame(vk::Image image, vk::ImageView imageView, const vk::Extent2D& extent, float aspectRatio) noexcept;
 	void PresentLastFrame();
 	bool GetLastFrame(std::vector<u8>& data, int& width, int& height);
@@ -205,7 +206,6 @@ private:
 	void CreateSwapChain();
 	bool InitDevice();
 	bool InitInstance();
-	void InitImgui();
 	void DrawFrame(vk::ImageView imageView, const vk::Extent2D& extent, float aspectRatio);
 	void SetWindowSize(u32 width, u32 height);
 

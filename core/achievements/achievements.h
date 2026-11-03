@@ -21,42 +21,6 @@
 
 namespace achievements
 {
-#ifdef USE_RACHIEVEMENTS
-
-struct Game
-{
-	std::string image;
-	std::string title;
-	u32 unlockedAchievements;
-	u32 totalAchievements;
-	u32 points;
-	u32 totalPoints;
-};
-
-struct Achievement
-{
-	Achievement() = default;
-	Achievement(const std::string& image, const std::string& title, const std::string& description, const std::string& category, const std::string& status)
-		: image(image), title(title), description(description), category(category), status(status) {}
-	std::string image;
-	std::string title;
-	std::string description;
-	std::string category;
-	std::string status;
-};
-
-bool init();
-void term();
-std::future<void> login(const char *username, const char *password);
-void logout();
-bool isLoggedOn();
-bool isActive();
-Game getCurrentGame();
-std::vector<Achievement> getAchievementList();
-bool canPause();
-void setHostOverride(const std::string& host);
-
-#else
 
 static inline bool isActive() {
 	return false;
@@ -64,8 +28,6 @@ static inline bool isActive() {
 static inline bool canPause() {
 	return true;
 }
-
-#endif
 
 void serialize(Serializer& ser);
 void deserialize(Deserializer& deser);

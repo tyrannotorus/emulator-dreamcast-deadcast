@@ -13,7 +13,6 @@
 #include "archive/rzip.h"
 #include "ui/mainui.h"
 #include "input/gamepad_device.h"
-#include "lua/lua.h"
 #include "stdclass.h"
 #include "serialize.h"
 #include "oslib/i18n.h"
@@ -92,8 +91,7 @@ int flycast_init(int argc, char* argv[])
 		if (!config::open())
 		{
 			LogManager::Init();
-			NOTICE_LOG(BOOT, "Config directory is not set. Starting onboarding");
-			gui_open_onboarding();
+			ERROR_LOG(BOOT, "Deadcast: no settings file can be opened: the defaults are used, and not kept");
 		}
 		else
 		{
@@ -107,7 +105,6 @@ int flycast_init(int argc, char* argv[])
 
 		if(config::GDB)
 			debugger::init(config::GDBPort + config::loadInt("naomi", "BoardId"));
-		lua::init();
 
 		if(config::ProfilerEnabled)
 			LogManager::GetInstance()->SetEnable(LogTypes::PROFILER, true);
@@ -166,7 +163,6 @@ void SaveSettings()
 void flycast_term()
 {
 	gui_cancel_load();
-	lua::term();
 	emu.term();
 	os_DestroyWindow();
 	gui_term();

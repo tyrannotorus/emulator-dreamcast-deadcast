@@ -66,7 +66,7 @@ void Mouse::setButton(Button button, bool pressed)
 		else
 			mo_buttons[maple_port()] |= 1 << (int)button;
 	}
-	if ((gui_is_open() || gui_mouse_captured()) && !is_detecting_input())
+	if (gui_is_open() && !is_detecting_input())
 		// Don't register mouse clicks as gamepad presses when gui is open
 		// This makes the gamepad presses to be handled first and the mouse position to be ignored
 		return;
@@ -75,20 +75,14 @@ void Mouse::setButton(Button button, bool pressed)
 
 
 void SystemMouse::setAbsPos(int x, int y, int width, int height) {
-	gui_set_mouse_position(x, y, touchMouse);
 	Mouse::setAbsPos(x, y, width, height);
 }
 
 void SystemMouse::setButton(Button button, bool pressed) {
-	int uiBtn = (int)button - 1;
-	if (uiBtn < 2)
-		uiBtn ^= 1;
-	gui_set_mouse_button(uiBtn, pressed, touchMouse);
 	Mouse::setButton(button, pressed);
 }
 
 void SystemMouse::setWheel(int delta) {
-	gui_set_mouse_wheel(delta * 35);
 	Mouse::setWheel(delta);
 }
 

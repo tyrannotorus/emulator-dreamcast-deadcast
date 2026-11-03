@@ -20,14 +20,11 @@
 */
 #include "vulkan_context.h"
 #include "vulkan_renderer.h"
-#include "imgui.h"
-#include "imgui_impl_vulkan.h"
 #include "ui/gui.h"
 #include "utils.h"
 #include "emulator.h"
 #include "oslib/oslib.h"
 #include "oslib/directory.h"
-#include "vulkan_driver.h"
 #include "rend/transform_matrix.h"
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -54,9 +51,8 @@ bool VulkanContext::InitInstance()
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
 		vk::ApplicationInfo applicationInfo("Deadcast", 1, "Deadcast", 1, VK_API_VERSION_1_1);
-		// no surface is made (panel.h), but ImGui's backend loads the surface functions
-		const char *extensions[] = { vk::KHRSurfaceExtensionName };
-		instance = vk::createInstanceUnique(vk::InstanceCreateInfo(vk::InstanceCreateFlags(), &applicationInfo, nullptr, extensions));
+		// no surface is made (panel.h)
+		instance = vk::createInstanceUnique(vk::InstanceCreateInfo(vk::InstanceCreateFlags(), &applicationInfo));
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
 
 		auto devices = instance->enumeratePhysicalDevices();
@@ -101,42 +97,6 @@ bool VulkanContext::InitInstance()
 		ERROR_LOG(RENDERER, "Vulkan instance init failed: %s", err.what());
 	}
 	return false;
-}
-
-void VulkanContext::InitImgui()
-{
-	VulkanDriver *vkDriver = dynamic_cast<VulkanDriver *>(imguiDriver.get());
-	if (vkDriver == nullptr) {
-		imguiDriver.reset();
-		imguiDriver = std::unique_ptr<ImGuiDriver>(new VulkanDriver());
-	}
-	else {
-		vkDriver->reset();
-	}
-	ImGui_ImplVulkan_InitInfo initInfo{};
-	initInfo.Instance = (VkInstance)*instance;
-	initInfo.PhysicalDevice = (VkPhysicalDevice)physicalDevice;
-	initInfo.Device = (VkDevice)*device;
-	initInfo.QueueFamily = graphicsQueueIndex;
-	initInfo.Queue = (VkQueue)graphicsQueue;
-	initInfo.PipelineCache = (VkPipelineCache)*pipelineCache;
-	initInfo.DescriptorPool = (VkDescriptorPool)*descriptorPool;
-	initInfo.PipelineInfoMain.RenderPass = (VkRenderPass)*renderPass;
-	initInfo.MinImageCount = 2;
-	initInfo.ImageCount = GetSwapChainSize();
-	initInfo.ApiVersion = VK_API_VERSION_1_1;
-	if (!ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_1, [](const char *function_name, void *) {
-			PFN_vkVoidFunction function = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetInstanceProcAddr((VkInstance) *Instance()->instance, function_name);
-			if (function == nullptr)
-				function = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr((VkDevice) *Instance()->device, function_name);
-			if (function == nullptr)
-				ERROR_LOG(RENDERER, "ImGui: no Vulkan function %s", function_name);
-			return function;
-		}))
-		throw FlycastException("Vulkan ImGui: functions missing");
-
-	if (!ImGui_ImplVulkan_Init(&initInfo))
-		throw FlycastException("Vulkan ImGui initialization failed");
 }
 
 bool VulkanContext::InitDevice()
@@ -339,8 +299,6 @@ void VulkanContext::CreateSwapChain()
 	    quadRotateDrawer->Init(quadRotatePipeline.get());
 	    overlay->Init(quadPipelineWithAlpha.get());
 
-	    InitImgui();
-
 	    currentImage = GetSwapChainSize() - 1;
 	    ReInitOSD();
 
@@ -450,6 +408,16 @@ void VulkanContext::EndFrame(vk::CommandBuffer overlayCmdBuffer)
 	renderDone = true;
 }
 
+void VulkanContext::present()
+{
+	try {
+		Present();
+	} catch (const vk::SystemError& e) {
+		ERROR_LOG(RENDERER, "Vulkan system error: %s", e.what());
+		throw FlycastException("Vulkan system error");
+	}
+}
+
 void VulkanContext::Present() noexcept
 {
 	if (renderDone)
@@ -536,7 +504,7 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 		try {
 			NewFrame();
 			auto overlayCmdBuffer = PrepareOverlay(config::FloatVMUs, true);
-			gui_draw_osd();
+			gui_frame();
 			BeginRenderPass();
 
 			if (lastFrameView) // Might have been nullified if swap chain recreated
@@ -576,7 +544,6 @@ void VulkanContext::term()
 		}
 	}
 	inFlightObjects.clear();
-	imguiDriver.reset();
 	if (device && pipelineCache)
 	{
 		std::vector<u8> cacheData = device->getPipelineCacheData(*pipelineCache);

@@ -24,7 +24,6 @@
 #include "wsi/context.h"
 #include "cfg/option.h"
 #include "emulator.h"
-#include "imgui_driver.h"
 #include "profiler/fc_profiler.h"
 #include "oslib/i18n.h"
 #include "hw/pvr/spg.h"
@@ -66,8 +65,6 @@ bool mainui_rend_frame()
 		try {
 			if (!emu.render())
 				return false;
-			if (config::ProfilerEnabled && config::ProfilerDrawToGUI)
-				gui_display_profiler();
 		} catch (const RendererException& e) {
 			gui_error(i18n::Ts("Renderer error:") + "\n" + e.what() + "\n\n"
 					+ i18n::Ts("The game has been paused but it is recommended to restart Flycast"));
@@ -113,16 +110,18 @@ void mainui_loop(bool forceStart)
 	{
 		fc_profiler::startThread("main");
 
-		if (mainui_rend_frame() && imguiDriver != nullptr)
+		const bool rendered = mainui_rend_frame();
+		GraphicsContext *context = GraphicsContext::Instance();
+		if (context == nullptr)
+			forceReinit = true;
+		else if (rendered)
 		{
 			try {
-				imguiDriver->present();
+				context->present();
 			} catch (const FlycastException& e) {
 				forceReinit = true;
 			}
 		}
-		if (imguiDriver == nullptr)
-			forceReinit = true;
 
 		if (config::RendererType != currentRenderer || forceReinit)
 		{

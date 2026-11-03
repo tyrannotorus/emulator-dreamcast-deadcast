@@ -39,6 +39,8 @@ public:
 	virtual bool hasPerPixel() { return false; }
 	// Set the game swap interval: 1 for 60 FPS, 2 for 30 FPS
 	virtual void setSwapInterval(int interval) {}
+	// Deadcast: the frame drawn goes to the screen
+	virtual void present() {}
 	// Deadcast: CPU-drawn pictures (the menu) at the screen's size, shown while no frame is drawn.
 	// begin: false without a screen; show: BGRA8, width x height; end: the screen left as is (the game
 	// quits or loads again), the game's last frame again (the menu closed), or its next one once drawn
