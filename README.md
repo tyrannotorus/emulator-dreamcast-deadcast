@@ -63,7 +63,8 @@ shell/brick/package.sh                   # build-brick/DC-DEADCAST.pak and DC-DE
 - Listing one: add its repository to `store/registry.txt`. The store then offers its latest release.
 - In the menu a module goes by its manifest's `title` (`Rez Recompiled`); in the docs it is the
   "<game title> recomp module". Never the game's title alone.
-- A module's options, in Options with Core on it: Show FPS first, the module's settings after. Getting, updating and deleting a module
+- A module's options, in Options with Core on it: Show FPS first, the module's settings after, then its own
+  Controls if it declares any (nothing is shared with the emulator's). Getting, updating and deleting a module
   are the Recomp Store's (on the main page).
 
 ### Releasing

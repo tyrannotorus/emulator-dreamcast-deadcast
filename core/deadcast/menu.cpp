@@ -887,14 +887,24 @@ void button(u32 code, bool pressed)
 		bindAwaited(InputMapping::InputDef::from_button(code));
 		return;
 	}
+	// a recomp module's Controls, set from the emulator
+	if (pressed && ui::awaitingControl())
+	{
+		ui::controlPressed(inputName(InputMapping::InputDef::from_button(code)));
+		return;
+	}
 	ui::button(menuButton(code), pressed);
 }
 
 void axis(u32 code, int value)
 {
 	// only a trigger pressed, for a row waiting for a control
-	if (ui::isOpen() && st.awaiting != EMU_BTN_NONE && value > 16384)
+	if (!ui::isOpen() || value <= 16384)
+		return;
+	if (st.awaiting != EMU_BTN_NONE)
 		bindAwaited(InputMapping::InputDef::from_axis(code, true));
+	else if (ui::awaitingControl())
+		ui::controlPressed(inputName(InputMapping::InputDef::from_axis(code, true)));
 }
 
 Result frame()
