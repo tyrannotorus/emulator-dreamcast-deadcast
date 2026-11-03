@@ -11,7 +11,7 @@
   "launch": "launch.sh",
   "version": "1.2.0",
   "changelog": {
-    "1.2.0": "- In-app Recomp Store\n- Per-module settings and button remapping\n- A failing recomp module offers the emulator core\n- Older recomp modules must be updated from the store\n- Flycast's menus and RetroAchievements removed",
+    "1.2.0": "- In-app Recomp Store\n- Per-module settings and button remapping",
     "1.1.1": "- Most games tested run at nearly full speed on Brick hardware\n- The screen refreshes at close to the Dreamcast's 59.94 Hz instead of 60.2 Hz\n- Save-state pictures are no longer garbled\n- Daytona USA: car decals display correctly\n- New: Delete Recomp Module (Options > Recomp Options) removes the module, its saves and its settings\n- An interrupted module install is cleaned up at the next start\n- Rez recomp module 1.0.2: opening the menu no longer shows garbled graphics"
   }
 }
