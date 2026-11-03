@@ -417,8 +417,15 @@ void gui_open_settings()
 				vgamepad::hide();
 				try {
 					emu.stop();
-					// Deadcast: its own menu; Flycast's if there is no screen for it
-					gui_setState(deadcast::menu::open() ? GuiState::Menu : GuiState::Commands);
+					if (deadcast::menu::open())
+						gui_setState(GuiState::Menu);
+					else
+					{
+						// no screen or no font: said, and nothing takes its place
+						ERROR_LOG(COMMON, "Deadcast: the menu cannot be opened: the game goes on");
+						emu.start();
+						os_notify("The menu could not be opened", 5000);
+					}
 				} catch (const FlycastException& e) {
 					gui_stop_game(e.what());
 				}
@@ -482,25 +489,13 @@ void gui_netplay_check()
 		gui_setState(GuiState::Menu);
 }
 
+// the game cannot go on: said in the log, and Deadcast ends
 void gui_stop_game(const std::string& message)
 {
 	const LockGuard lock(guiMutex);
-	if (!commandLineStart)
-	{
-		// Exit to main menu
-		emu.unloadGame();
-		gui_setState(GuiState::Main);
-		reset_vmus();
-		if (!message.empty())
-			gui_error(Ts("Flycast has stopped.") + "\n\n" + message);
-	}
-	else
-	{
-		if (!message.empty())
-			ERROR_LOG(COMMON, "Flycast has stopped: %s", message.c_str());
-		// Exit emulator
-		dc_exit();
-	}
+	if (!message.empty())
+		ERROR_LOG(COMMON, "Deadcast has stopped: %s", message.c_str());
+	dc_exit();
 }
 
 static void appendVectorData(void *context, void *data, int size)
@@ -1318,6 +1313,15 @@ static void gui_display_loadscreen()
     ImGui::End();
 }
 
+// the start page cannot be shown: the game loads all the same, and the log says so once
+static void startPageMissing()
+{
+	static bool said = false;
+	if (!said)
+		ERROR_LOG(COMMON, "Deadcast: the start page cannot be shown: no screen or no font");
+	said = true;
+}
+
 void gui_display_ui()
 {
 	FC_PROFILE_SCOPE;
@@ -1353,10 +1357,11 @@ void gui_display_ui()
 		}
 		return;
 	}
-	// Deadcast: two players: its start page up until the other Brick is there too, in place of Flycast's
-	// network window
-	if (gui_state == GuiState::NetworkStart && deadcast::menu::showStartTwoPlayers())
+	// Deadcast: two players: its start page up until the other Brick is there too
+	if (gui_state == GuiState::NetworkStart)
 	{
+		if (!deadcast::menu::showStartTwoPlayers())
+			startPageMissing();
 		if (networkStatus.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
 			return;
 		deadcast::menu::endStart();
@@ -1373,9 +1378,10 @@ void gui_display_ui()
 		}
 		return;
 	}
-	if (gui_state == GuiState::Loading && deadcast::menu::showStart())
+	if (gui_state == GuiState::Loading)
 	{
-		// Deadcast: its start page instead of Flycast's loading window
+		if (!deadcast::menu::showStart())
+			startPageMissing();
 		try {
 			if (gameLoader.ready() && !custom_texture.isPreloading())
 			{
@@ -1412,21 +1418,17 @@ void gui_display_ui()
 	}
 	if (gui_state == GuiState::Main)
 	{
-#ifdef TARGET_UWP
-		if (checkUWPProtocolActivation())
-			return;
-#endif
-		if (!settings.content.path.empty() || settings.naomi.slave)
+		if (settings.content.path.empty() && !settings.naomi.slave)
 		{
-#ifndef __ANDROID__
-			commandLineStart = true;
-#endif
-			if (settings.content.path.substr(0, 7) == "dc_bios")
-				gui_start_game("");
-			else
-				gui_start_game(settings.content.path);
+			ERROR_LOG(COMMON, "Deadcast has no disc to start");
+			dc_exit();
 			return;
 		}
+		if (settings.content.path.substr(0, 7) == "dc_bios")
+			gui_start_game("");
+		else
+			gui_start_game(settings.content.path);
+		return;
 	}
 
 	gui_newFrame();
@@ -1588,7 +1590,8 @@ void reset_vmus() {
 }
 
 void gui_error(const std::string& what) {
-	error_msg = what;
+	ERROR_LOG(COMMON, "Deadcast: %s", what.c_str());
+	os_notify(what.c_str(), 8000);
 }
 
 void gui_loadState(bool inRam)
