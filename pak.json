@@ -11,7 +11,7 @@
   "launch": "launch.sh",
   "version": "1.2.0",
   "changelog": {
-    "1.2.0": "- Recomp modules now run alongside Deadcast, which sleeps while they play: MENU, the menu and the store are always Deadcast's\n- New: Recomp Store on the main page: browse, download, update and delete recomp modules\n- Options shows the options of the core you pick; switching cores asks for a restart\n- Each recomp module keeps its own settings, and can let you remap its buttons (Options > Controls)\n- Updating the module you are playing restarts your game when you press A\n- If a recomp module fails, Deadcast shows the error and offers the emulator; switch back in Options, or update or delete it in the Recomp Store\n- Recomp modules from before 1.2.0 need updating in the Recomp Store\n- One look for on-screen text: the frame counter and messages use the menu's font, in the emulator and in recomp modules alike\n- Flycast's old menus and overlay are gone\n- RetroAchievements removed: it had no menu left to sign in from",
+    "1.2.0": "- In-app Recomp Store\n- Per-module settings and button remapping\n- A failing recomp module offers the emulator core\n- Older recomp modules must be updated from the store\n- Flycast's menus and RetroAchievements removed",
     "1.1.1": "- Most games tested run at nearly full speed on Brick hardware\n- The screen refreshes at close to the Dreamcast's 59.94 Hz instead of 60.2 Hz\n- Save-state pictures are no longer garbled\n- Daytona USA: car decals display correctly\n- New: Delete Recomp Module (Options > Recomp Options) removes the module, its saves and its settings\n- An interrupted module install is cleaned up at the next start\n- Rez recomp module 1.0.2: opening the menu no longer shows garbled graphics"
   }
 }
