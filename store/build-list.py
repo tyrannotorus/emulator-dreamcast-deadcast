@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Build the store's list from the latest release of each repository in the registry. A release's module is its
 # recomp-*.tar.gz, with module.cfg and store.json at the archive's root. A module whose release cannot be read
-# keeps its last entry while that entry's file is still there. Nothing from a release is run.
+# keeps its last entry while that entry's file is still there, and fails the run once the list is written, so
+# GitHub says so. Nothing from a release is run.
 #   build-list.py REGISTRY LIST       LIST: read for the last entries, then written. GH_TOKEN: for the GitHub API
 import hashlib, io, json, os, re, sys, tarfile, urllib.error, urllib.request
 
@@ -91,6 +92,7 @@ def module_entry(asset):
 
 last = read_list(listing)
 entries = {}
+failed = 0
 for repo in open(registry, encoding="utf-8").read().splitlines():
     repo = repo.strip()
     if not repo or repo.startswith("#"):
@@ -112,14 +114,20 @@ for repo in open(registry, encoding="utf-8").read().splitlines():
         else:
             entry = module_entry(assets[0])
     except (OSError, ValueError, KeyError, AttributeError, tarfile.TarError, urllib.error.URLError) as error:
-        if not kept or gone(dict(kept[0])["url"]):
-            print(f"{repo}: {error}: not listed")
+        if not kept:
+            print(f"::error::{repo}: {error}: not listed")
+            failed += 1
             continue
-        print(f"{repo}: {error}: keeping its last entry")
+        if gone(dict(kept[0])["url"]):
+            print(f"::warning::{repo}: {error}: its file was removed: no longer listed")
+            continue
+        print(f"::error::{repo}: {error}: its last entry stays listed")
+        failed += 1
         entry = kept[0]
     mid = dict(entry)["module"]
     if mid in entries:
-        print(f"{repo}: id {mid} is taken: not listed")
+        print(f"::error::{repo}: id {mid} is taken: not listed")
+        failed += 1
         continue
     entries[mid] = entry
     print(f"{repo}: {mid} {dict(entry)['version']}")
@@ -130,3 +138,5 @@ with open(listing, "w", encoding="utf-8") as out:
         for k, v in entries[mid]:
             if v:
                 out.write(f"{k} = {v}\n")
+
+sys.exit(1 if failed else 0)
