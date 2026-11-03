@@ -56,7 +56,7 @@ std::string counter(GraphicsContext *context, u64 now)
 	if (framesPerSecond < 0.f)
 		return fastForward ? ">>" : "";
 	char text[32];
-	std::snprintf(text, sizeof(text), "F:%4.1f%s", framesPerSecond, fastForward ? " >>" : "");
+	std::snprintf(text, sizeof(text), "%4.1f%s", framesPerSecond, fastForward ? " >>" : "");
 	return text;
 }
 
