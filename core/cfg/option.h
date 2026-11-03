@@ -97,7 +97,7 @@ public:
 		static Settings *_instance = new Settings();
 		return *_instance;
 	}
-	// Deadcast: every option (Emulator Options finds its own by section and name)
+	// Deadcast: every option (the menu finds the emulator's settings by section and name)
 	const std::vector<BaseOption *>& list() const {
 		return options;
 	}
