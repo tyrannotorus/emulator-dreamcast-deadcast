@@ -5,8 +5,7 @@ A Sega Dreamcast emulator targeting optimal performance on the Trimui Brick/Hamm
 ## Emulator
 - Many games play well or close to full speed on the TrimUI Brick/Hammer.
 - USB-C / Bluetooth device-to-device co-op play.
-## Recomps
-- Optional downloadable recomp modules for game mods.
+- In-app Recomp store for game mods
 
 # Supported Devices
 ## Trimui Brick/Hammer
