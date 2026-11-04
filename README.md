@@ -42,6 +42,8 @@ stay Deadcast's.
 
 Only source, build scripts and READMEs go in git; never disc images or anything extracted from them.
 
+The kernel's console is off while playing (`launch.sh`): its messages hold up the display's flip.
+
 ### Build
 
 On an x86-64 Linux host with clang, lld, CMake, Ninja, Docker (only to copy the toolchain image's

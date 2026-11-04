@@ -50,12 +50,17 @@ export DEADCAST_ROM="$ROM"
 
 cleanup() {
 	rm -f /tmp/stay_awake
+	[ -n "$CONSOLE_LEVEL" ] && echo "$CONSOLE_LEVEL" >/proc/sys/kernel/printk
 	sync
 }
 trap cleanup EXIT INT TERM HUP QUIT
 
 # no auto sleep while playing
 echo 1 >/tmp/stay_awake
+# The kernel's messages off the serial console while playing (dmesg still has them): they hold up the display's flip,
+# and a weak Wi-Fi link's reconnects stalled frames up to 200 ms
+CONSOLE_LEVEL="$(cut -f1 /proc/sys/kernel/printk)"
+echo 1 >/proc/sys/kernel/printk || echo "Deadcast: the kernel's console is still on: frames can stall on its messages"
 # NextUI starts paks at its performance clock; run at its Auto, as its own emulators do
 sh "$SYSTEM_PATH/bin/governor.sh" auto
 
