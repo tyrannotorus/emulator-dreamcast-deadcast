@@ -20,6 +20,7 @@
 #include "mainui.h"
 #include "hw/pvr/Renderer_if.h"
 #include "gui.h"
+#include "deadcast/menu.h"
 #include "oslib/oslib.h"
 #include "wsi/context.h"
 #include "cfg/option.h"
@@ -47,7 +48,8 @@ bool mainui_rend_frame()
 
 	if (gui_is_open())
 	{
-		// Deadcast: a frame every 16 ms, however long it took to draw (the menu's pages slide)
+		// Deadcast: a picture shown, straight on (the flip waits for the panel's refresh, so the menu moves at the panel's own rate);
+		// nothing moving: the pad, 8 ms on
 		const auto frameStart = std::chrono::steady_clock::now();
 		try {
 			gui_display_ui();
@@ -57,7 +59,8 @@ bool mainui_rend_frame()
 			return false;
 		}
 #ifndef TARGET_IPHONE
-		std::this_thread::sleep_until(frameStart + std::chrono::milliseconds(16));
+		if (!deadcast::menu::shown())
+			std::this_thread::sleep_until(frameStart + std::chrono::milliseconds(8));
 #endif
 	}
 	else

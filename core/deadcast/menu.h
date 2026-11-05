@@ -34,6 +34,8 @@ void button(u32 code, bool pressed);
 void axis(u32 code, int value);
 // Called every render loop iteration: repeats held directions and redraws when needed.
 Result frame();
+// a picture went to the display since the last call (the menu moving): the loop goes straight on, the flip pacing it
+bool shown();
 
 // The start page, "Loading..." over the disc's file name, up from launch until the game's first frame.
 // showStart returns false if there is no screen for it; showStartError shows a failure for a moment.

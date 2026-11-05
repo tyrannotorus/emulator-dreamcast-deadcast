@@ -907,6 +907,11 @@ void axis(u32 code, int value)
 		ui::controlPressed(inputName(InputMapping::InputDef::from_axis(code, true)));
 }
 
+bool shown()
+{
+	return ui::shown();
+}
+
 Result frame()
 {
 	const bool link = st.link;

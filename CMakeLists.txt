@@ -209,6 +209,7 @@ add_subdirectory(core/deadcast)
 # the menu and pages, the store, and hosting recomp modules
 set(DEADUI_APP_NAME Deadcast)
 set(DEADUI_HOME_ENV DEADCAST_HOME)
+set(DEADUI_ROM_ENV DEADCAST_ROM)
 set(DEADUI_LINK_PREFIX dclink)
 set(DEADUI_STORE_URL https://raw.githubusercontent.com/tyrannotorus/emulator-dreamcast-deadcast/store/catalog.cfg)
 set(DEADUI_CONSOLE dreamcast)
