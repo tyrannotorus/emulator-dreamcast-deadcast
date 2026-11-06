@@ -65,14 +65,11 @@ bool QueueRender(TA_context* ctx)
 			skipFrame = true;
 			lagSkips++;
 		}
-		else if (config::ThreadedRendering && rqueue != nullptr
-				&& (config::AutoSkipFrame == 0 || (config::AutoSkipFrame == 1 && SH4FastEnough)
-						|| ctx->rend.isRTT || rqueue->rend.isRTT))
+		else if (config::ThreadedRendering && rqueue != nullptr)
 			// The previous render hasn't completed yet so we wait.
-			// If autoskipframe is enabled (normal level), we only do so if the CPU is running
-			// fast enough over the last frames
-			// Deadcast: a render to texture, and the frame right after one, are never skipped: they wait for
-			// the queue instead (the SH4 waiting for the renderer: perf's waits)
+			// Deadcast: whatever the frame skip: a frame is dropped only by the lag above (emulation more than
+			// 8 ms behind real time, the waits for the renderer included). Dropped here, as upstream's Maximum
+			// did whenever the renderer was still busy, NBA 2K2 lost 13 frames a second with the SH4 62% busy.
 		{
 			const auto waitStart = perfNow();
 			perfTrace('q');
