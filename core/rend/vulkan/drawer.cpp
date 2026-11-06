@@ -353,7 +353,8 @@ void Drawer::UploadMainBuffer(const VertexShaderUniforms& vertexUniforms, const 
 	}
 
 	BufferData *buffer = GetMainBuffer(packer.size());
-	packer.upload(*buffer);
+	// Deadcast: copied while the frame is recorded (joined at the end of Draw)
+	packer.uploadDeferred(*buffer);
 	curMainBuffer = buffer->buffer.get();
 }
 
@@ -445,6 +446,8 @@ bool Drawer::Draw(const Texture *fogTexture, const Texture *paletteTexture)
 		previous_pass = current_pass;
     }
     curMainBuffer = nullptr;
+	// Deadcast: the vertices and textures copied (the context they come from may be recycled after this)
+	deadcast::upload::join();
 
 	return !rendContext->isRTT;
 }

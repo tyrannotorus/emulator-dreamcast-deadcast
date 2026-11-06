@@ -15,6 +15,7 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "TexCache.h"
+#include "deadcast/uploadworker.h"
 #include "xbrz/xbrz.h"
 #include "hw/pvr/pvr_mem.h"
 #include "hw/mem/addrspace.h"
@@ -335,6 +336,9 @@ void BaseTextureCacheData::unprotectVRam()
 
 bool BaseTextureCacheData::Delete()
 {
+	// Deadcast: its decode still to be written
+	if (uploadQueued == deadcast::upload::epoch())
+		deadcast::upload::join();
 	unprotectVRam();
 
 	if (custom_load_in_progress > 0)
@@ -522,6 +526,9 @@ void BaseTextureCacheData::noteTextureData(u64 hash, u32 bytes)
 
 bool BaseTextureCacheData::Update()
 {
+	// Deadcast: updated again while its last decode is still to be written
+	if (uploadQueued == deadcast::upload::epoch())
+		deadcast::upload::join();
 	//texture state tracking stuff
 	Updates++;
 	dirty = 0;
@@ -646,6 +653,147 @@ bool BaseTextureCacheData::Update()
 	// TODO avoid upscaling/depost. textures that change too often
 
 	bool mipmapped = IsMipmapped() && !config::DumpTextures;
+
+	// Deadcast: decoded on the upload worker into the texture's staging memory while the renderer goes on
+	// (deadcast/uploadworker.h), as below: not when upscaling or dumping, nor without a convertor, nor with
+	// a palette converted here (the SH4's thread updates the palettes as it queues the next frame)
+	const int deferredBits = textureUpscaling || config::DumpTextures || !deadcast::upload::active()
+				|| (IsPaletted() && !gpuPalette) ? 0
+			: texconv32 != NULL && need_32bit_buffer ? 32
+			: texconv8 != NULL && tex_type == TextureType::_8 ? 8
+			: texconv != NULL ? 16 : 0;
+	if (deferredBits != 0)
+	{
+		const TextureType wasType = tex_type;
+		if (deferredBits == 32)
+			tex_type = TextureType::_8888;
+		std::function<void(const u8 *)> write;
+		if (UploadToGPUBegin(width, height, IsMipmapped(), mipmapped, write))
+		{
+			//lock the texture to detect changes in it
+			protectVRam();
+			// what the decode reads, taken now (::vq_codebook and ::palette_index are the worker's own)
+			const u8 *codebook = tcw.VQ_Comp ? &vram[startAddress] : nullptr;
+			const u32 paletteIndex = ::palette_index;
+			const TexConvFP32 conv32 = texconv32;
+			const TexConvFP8 conv8 = texconv8;
+			const TexConvFP conv16 = texconv;
+			const TexConvFP32 yuvLod0 = pvrTexInfo[Pixel565].TW32;
+			const u32 w = width, h = height, levels = tsp.TexU + 3u, start = startAddress, mmStart = mmStartAddress;
+			const u32 bpp = tex->bpp, rowStride = stride, rows = heightLimit;
+			const bool vq = tcw.VQ_Comp, yuv = tcw.PixelFmt == PixelYUV, mips = mipmapped;
+			deadcast::upload::run([=]() {
+				::vq_codebook = codebook;
+				::palette_index = paletteIndex;
+				if (deferredBits == 32)
+				{
+					PixelBuffer<u32> pb32;
+					if (mips)
+					{
+						pb32.init(w, h, true);
+						for (u32 i = 0; i <= levels; i++)
+						{
+							pb32.set_mipmap(i);
+							u32 vram_addr;
+							if (vq)
+							{
+								vram_addr = start + VQMipPoint[i];
+								if (i == 0)
+								{
+									PixelBuffer<u32> pb0;
+									pb0.init(2, 2 ,false);
+									if (yuv)
+										// Use higher LoD mipmap
+										vram_addr = start + VQMipPoint[1];
+									conv32(&pb0, &vram[vram_addr], 2, 2);
+									*pb32.data() = *pb0.data(1, 1);
+									continue;
+								}
+							}
+							else
+								vram_addr = start + OtherMipPoint[i] * bpp / 8;
+							if (yuv && i == 0)
+								// Special case for YUV at 1x1 LoD
+								yuvLod0(&pb32, &vram[vram_addr], 1, 1);
+							else
+								conv32(&pb32, &vram[vram_addr], 1 << i, 1 << i);
+						}
+						pb32.set_mipmap(0);
+					}
+					else
+					{
+						pb32.init(w, h);
+						conv32(&pb32, (u8*)&vram[mmStart], rowStride, rows);
+					}
+					write((const u8 *)pb32.data());
+				}
+				else if (deferredBits == 8)
+				{
+					PixelBuffer<u8> pb8;
+					if (mips)
+					{
+						pb8.init(w, h, true);
+						for (u32 i = 0; i <= levels; i++)
+						{
+							pb8.set_mipmap(i);
+							conv8(&pb8, &vram[start + OtherMipPoint[i] * bpp / 8], 1 << i, 1 << i);
+						}
+						pb8.set_mipmap(0);
+					}
+					else
+					{
+						pb8.init(w, h);
+						conv8(&pb8, &vram[mmStart], rowStride, h);
+					}
+					write((const u8 *)pb8.data());
+				}
+				else
+				{
+					PixelBuffer<u16> pb16;
+					if (mips)
+					{
+						pb16.init(w, h, true);
+						for (u32 i = 0; i <= levels; i++)
+						{
+							pb16.set_mipmap(i);
+							u32 vram_addr;
+							if (vq)
+							{
+								vram_addr = start + VQMipPoint[i];
+								if (i == 0)
+								{
+									PixelBuffer<u16> pb0;
+									pb0.init(2, 2 ,false);
+									conv16(&pb0, (u8*)&vram[vram_addr], 2, 2);
+									*pb16.data() = *pb0.data(1, 1);
+									continue;
+								}
+							}
+							else
+								vram_addr = start + OtherMipPoint[i] * bpp / 8;
+							conv16(&pb16, (u8*)&vram[vram_addr], 1 << i, 1 << i);
+						}
+						pb16.set_mipmap(0);
+					}
+					else
+					{
+						pb16.init(w, h);
+						conv16(&pb16, (u8*)&vram[mmStart], rowStride, rows);
+					}
+					write((const u8 *)pb16.data());
+				}
+			});
+			uploadQueued = deadcast::upload::epoch();
+			uploadedHash = newDataHash;
+			uploadedType = tex_type;
+			uploadedGpuPalette = gpuPalette;
+			PrintTextureName();
+			// Restore the original texture size if it was constrained to VRAM limits above
+			size = originalSize;
+			return true;
+		}
+		tex_type = wasType;
+	}
 
 	if (texconv32 != NULL && need_32bit_buffer)
 	{

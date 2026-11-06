@@ -16,6 +16,7 @@
     You should have received a copy of the GNU General Public License
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
+#include "deadcast/uploadworker.h"
 #include "commandpool.h"
 #include "vulkan_context.h"
 
@@ -131,6 +132,8 @@ void CommandPool::EndFrame()
 		commandBuffers.insert(commandBuffers.begin(), first);
 		commandBuffers.push_back(last);
 	}
+	// Deadcast: what this frame's commands copy, written (deadcast/uploadworker.h)
+	deadcast::upload::join();
 	device.resetFences(fences[index].get());
 	const unsigned long long submitStart = gpuKind >= 0 ? perfNow() : 0;
 	VulkanContext::Instance()->SubmitCommandBuffers(commandBuffers, *fences[index]);

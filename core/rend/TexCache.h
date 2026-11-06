@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <atomic>
 #include <string>
 #include <unordered_map>
@@ -111,6 +112,8 @@ public:
 	u32 texture_hash;			// xxhash of texture data, used for custom textures
 	// Deadcast: dataHash() at its last upload, and what it was uploaded as
 	u64 uploadedHash = 0;
+	// Deadcast: the upload worker's epoch when this texture's decode was last queued (deadcast/uploadworker.h)
+	u64 uploadQueued = ~0ull;
 	TextureType uploadedType = TextureType::_565;
 	bool uploadedGpuPalette = false;
 	u32 old_vqtexture_hash;		// legacy hash for vq textures
@@ -161,6 +164,8 @@ public:
 	u64 dataHash();
 	void noteTextureData(u64 hash, u32 bytes);	// Deadcast perf
 	virtual void UploadToGPU(int width, int height, const u8 *temp_tex_buffer, bool mipmapped, bool mipmapsIncluded = false) = 0;
+	// Deadcast: UploadToGPU with the data written later by write (the upload worker), if the renderer can
+	virtual bool UploadToGPUBegin(int width, int height, bool mipmapped, bool mipmapsIncluded, std::function<void(const u8 *)>& write) { return false; }
 	virtual bool Force32BitTexture(TextureType type) const { return false; }
 	void CheckCustomTexture();
 	//true if : dirty or paletted texture and hashes don't match

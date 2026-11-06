@@ -20,8 +20,8 @@
 #include <algorithm>
 #include <xxhash.h>
 
-const u8 *vq_codebook;
-u32 palette_index;
+thread_local const u8 *vq_codebook;
+thread_local u32 palette_index;
 u32 palette16_ram[1024];
 u32 palette32_ram[1024];
 u32 pal_hash_256[4];

@@ -21,6 +21,7 @@
 #include "vulkan.h"
 #include "vulkan_renderer.h"
 #include "drawer.h"
+#include "deadcast/uploadworker.h"
 #include "hw/pvr/ta.h"
 #include "rend/transform_matrix.h"
 
@@ -34,12 +35,16 @@ bool BaseVulkanRenderer::BaseInit(vk::RenderPass renderPass, int subpass)
 	quadPipeline->Init(&shaderManager, renderPass, subpass);
 	framebufferDrawer = std::make_unique<QuadDrawer>();
 	framebufferDrawer->Init(quadPipeline.get());
+	// Deadcast: texture decodes and the frame's vertex copies off this thread
+	if (config::ThreadedRendering)
+		deadcast::upload::start();
 
 	return true;
 }
 
 void BaseVulkanRenderer::Term()
 {
+	deadcast::upload::stop();
 	GetContext()->WaitIdle();
 	GetContext()->PresentFrame(nullptr, nullptr, vk::Extent2D(), 0);
 #if defined(VIDEO_ROUTING) && defined(TARGET_MAC)

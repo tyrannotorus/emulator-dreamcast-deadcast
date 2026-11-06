@@ -56,6 +56,7 @@ public:
 	}
 
 	void UploadToGPU(int width, int height, const u8 *data, bool mipmapped, bool mipmapsIncluded = false) override;
+	bool UploadToGPUBegin(int width, int height, bool mipmapped, bool mipmapsIncluded, std::function<void(const u8 *)>& write) override;
 	u64 GetIntId() { return (u64)reinterpret_cast<uintptr_t>(this); }
 	std::string GetId() override { char s[20]; snprintf(s, sizeof(s), "%p", this); return s; }
 	vk::ImageView GetImageView() const { return *imageView; }
@@ -69,6 +70,9 @@ public:
 private:
 	void Init(u32 width, u32 height, vk::Format format ,u32 dataSize, bool mipmapped, bool mipmapsIncluded);
 	void SetImage(u32 size, const void *data, bool isNew, bool genMipmaps);
+	std::function<void(const void *)> SetImageBegin(u32 srcSize, bool isNew, bool genMipmaps);
+	void formatAndSize(int width, int height, bool mipmapsIncluded, vk::Format& format, u32& dataSize) const;
+	vk::ImageTiling tilingFor(u32 width, u32 height, vk::Format format, u32 dataSize, bool mipmapped) const;
 	void CreateImage(vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::ImageLayout initialLayout,
 			vk::ImageAspectFlags aspectMask);
 	void GenerateMipmaps();

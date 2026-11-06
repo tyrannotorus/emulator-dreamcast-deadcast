@@ -147,10 +147,11 @@ void setImageLayout(vk::CommandBuffer const& commandBuffer, vk::Image image, vk:
 	commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier);
 }
 
-void Texture::UploadToGPU(int width, int height, const u8 *data, bool mipmapped, bool mipmapsIncluded)
+// Deadcast: the image's format and the size of its data, mipmaps included or not (UploadToGPU, UploadToGPUBegin)
+void Texture::formatAndSize(int width, int height, bool mipmapsIncluded, vk::Format& format, u32& dataSize) const
 {
-	vk::Format format = vk::Format::eUndefined;
-	u32 dataSize = width * height * 2;
+	format = vk::Format::eUndefined;
+	dataSize = width * height * 2;
 	switch (tex_type)
 	{
 	case TextureType::_5551:
@@ -182,6 +183,13 @@ void Texture::UploadToGPU(int width, int height, const u8 *data, bool mipmapped,
 			w /= 2;
 		}
 	}
+}
+
+void Texture::UploadToGPU(int width, int height, const u8 *data, bool mipmapped, bool mipmapsIncluded)
+{
+	vk::Format format;
+	u32 dataSize;
+	formatAndSize(width, height, mipmapsIncluded, format, dataSize);
 	bool isNew = true;
 	if (width != (int)extent.width || height != (int)extent.height
 			|| format != this->format || !this->image)
@@ -189,6 +197,44 @@ void Texture::UploadToGPU(int width, int height, const u8 *data, bool mipmapped,
 	else
 		isNew = false;
 	SetImage(dataSize, data, isNew, mipmapped && !mipmapsIncluded);
+}
+
+// Deadcast: UploadToGPU with the data written later, by write (on the upload worker, before the frame is
+// submitted): the image made and the commands recorded now. Only through a staging buffer: false for a
+// linear image (written in place), which UploadToGPU then does as before.
+bool Texture::UploadToGPUBegin(int width, int height, bool mipmapped, bool mipmapsIncluded, std::function<void(const u8 *)>& write)
+{
+	vk::Format format;
+	u32 dataSize;
+	formatAndSize(width, height, mipmapsIncluded, format, dataSize);
+	const bool remake = width != (int)extent.width || height != (int)extent.height || format != this->format || !this->image;
+	if (remake ? tilingFor(width, height, format, dataSize, mipmapped) != vk::ImageTiling::eOptimal : !needsStaging)
+		return false;
+	if (remake)
+		Init(width, height, format, dataSize, mipmapped, mipmapsIncluded);
+	std::function<void(const void *)> writeImage = SetImageBegin(dataSize, remake, mipmapped && !mipmapsIncluded);
+	write = [writeImage](const u8 *data) { writeImage(data); };
+	return true;
+}
+
+// Deadcast: the tiling Init gives an image (optimal: written through a staging buffer)
+vk::ImageTiling Texture::tilingFor(u32 width, u32 height, vk::Format format, u32 dataSize, bool mipmapped) const
+{
+	vk::FormatProperties formatProperties = physicalDevice.getFormatProperties(format);
+
+	vk::ImageTiling imageTiling = (formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage)
+			== vk::FormatFeatureFlagBits::eSampledImage
+			? vk::ImageTiling::eOptimal
+			: vk::ImageTiling::eLinear;
+#ifndef __APPLE__
+	// Texture corruption with moltenvk. Perf improvement on other platforms
+	if (height <= 32
+			&& dataSize / height <= 64
+			&& !mipmapped
+			&& (formatProperties.linearTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage) == vk::FormatFeatureFlagBits::eSampledImage)
+		imageTiling = vk::ImageTiling::eLinear;
+#endif
+	return imageTiling;
 }
 
 void Texture::Init(u32 width, u32 height, vk::Format format, u32 dataSize, bool mipmapped, bool mipmapsIncluded)
@@ -204,19 +250,7 @@ void Texture::Init(u32 width, u32 height, vk::Format format, u32 dataSize, bool 
 		mipmapLevels += floor(log2(std::max(width, height)));
 
 	vk::FormatProperties formatProperties = physicalDevice.getFormatProperties(format);
-
-	vk::ImageTiling imageTiling = (formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage)
-			== vk::FormatFeatureFlagBits::eSampledImage
-			? vk::ImageTiling::eOptimal
-			: vk::ImageTiling::eLinear;
-#ifndef __APPLE__
-	// Texture corruption with moltenvk. Perf improvement on other platforms
-	if (height <= 32
-			&& dataSize / height <= 64
-			&& !mipmapped
-			&& (formatProperties.linearTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage) == vk::FormatFeatureFlagBits::eSampledImage)
-		imageTiling = vk::ImageTiling::eLinear;
-#endif
+	const vk::ImageTiling imageTiling = tilingFor(width, height, format, dataSize, mipmapped);
 	needsStaging = imageTiling != vk::ImageTiling::eLinear;
 	vk::ImageLayout initialLayout;
 	vk::ImageUsageFlags usageFlags = vk::ImageUsageFlagBits::eSampled;
@@ -360,6 +394,70 @@ void Texture::SetImage(u32 srcSize, const void *srcData, bool isNew, bool genMip
 			setImageLayout(commandBuffer, image.get(), format, mipmapLevels, isNew ? vk::ImageLayout::ePreinitialized : vk::ImageLayout::eGeneral,
 					vk::ImageLayout::eShaderReadOnlyOptimal);
 	}
+}
+
+// Deadcast: SetImage through the staging buffer, its commands recorded now and its data written by what it
+// returns (UploadToGPUBegin). The staging buffer is kept by pointer: Init replacing it defers its deletion.
+std::function<void(const void *)> Texture::SetImageBegin(u32 srcSize, bool isNew, bool genMipmaps)
+{
+	verify((bool)commandBuffer);
+	verify(needsStaging);
+
+	static const float scopeColor[4] = { 1.0f, 1.0f, 0.0f, 1.0f };
+	CommandBufferDebugScope _(commandBuffer, "SetImageBegin", scopeColor);
+
+	if (!stagingBufferData)
+		// This can happen if a texture is first created for RTT, then later updated
+		stagingBufferData = std::make_unique<BufferData>(srcSize, vk::BufferUsageFlagBits::eTransferSrc);
+	BufferData *staging = stagingBufferData.get();
+	u8 *data = (u8 *)staging->MapMemory();
+	verify(data != nullptr);
+	// as SetImage writes it: each mipmap level at a 4-byte boundary, else as it is
+	const bool levelsAligned = mipmapLevels > 1 && !genMipmaps && tex_type != TextureType::_8888;
+	const u32 levels = mipmapLevels;
+	std::function<void(const void *)> write = [staging, data, levelsAligned, levels, srcSize](const void *srcData) {
+		if (levelsAligned)
+		{
+			const u8 *src = (const u8 *)srcData;
+			u8 *dst = data;
+			for (u32 i = 0; i < levels; i++)
+			{
+				const u32 size = (1 << (2 * i)) * 2;
+				memcpy(dst, src, size);
+				dst += ((size + 3) >> 2) << 2;
+				src += size;
+			}
+		}
+		else
+			memcpy(data, srcData, srcSize);
+		staging->UnmapMemory();
+	};
+
+	// the commands SetImage records after its copy
+	setImageLayout(commandBuffer, image.get(), format, mipmapLevels, isNew ? vk::ImageLayout::eUndefined : vk::ImageLayout::eShaderReadOnlyOptimal,
+			vk::ImageLayout::eTransferDstOptimal);
+	if (mipmapLevels > 1 && !genMipmaps)
+	{
+		vk::DeviceSize bufferOffset = 0;
+		for (u32 i = 0; i < mipmapLevels; i++)
+		{
+			vk::BufferImageCopy copyRegion(bufferOffset, 1 << i, 1 << i, vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, mipmapLevels - i - 1, 0, 1),
+					vk::Offset3D(0, 0, 0), vk::Extent3D(1 << i, 1 << i, 1));
+			commandBuffer.copyBufferToImage(staging->buffer.get(), image.get(), vk::ImageLayout::eTransferDstOptimal, copyRegion);
+			const u32 size = (1 << (2 * i)) * (tex_type == TextureType::_8888 ? 4 : 2);
+			bufferOffset += ((size + 3) >> 2) << 2;
+		}
+	}
+	else
+	{
+		vk::BufferImageCopy copyRegion(0, extent.width, extent.height, vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1),
+				vk::Offset3D(0, 0, 0), vk::Extent3D(extent, 1));
+		commandBuffer.copyBufferToImage(staging->buffer.get(), image.get(), vk::ImageLayout::eTransferDstOptimal, copyRegion);
+		if (mipmapLevels > 1)
+			GenerateMipmaps();
+	}
+	setImageLayout(commandBuffer, image.get(), format, mipmapLevels, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+	return write;
 }
 
 void Texture::GenerateMipmaps()

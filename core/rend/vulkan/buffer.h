@@ -19,6 +19,7 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "deadcast/uploadworker.h"
 #include "vulkan.h"
 #include "allocator.h"
 #include "utils.h"
@@ -118,6 +119,45 @@ public:
 	{
 		if (!chunks.empty())
 			bufferData.upload(chunks.size(), &chunkSizes[0], &chunks[0], bufOffset);
+	}
+
+	// Deadcast: as upload, the large chunks copied on the upload worker (deadcast/uploadworker.h): what they
+	// point to must stay as it is until the renderer joins it (the end of Drawer::Draw)
+	void uploadDeferred(BufferData& bufferData, u32 bufOffset = 0)
+	{
+		if (chunks.empty())
+			return;
+		verify(bufOffset + offset <= bufferData.bufferSize);
+		struct Copy
+		{
+			u8 *dst;
+			const void *src;
+			u32 size;
+		};
+		std::vector<Copy> large;
+		u8 *dst = (u8 *)bufferData.MapMemory() + bufOffset;
+		for (size_t i = 0; i < chunks.size(); i++)
+		{
+			if (chunks[i] != nullptr)
+			{
+				if (chunkSizes[i] >= 16384)
+					large.push_back({ dst, chunks[i], chunkSizes[i] });
+				else
+					memcpy(dst, chunks[i], chunkSizes[i]);
+			}
+			dst += chunkSizes[i];
+		}
+		const BufferData *data = &bufferData;
+		if (large.empty())
+		{
+			data->UnmapMemory();
+			return;
+		}
+		deadcast::upload::run([large = std::move(large), data]() {
+			for (const Copy& copy : large)
+				memcpy(copy.dst, copy.src, copy.size);
+			data->UnmapMemory();
+		});
 	}
 
 	vk::DeviceSize size() const {

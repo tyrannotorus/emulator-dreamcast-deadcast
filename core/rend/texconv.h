@@ -18,8 +18,9 @@
 #include "types.h"
 
 constexpr int VQ_CODEBOOK_SIZE = 256 * 8;
-extern const u8 *vq_codebook;
-extern u32 palette_index;
+// Deadcast: per thread: textures are decoded on the renderer's thread and on the upload worker (TexCache.cpp)
+extern thread_local const u8 *vq_codebook;
+extern thread_local u32 palette_index;
 extern u32 palette16_ram[1024];
 extern u32 palette32_ram[1024];
 extern u32 pal_hash_256[4];
