@@ -51,7 +51,9 @@ struct Arm64RegAlloc : RegAlloc<eReg, eFReg, ALLOC_F64>
 
 	void DoAlloc(RuntimeBlockInfo* block, bool pinning)
 	{
-		lazyMmuWriteback = true;	// Deadcast: see Arm64Assembler::genMmuSlowLookups
+		// Deadcast: off. The lazy write-back under the MMU (registers written back only where an access's translation misses,
+		// Arm64Assembler::genMmuSlowLookups) wrote stale host registers over the context: Armada's game, past its intro, never ran.
+		lazyMmuWriteback = false;
 		jdynInHostReg = true;		// Deadcast: the exits use w29 (RelinkBlock)
 		Unpin();
 		if (pinning)

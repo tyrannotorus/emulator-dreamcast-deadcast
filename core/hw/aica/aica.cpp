@@ -106,20 +106,16 @@ static bool throttled;	// the SH4 is waiting for fewer than MaxLag samples due
 static bool stopping;
 static bool inStep;		// netplay: the journals
 static std::atomic<bool> sleeping;	// the AICA thread waiting for samples due
-// what the SH4 interrupt must become: 0 unchanged, else (the sample it was made at << 2) | 2 | the line
+// what the SH4 interrupt must become: 0 unchanged, else (the acknowledgements applied by then << 2) | 2 | the line
 static std::atomic<u64> sh4Irq { 0 };
 // Deadcast: outside step, the SH4's acknowledgements of the AICA's interrupt (MCIRE, acknowledgeSh4Irq) wait
-// for nothing: each is applied by the AICA thread at the sample due when it was written
-static std::atomic<u64> dueTotal { 0 };	// samples due, all along (the SH4's count)
-static u64 madeTotal;					// on the AICA thread: samples made, all along
-static u64 ackAt;						// on the SH4: the sample due at its last acknowledgement
-struct Ack
-{
-	u64 at;
-	u32 bits;
-};
+// for nothing: the AICA thread applies each at its next sample. The SH4 saw the AICA as the AICA thread left
+// it, up to MaxLag samples behind its own: applied at the SH4's sample, an acknowledgement cleared what the
+// AICA raised in between, unseen: Armada (Windows CE), its intro cut short, then waited for good.
+static std::atomic<u64> acksMade { 0 };	// by the SH4, all along
+static u64 acksApplied;					// by the AICA thread, all along (under ackMutex)
 static std::mutex ackMutex;
-static std::deque<Ack> acks;
+static std::deque<u32> acks;
 static thread_local bool onWorker;
 
 static bool running() {
@@ -259,12 +255,12 @@ static void setSh4Irq(bool raise)
 		asic_CancelInterrupt(holly_SPU_IRQ);
 }
 
-// the SH4 interrupt raised by the AICA, as the AICA thread last left it, unless from before the SH4's last
-// acknowledgement (which it would have been cleared by)
+// the SH4 interrupt raised by the AICA, as the AICA thread last left it, unless from before it applied the
+// SH4's last acknowledgement (which it would have been cleared by)
 static void applySh4Irq()
 {
 	const u64 irq = worker::sh4Irq.exchange(0);
-	if (irq != 0 && (irq >> 2) >= worker::ackAt)
+	if (irq != 0 && (irq >> 2) >= worker::acksMade.load(std::memory_order_relaxed))
 		setSh4Irq((irq & 1) != 0);
 }
 
@@ -283,7 +279,7 @@ static bool UpdateSh4Ints()
 		}
 	}
 	else if (worker::onWorker)
-		worker::sh4Irq = (worker::madeTotal << 2) | 2 | (p_ints != 0 ? 1 : 0);
+		worker::sh4Irq = (worker::acksApplied << 2) | 2 | (p_ints != 0 ? 1 : 0);
 	else
 	{
 		setSh4Irq(p_ints != 0);
@@ -293,15 +289,16 @@ static bool UpdateSh4Ints()
 	return p_ints != 0;
 }
 
-// the SH4's acknowledgements due by sample `at`, in order: on the AICA thread as it gets there, or on the
-// SH4's with the AICA thread caught up and idle (sync)
-static void applyAcks(u64 at)
+// the SH4's acknowledgements, in order: on the AICA thread at its next sample, or on the SH4's with the AICA
+// thread idle (sync, stop)
+static void applyAcks()
 {
 	std::lock_guard<std::mutex> lock(worker::ackMutex);
-	while (!worker::acks.empty() && worker::acks.front().at <= at)
+	while (!worker::acks.empty())
 	{
-		MCIPD->full &= ~worker::acks.front().bits;
+		MCIPD->full &= ~worker::acks.front();
 		worker::acks.pop_front();
+		worker::acksApplied++;
 		UpdateSh4Ints();
 	}
 }
@@ -310,15 +307,14 @@ bool acknowledgeSh4Irq(u32 bits)
 {
 	if (!worker::running() || worker::onWorker || worker::inStep)
 		return false;
-	const u64 at = worker::dueTotal.load();
 	bits &= 0x7ff;
 	{
 		std::lock_guard<std::mutex> lock(worker::ackMutex);
-		worker::acks.push_back({ at, bits });
+		worker::acks.push_back(bits);
+		worker::acksMade.store(worker::acksMade.load(std::memory_order_relaxed) + 1, std::memory_order_release);
 	}
-	worker::ackAt = at;
 	// the line as far as is known now: what is pending and enabled, less what was acknowledged; the AICA
-	// thread says more once it gets to that sample
+	// thread says more once it has applied it
 	setSh4Irq((MCIEB->full & MCIPD->full & ~bits & 0x7ff) != 0);
 	return true;
 }
@@ -369,7 +365,6 @@ static int AicaUpdate(int tag, int cycles, int jitter, void *arg)
 		return AICA_TICK * TickSamples;
 	}
 	applySh4Irq();
-	worker::dueTotal += TickSamples;
 	u32 due = worker::pending.fetch_add(TickSamples) + TickSamples;
 	if (due > worker::MaxLag)
 	{
@@ -425,21 +420,7 @@ static void workerLoop()
 			journal::made = journal::making;
 		}
 		else if (samples != 0)
-		{
-			// each sample after the SH4's acknowledgements made while it was due
-			const u64 end = worker::madeTotal + samples;
-			while (worker::madeTotal < end)
-			{
-				applyAcks(worker::madeTotal);
-				u64 until = end;
-				{
-					std::lock_guard<std::mutex> ackLock(worker::ackMutex);
-					if (!worker::acks.empty())
-						until = std::min(until, std::max(worker::acks.front().at, worker::madeTotal + 1));
-				}
-				arm::run((u32)(until - worker::madeTotal));
-			}
-		}
+			arm::run(samples);	// the SH4's acknowledgements: timeStep
 		lock.lock();
 		worker::busy = false;
 		if (worker::pending < worker::Batch || worker::throttled)
@@ -472,7 +453,7 @@ void sync()
 	{
 		applySh4Irq();
 		// all caught up: the acknowledgements made at the sample due now
-		applyAcks(worker::dueTotal);
+		applyAcks();
 	}
 }
 
@@ -482,9 +463,8 @@ static void startWorker()
 		return;
 	worker::stopping = false;
 	worker::pending = 0;
-	worker::dueTotal = 0;
-	worker::madeTotal = 0;
-	worker::ackAt = 0;
+	worker::acksMade = 0;
+	worker::acksApplied = 0;
 	worker::sh4Irq = 0;
 	worker::acks.clear();
 	worker::thread = std::thread(workerLoop);
@@ -501,13 +481,17 @@ static void stopWorker()
 	worker::wake.notify_one();
 	worker::thread.join();
 	applySh4Irq();
-	applyAcks(~0ull);
+	applyAcks();
 }
 
 //Mainloop
 
 void timeStep()
 {
+	// Deadcast: the SH4's acknowledgements, on the AICA thread, at the sample after it sees them
+	if (worker::onWorker && !worker::inStep
+			&& worker::acksMade.load(std::memory_order_acquire) != worker::acksApplied)
+		applyAcks();
 	for (auto& timer : timers)
 		timer.StepTimer(1);
 
@@ -521,8 +505,6 @@ void timeStep()
 	UpdateSh4Ints();	
 	if (worker::inStep && worker::onWorker)
 		journal::making++;
-	else if (worker::onWorker)
-		worker::madeTotal++;
 }
 
 static void AicaInternalDMA()
