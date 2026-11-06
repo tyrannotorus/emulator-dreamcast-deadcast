@@ -12,7 +12,7 @@ endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/shell/cmake")
 
-project(deadcast VERSION 1.2.1)
+project(deadcast VERSION 1.2.2)
 # no path of the build machine in the binary
 add_compile_options(-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
 
