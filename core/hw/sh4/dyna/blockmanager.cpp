@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <set>
 #include <map>
+#include <deque>
+#include <unordered_map>
 #include "blockmanager.h"
 #include "ngen.h"
 
@@ -382,6 +384,96 @@ void bm_UnlockPage(u32 addr, u32 size)
 		virtmem::region_unlock(&mem_b[addr], size);
 }
 
+// Deadcast: code a game rewrites in place again and again with the same few versions (Armada writes its
+// vertex routines into two buffers, a few versions draw after draw, hundreds of times a second): each version
+// is compiled once, as any block, kept (parked) while another version is there, and put back when its code
+// is there again, instead of compiled again, unoptimised (a temp block), every time. At most MaxParked
+// versions an address, the oldest dropped; an address compiled WildCompiles times goes to temp blocks.
+namespace
+{
+struct SmcAddress
+{
+	std::deque<RuntimeBlockInfoPtr> parked;
+	u32 compiles = 0;
+};
+std::unordered_map<u32, SmcAddress> smcAddresses;
+constexpr size_t MaxParked = 8;
+constexpr u32 WildCompiles = 64;
+}
+
+bool bm_SmcVariantsUsable(u32 addr)
+{
+	auto it = smcAddresses.find(addr);
+	return it == smcAddresses.end() || it->second.compiles < WildCompiles;
+}
+
+void bm_SmcVariantCompiled(RuntimeBlockInfo* block)
+{
+	const u8 *code = GetMemPtr(block->addr, block->sh4_code_size);
+	if (code == nullptr)
+		return;
+	block->smcCode.assign(code, code + block->sh4_code_size);
+	smcAddresses[block->addr].compiles++;
+}
+
+// as bm_DiscardBlock, but kept for bm_UnparkBlock
+void bm_ParkBlock(RuntimeBlockInfo* block)
+{
+	auto it = blkmap.find((void*)block->code);
+	verify(it != blkmap.end());
+	RuntimeBlockInfoPtr block_ptr = it->second;
+	blkmap.erase(it);
+
+	block_ptr->pNextBlock = NULL;
+	block_ptr->pBranchBlock = NULL;
+	block_ptr->Relink();
+
+	verify((void*)bm_GetCode(block_ptr->addr) == CC_RW2RX((void*)block_ptr->code));
+	FPCA(block_ptr->addr) = ngen_FailedToFindBlock;
+#ifdef FAST_MMU
+	mmuDispatchCacheFlush();
+#endif
+	// the blocks linked to it go through the main loop
+	block_ptr->Discard();
+
+	auto& parked = smcAddresses[block_ptr->addr].parked;
+	parked.push_back(block_ptr);
+	if (parked.size() > MaxParked)
+	{
+		del_blocks.push_back(parked.front());
+		parked.pop_front();
+	}
+}
+
+// the version of the code at addr (physical) compiled for vaddr, if parked and that code is there again
+DynarecCodeEntryPtr bm_UnparkBlock(u32 addr, u32 vaddr, fpscr_t fpu)
+{
+	auto it = smcAddresses.find(addr);
+	if (it == smcAddresses.end())
+		return nullptr;
+	auto& parked = it->second.parked;
+	for (auto p = parked.begin(); p != parked.end(); ++p)
+	{
+		RuntimeBlockInfoPtr block = *p;
+		// what the decoder compiled it for (state_Setup)
+		if (block->vaddr != vaddr || block->fpu_cfg.PR != fpu.PR || block->fpu_cfg.SZ != fpu.SZ
+				|| block->fpu_cfg.RM != fpu.RM)
+			continue;
+		const u8 *code = GetMemPtr(addr, block->sh4_code_size);
+		if (code == nullptr || memcmp(code, block->smcCode.data(), block->sh4_code_size) != 0)
+			continue;
+		parked.erase(p);
+		verify((void*)bm_GetCode(addr) == (void*)ngen_FailedToFindBlock);
+		blkmap[(void*)block->code] = block;
+		FPCA(addr) = (DynarecCodeEntryPtr)CC_RW2RX(block->code);
+#ifdef FAST_MMU
+		mmuDispatchCacheFlush();
+#endif
+		return block->code;
+	}
+	return nullptr;
+}
+
 void bm_ResetCache()
 {
 #ifdef FAST_MMU
@@ -404,6 +496,10 @@ void bm_ResetCache()
 	}
 
 	blkmap.clear();
+	// Deadcast: the parked versions' code is gone too
+	for (auto& [addr, smc] : smcAddresses)
+		del_blocks.insert(del_blocks.end(), smc.parked.begin(), smc.parked.end());
+	smcAddresses.clear();
 	// blkmap includes temp blocks as well
 	all_temp_blocks.clear();
 

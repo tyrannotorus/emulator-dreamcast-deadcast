@@ -191,6 +191,15 @@ static DynarecCodeEntryPtr compilePCTimed(u32 blockcheck_failures)
 	if (codeBuffer.getFreeSpace() < 32_KB || pc == 0x8c0000e0 || pc == 0xac010000 || pc == 0xac008300)
 		Sh4Recompiler::Instance->ResetCache();
 
+	// Deadcast: rewritten code: its version compiled before, if parked (bm_UnparkBlock)
+	if (mmu_enabled() && !smc_hotspots.empty())
+	{
+		u32 paddr;
+		if (mmu_instruction_translation(pc, paddr) == MmuError::NONE && smc_hotspots.count(paddr) != 0)
+			if (DynarecCodeEntryPtr code = bm_UnparkBlock(paddr, pc, Sh4cntx.fpscr))
+				return code;
+	}
+
 	RuntimeBlockInfo* rbi = sh4Dynarec->allocateBlock();
 
 	if (!rbi->Setup(pc, Sh4cntx.fpscr))
@@ -199,12 +208,17 @@ static DynarecCodeEntryPtr compilePCTimed(u32 blockcheck_failures)
 		return nullptr;
 	}
 	rbi->blockcheck_failures = blockcheck_failures;
-	if (smc_hotspots.find(rbi->addr) != smc_hotspots.end())
+	// Deadcast: under the MMU, as any block, its code kept (bm_SmcVariantCompiled), unless rewritten too often
+	const bool smcVariant = mmu_enabled() && smc_hotspots.count(rbi->addr) != 0 && bm_SmcVariantsUsable(rbi->addr);
+	if (!smcVariant && smc_hotspots.find(rbi->addr) != smc_hotspots.end())
 	{
 		codeBuffer.useTempBuffer(true);
 		if (codeBuffer.getFreeSpace() < 32_KB)
 			Sh4Recompiler::Instance->clear_temp_cache(false);
 		rbi->temp_block = true;
+		// Deadcast: never linked under the MMU, either way: the temp cache is cleared without undoing links
+		// (bm_ResetTempCache), and a block linked to one jumped into whatever was compiled over it
+		rbi->mmuNoLink = true;
 		if (rbi->read_only)
 			INFO_LOG(DYNAREC, "WARNING: temp block %x (%x) is protected!", rbi->vaddr, rbi->addr);
 	}
@@ -214,6 +228,8 @@ static DynarecCodeEntryPtr compilePCTimed(u32 blockcheck_failures)
 	verify(rbi->code != nullptr);
 	// Deadcast: its ops are not needed once compiled (some 7 KB a block)
 	std::vector<shil_opcode>().swap(rbi->oplist);
+	if (smcVariant && block_check)
+		bm_SmcVariantCompiled(rbi);
 
 	bm_AddBlock(rbi);
 
@@ -284,7 +300,11 @@ DynarecCodeEntryPtr DYNACALL rdv_BlockCheckFail(u32 addr)
 				if (inserted)
 					DEBUG_LOG(DYNAREC, "rdv_BlockCheckFail SMC hotspot @ %08x fails %d", addr, blockcheck_failures);
 			}
-			bm_DiscardBlock(block.get());
+			// Deadcast: a version of rewritten code, kept (bm_ParkBlock)
+			if (!block->smcCode.empty() && !block->read_only)
+				bm_ParkBlock(block.get());
+			else
+				bm_DiscardBlock(block.get());
 		}
 	}
 	else
@@ -353,7 +373,7 @@ void* DYNACALL rdv_LinkBlock(u8* code,u32 dpc)
 			return (void *)rv;
 		u32 target = bcls == BET_CLS_COND && !dpc ? rbi->NextBlock : rbi->BranchBlock;
 		RuntimeBlockInfoPtr nxt = bm_GetBlock((void *)rv);
-		if (Sh4cntx.pc == target && nxt && nxt->vaddr == target
+		if (Sh4cntx.pc == target && nxt && nxt->vaddr == target && !nxt->temp_block
 				&& ((target >> 31) != 0 || (nxt->addr >> 12) == (rbi->addr >> 12)))
 		{
 			if (bcls == BET_CLS_COND && !dpc)

@@ -133,7 +133,8 @@ Option<bool> GDB("Debug.GDBEnabled");
 Option<int> GDBPort("Debug.GDBPort", debugger::DEFAULT_PORT);
 Option<bool> GDBWaitForConnection("Debug.GDBWaitForConnection");
 Option<bool> UseReios("UseReios");
-Option<bool> FastGDRomLoad("FastGDRomLoad", false);
+// Deadcast: on: the disc's DMA without the drive's 1.8 MB/s, for shorter loads
+Option<bool> FastGDRomLoad("FastGDRomLoad", true);
 Option<bool> RamMod32MB("Dreamcast.RamMod32MB", false);
 
 Option<bool> OpenGlChecks("OpenGlChecks", false, "validate");

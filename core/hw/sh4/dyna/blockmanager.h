@@ -46,7 +46,9 @@ struct RuntimeBlockInfo
 	u32 pcCheckSize = 0;
 	// Deadcast: under the MMU, each access through the window (offset in the code) and its stub's
 	std::vector<std::pair<u32, u32>> mmuStubs;
-	bool mmuNoLink = false;	// Deadcast: rdv_LinkBlock found an exit could not be linked under the MMU
+	bool mmuNoLink = false;
+	// Deadcast: the code it was compiled from, when the code at its address keeps being rewritten (bm_ParkBlock)
+	std::vector<u8> smcCode;	// Deadcast: rdv_LinkBlock found an exit could not be linked under the MMU
 
 	BlockEndType BlockType;
 	bool has_jcond;
@@ -89,6 +91,11 @@ void bm_ForEachBlock(const std::function<void(const RuntimeBlockInfo&)>& fn);
 // whether a block is compiled for this address
 bool bm_HasBlock(u32 addr);
 void bm_DiscardBlock(RuntimeBlockInfo* block);
+// Deadcast: code rewritten in place with the same few versions over and over (blockmanager.cpp)
+bool bm_SmcVariantsUsable(u32 addr);
+void bm_SmcVariantCompiled(RuntimeBlockInfo* block);
+void bm_ParkBlock(RuntimeBlockInfo* block);
+DynarecCodeEntryPtr bm_UnparkBlock(u32 addr, u32 vaddr, fpscr_t fpu);
 void bm_Reset();
 void bm_ResetCache();
 void bm_ResetTempCache(bool full);
