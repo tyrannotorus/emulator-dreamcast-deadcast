@@ -473,7 +473,10 @@ extern std::array<Option<int>, 4> CrosshairColor;
 extern Option<int> CrosshairSize;
 extern Option<int> SkipFrame;
 extern Option<int> MaxThreads;
-extern Option<int> AutoSkipFrame;		// 0: none, 1: some, 2: more
+// Deadcast: auto frame skip always at its most (2: up to two frames in a row, ta_ctx.cpp), not a setting: a
+// value saved in emu.cfg or a game's section is ignored. Off, a game behind real time starves the audio
+// output and crackles.
+constexpr int AutoSkipFrame = 2;
 extern Option<int> RenderResolution;
 extern Option<bool> IntegerScale;
 extern Option<bool> LinearInterpolation;

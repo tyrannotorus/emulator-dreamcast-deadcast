@@ -51,15 +51,15 @@ bool QueueRender(TA_context* ctx)
 	verify(ctx != 0);
 	
 	bool skipFrame = !rend_is_enabled();
-	// Deadcast: with auto frame skip, frames are not rendered while emulation is behind real time, up to
-	// AutoSkipFrame in a row, so the SH4 can catch up (renders to texture are never skipped)
+	// Deadcast: auto frame skip (always on, option.h): frames are not rendered while emulation is behind real
+	// time, up to AutoSkipFrame in a row, so the SH4 can catch up (renders to texture are never skipped)
 	static int lagSkips;
 	if (!skipFrame)
 	{
 		RenderCount++;
 		if (RenderCount % (config::SkipFrame + 1) != 0)
 			skipFrame = true;
-		else if (config::AutoSkipFrame != 0 && !ctx->rend.isRTT && emulationLagMs > 8.f
+		else if (!ctx->rend.isRTT && emulationLagMs > 8.f
 				&& lagSkips < config::AutoSkipFrame
 				// Deadcast: and not while the audio output has a third of its buffer or more still to play:
 				// emulation is then ahead of real time, whatever the waits for the screen added to the lag
