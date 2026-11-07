@@ -148,7 +148,9 @@ public:
 		}
 		else if (PerGameOption && settings.hasPerGameConfig())
 		{
-			if (value == doLoad(section, name))
+			// Deadcast: against emu.cfg's value, else the default: read with this value as its fallback, a setting
+			// emu.cfg does not have always looked the same, and a game's own change of it was dropped
+			if (value == (hasEntry(section, name) ? doLoad(section, name) : defaultValue))
 			{
 				// delete existing per-game option if any
 				deleteEntry(settings.gameId, section + "." + name);

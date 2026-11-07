@@ -5,6 +5,7 @@
 #include "cfg/cfg.h"
 #include "cfg/option.h"
 #include "emulator.h"
+#include "hw/aica/aica.h"
 #include "hw/pvr/Renderer_if.h"
 #include "input/gamepad_device.h"
 #include "log/Log.h"
@@ -126,6 +127,10 @@ options::Store liveSettings()
 				{
 					o->set(value != 0);
 					o->save();
+					// Threaded Audio: the AICA thread started or stopped now (the game is stopped under the menu);
+					// a two-player session keeps it on (emulator.cpp)
+					if (o == &config::ThreadedAudio && !config::GGPOEnable)
+						aica::applyThreadedAudio();
 				}
 			}
 			else if (config::Option<int> *o = option<int>(setting))

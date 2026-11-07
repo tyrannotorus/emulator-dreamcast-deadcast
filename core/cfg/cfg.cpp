@@ -111,10 +111,18 @@ bool hasSection(const std::string& section) {
 
 void deleteSection(const std::string& section) {
 	cfgdb.deleteSection(section);
+	// Deadcast: written as a value saved is
+	autoSave();
 }
 
 void deleteEntry(const std::string& section, const std::string& key) {
 	cfgdb.deleteEntry(section, key);
+	// Deadcast: written as a value saved is (a game's own value back to the default was kept in the file)
+	autoSave();
+}
+
+bool hasEntry(const std::string& section, const std::string& key) {
+	return cfgdb.hasEntry(section, key);
 }
 
 void setAutoSave(bool autoSaving)

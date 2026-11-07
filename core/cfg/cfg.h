@@ -28,6 +28,8 @@ void setAutoSave(bool autoSave);
 bool hasSection(const std::string& section);
 void deleteSection(const std::string& section);
 void deleteEntry(const std::string& section, const std::string& key);
+// Deadcast: whether emu.cfg has [section] key
+bool hasEntry(const std::string& section, const std::string& key);
 
 std::vector<std::string> getEntries(const std::string& section);
 }

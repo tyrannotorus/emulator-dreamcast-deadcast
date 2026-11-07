@@ -899,7 +899,11 @@ void loadGameSpecificSettings()
 		config::Settings::instance().setPerGameConfig(true);
 
 	if (config::GGPOEnable)
+	{
 		config::Sh4Clock.override(200);
+		// Deadcast: the AICA thread in step on both Bricks, whatever either's Threaded Audio
+		config::ThreadedAudio.override(true);
+	}
 }
 
 void Emulator::step()
