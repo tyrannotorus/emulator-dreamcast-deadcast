@@ -163,6 +163,16 @@ public:
 
 	T& get() { return value; }
 	void set(T v) { value = v; }
+	// Deadcast: the value as the default for every game ([section] in emu.cfg), the game's own copy dropped; an option the
+	// game overrides keeps the default as it is
+	void saveDefault() const
+	{
+		if (overridden)
+			return;
+		doSave(section, name);
+		if (settings.hasPerGameConfig())
+			deleteEntry(settings.gameId, section + "." + name);
+	}
 	// Deadcast: the option's emu.cfg section and key
 	const std::string& getSection() const { return section; }
 	const std::string& getName() const { return name; }

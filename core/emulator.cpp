@@ -893,6 +893,10 @@ void loadGameSpecificSettings()
 
 	// Reload per-game settings
 	config::Settings::instance().load(true);
+	// Deadcast: every change in Options is the game's own (its section of emu.cfg: what differs from the defaults); Save as
+	// default puts a page's in the defaults (deadcast/menu.cpp)
+	if (!settings.content.gameId.empty())
+		config::Settings::instance().setPerGameConfig(true);
 
 	if (config::GGPOEnable)
 		config::Sh4Clock.override(200);

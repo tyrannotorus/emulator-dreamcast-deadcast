@@ -96,7 +96,7 @@ struct State
 };
 State st;
 
-// The emulator's settings (ui/src/options.h): live, saved as they change
+// The emulator's settings (ui/src/options.h): live, saved as they change (the game's own: Flycast's per-game config)
 template<typename T>
 config::Option<T> *option(const options::Setting& setting)
 {
@@ -211,13 +211,21 @@ std::string bindingName(DreamcastKey key)
 	return name.empty() ? "NONE" : name;
 }
 
+// the mapping a change goes in: the game's own (Flycast's per-game mapping file), made from the defaults at its first change
+std::shared_ptr<InputMapping> changing(GamepadDevice& gamepad)
+{
+	if (!settings.content.gameId.empty() && !gamepad.isPerGameMapping())
+		gamepad.setPerGameMapping(true);
+	return gamepad.get_input_mapping();
+}
+
 // one control does one thing: taken from whatever had it
 void bind(DreamcastKey key, const InputMapping::InputDef& input)
 {
 	std::shared_ptr<GamepadDevice> gamepad = pad();
 	if (gamepad == nullptr)
 		return;
-	std::shared_ptr<InputMapping> mapping = gamepad->get_input_mapping();
+	std::shared_ptr<InputMapping> mapping = changing(*gamepad);
 	for (const std::vector<Control> *list : { &Controls, &Unlisted })
 		for (const Control& control : *list)
 		{
@@ -242,8 +250,20 @@ void unbind(DreamcastKey key)
 	std::shared_ptr<GamepadDevice> gamepad = pad();
 	if (gamepad == nullptr)
 		return;
-	gamepad->get_input_mapping()->clear_button(0, key);
-	gamepad->get_input_mapping()->clear_axis(0, key);
+	std::shared_ptr<InputMapping> mapping = changing(*gamepad);
+	mapping->clear_button(0, key);
+	mapping->clear_axis(0, key);
+	gamepad->save_mapping();
+}
+
+// the game's controls as the defaults for every game: its own file gone, the game then follows them
+void saveControlsAsDefault()
+{
+	std::shared_ptr<GamepadDevice> gamepad = pad();
+	if (gamepad == nullptr)
+		return;
+	if (gamepad->isPerGameMapping())
+		gamepad->setPerGameMapping(false);
 	gamepad->save_mapping();
 }
 
@@ -294,6 +314,8 @@ Screen bindingsScreen()
 		};
 		screen.items.push_back(std::move(item));
 	}
+	if (!settings.content.gameId.empty())
+		screen.items.push_back(ui::saveAsDefaultEntry("Use these controls for all games.", saveControlsAsDefault));
 	refreshBindings(screen);
 	return screen;
 }
@@ -609,6 +631,20 @@ ui::Host host()
 	}
 	host.version = "Deadcast " DEADCAST_VERSION;
 	host.emulatorSettings = liveSettings();
+	// a page's settings, as the game has them, the defaults for every game
+	if (config::Settings::instance().hasPerGameConfig())
+		host.saveAsDefault = [](const options::Page& page) {
+			for (const options::Setting& setting : page.settings)
+			{
+				if (setting.flag)
+				{
+					if (config::Option<bool> *o = option<bool>(setting))
+						o->saveDefault();
+				}
+				else if (config::Option<int> *o = option<int>(setting))
+					o->saveDefault();
+			}
+		};
 	host.controls = [] { ui::push(bindingsScreen()); };
 	host.localMultiplayer = [] { ui::push(localMultiplayerScreen()); };
 	return host;
