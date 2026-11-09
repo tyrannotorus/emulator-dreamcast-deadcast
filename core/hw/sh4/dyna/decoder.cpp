@@ -951,17 +951,6 @@ void dec_updateBlockCycles(RuntimeBlockInfo *block, u16 op)
 	block->guest_cycles += cycleCounter.countCycles(op);
 }
 
-u32 dec_blockCycles(u32 addr, u32 count)
-{
-	Sh4Cycles counter;
-	counter.reset();
-	u32 cycles = 0;
-	for (u32 i = 0; i < count; i++)
-		cycles += counter.countCycles(IReadMem16(addr + i * 2));
-	cycles = std::round(cycles * 200.f / std::max(1.f, (float)config::Sh4Clock));
-	return std::max(1U, cycles);
-}
-
 bool dec_DecodeBlock(RuntimeBlockInfo* rbi,u32 max_cycles)
 {
 	blk=rbi;

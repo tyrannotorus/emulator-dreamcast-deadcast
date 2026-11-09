@@ -39,9 +39,6 @@ enum NextDecoderOperation
 struct RuntimeBlockInfo;
 bool dec_DecodeBlock(RuntimeBlockInfo* rbi,u32 max_cycles);
 void dec_updateBlockCycles(RuntimeBlockInfo *block, u16 op);
-// Deadcast: the cycles a block of count instructions from addr is charged (as dec_DecodeBlock counts them), for code run
-// natively in its place (deadcast/hotpaths.h)
-u32 dec_blockCycles(u32 addr, u32 count);
 
 struct state_t
 {
