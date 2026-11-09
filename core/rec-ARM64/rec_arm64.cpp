@@ -349,6 +349,7 @@ public:
 		jitWriteProtect(codeBuffer, false);
 		this->block = block;
 		block->mmuStubs.clear();
+		block->exitTestsT = false;
 		CheckBlock(force_checks, block);
 		
 		// run register allocator
@@ -1092,9 +1093,13 @@ public:
 		if (BET_GET_CLS(block->BlockType) == BET_CLS_COND && !block->has_jcond)
 		{
 			// Deadcast: the condition of the exit in w29, as jcond leaves it (RelinkBlock): T, from its
-			// register if it is in one
+			// register if it is in one. Pinned in w18, the exit tests it there instead (one cbz/cbnz in place of
+			// a mov, a cmp and a b.ne at the end of every conditional block)
 			const shil_param t(reg_sr_T);
-			if (regalloc.IsAllocg(t))
+			block->exitTestsT = pinnedRegs && regalloc.IsAllocg(t) && regalloc.MapRegister(t).Is(w18);
+			if (block->exitTestsT)
+				;
+			else if (regalloc.IsAllocg(t))
 				Mov(w29, regalloc.MapRegister(t));
 			else
 				Ldr(w29, sh4_context_mem_operand(&sh4ctx.sr.T));
@@ -1366,12 +1371,21 @@ public:
 				// if (*jdyn == 0)
 				//   next_pc = branch_pc_value;
 
-				// Deadcast: the condition is in w29, from jcond or the block's end (compileBlock)
-				Cmp(w29, block->BlockType & 1);
-
+				// Deadcast: the condition is in w29, from jcond or the block's end (compileBlock), or T itself in
+				// w18 (exitTestsT). Taken when it is BlockType & 1 (T is 0 or 1)
 				Label branch_not_taken;
-
-				B(ne, &branch_not_taken);
+				if (block->exitTestsT)
+				{
+					if (block->BlockType & 1)
+						Cbz(w18, &branch_not_taken);
+					else
+						Cbnz(w18, &branch_not_taken);
+				}
+				else
+				{
+					Cmp(w29, block->BlockType & 1);
+					B(ne, &branch_not_taken);
+				}
 				if (mmu_enabled())
 				{
 					GenMmuStaticExit(block, block->BranchBlock, block->pBranchBlock, linkBlockBranchStub);
@@ -2832,7 +2846,7 @@ private:
 
 	void GenWriteMemory(const shil_opcode& op, size_t opid, bool optimise)
 	{
-		if (GenWriteMemoryImmediate(op))
+		if (GenWriteMemoryImmediate(op, optimise))
 			return;
 
 		if (compactMemAccess(op, optimise))
@@ -2919,7 +2933,7 @@ private:
 			genReloadWindow();
 	}
 
-	bool GenWriteMemoryImmediate(const shil_opcode& op)
+	bool GenWriteMemoryImmediate(const shil_opcode& op, bool optimise)
 	{
 		if (!op.rs1.is_imm())
 			return false;
@@ -2928,6 +2942,11 @@ private:
 		bool isram;
 		u32 addr;
 		if (!rdv_writeMemImmediate(op.rs1._imm, op.size, ptr, isram, addr, block))
+			return false;
+		// Deadcast: to RAM, through the window as any store, with its stub: one that writes next to protected code
+		// can go to it (bm_StoreToSlowPath), a store to a pointer cannot
+		if (isram && (addr & 0x1C000000) == 0x0C000000 && !mmu_enabled() && windowAccesses()
+				&& compactMemAccess(op, optimise))
 			return false;
 
 		if (isram)

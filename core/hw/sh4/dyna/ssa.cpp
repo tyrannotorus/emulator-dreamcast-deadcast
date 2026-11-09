@@ -517,6 +517,8 @@ void SSAOptimizer::ConstPropPass()
 						}
 						ReplaceByMov32(op, v);
 						constprop_values[RegValue(op.rd)] = v;
+						// Deadcast: a write to it must throw the block away (bm_RamWriteAccess)
+						block->constReads.push_back({ paddr & RAM_MASK, (u32)op.size });
 					}
 				}
 			}

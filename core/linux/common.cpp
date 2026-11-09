@@ -53,8 +53,22 @@ void fault_handler(int sn, siginfo_t * si, void *segfault_ctx)
 	if (protection && memwatch::writeAccess(addr))
 		return;
 	// code protection in RAM
-	if (protection && bm_RamWriteAccess(addr))
-		return;
+	if (protection && bm_getRamOffset(addr) != (u32)-1)
+	{
+		host_context_t ctx;
+		context_from_segfault(&ctx, segfault_ctx);
+#if FEAT_SHREC == DYNAREC_JIT
+		// Deadcast: a store of the dynarec's that writes data next to code: to its slow path for good
+		// (bm_StoreToSlowPath), which writes past the protection (bm_CodeWrite)
+		if (bm_StoreToSlowPath(addr, ctx.pc) && sh4Dynarec->rewrite(ctx, si->si_addr))
+		{
+			context_to_segfault(&ctx, segfault_ctx);
+			return;
+		}
+#endif
+		if (bm_RamWriteAccess(addr, ctx.pc))
+			return;
+	}
 	// texture protection in VRAM
 	if (protection && VramLockedWrite((u8*)addr))
 		return;

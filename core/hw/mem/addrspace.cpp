@@ -268,7 +268,11 @@ void DYNACALL writet(u32 addr, T data)
 		addr <<= (iirf & HANDLER_MAX);
 		addr >>= (iirf & HANDLER_MAX);
 
-		*(T *)&((u8 *)ptr)[addr] = data;
+		// Deadcast: to a page of the RAM whose code is protected, past the protection (bm_CodeWrite)
+		if (unlikely(ptr == (void *)&mem_b[0]) && unlikely(bm_IsCodeLocked(addr)))
+			bm_CodeWrite(addr, sz, (u64)data);
+		else
+			*(T *)&((u8 *)ptr)[addr] = data;
 	}
 	else
 	{

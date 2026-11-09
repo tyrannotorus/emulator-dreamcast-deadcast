@@ -10,6 +10,7 @@
 #include <map>
 #include <deque>
 #include <unordered_map>
+#include <unordered_set>
 #include "blockmanager.h"
 #include "ngen.h"
 
@@ -44,6 +45,53 @@ static bm_Map blkmap;
 // Stats
 u32 protected_blocks;
 u32 unprotected_blocks;
+
+// Deadcast: a write to a protected page of code no longer unprotects it for good. Upstream, the first write threw
+// the page's blocks away and every block compiled there afterwards checked its own code on each entry (CheckBlock),
+// for the rest of the session: NFL 2K2 writes a word into its vertex routines' page every few seconds, and the checks
+// were 7% of its SH4 thread.
+// - The write goes through (the page unlocked, a copy of it kept, its blocks kept). SH4_TIMESLICE cycles later
+//   (settleFinePages) the page is compared with the copy: the blocks whose code, or RAM read into constants
+//   (constReads), changed are thrown away, the others stay, and the page is locked again.
+// - A store of the dynarec's whose write changed no code (data next to code: NFL 2K2 writes ~660 times a second
+//   into two such pages) goes to its slow path for good on its next fault (bm_StoreToSlowPath): written there through
+//   another view of the RAM, the page never unlocked (bm_CodeWrite). Constant-address stores to RAM go through the
+//   dynarec's window too (rec_arm64.cpp), so that they can.
+// - A page written more than MaxFineWrites times in an emulated second (data next to code) is unprotected as
+//   before (coarse). Each emulated second it is compared with what it held the second before; unchanged for
+//   RelockAfter seconds, it is protected again, and its blocks compiled again without the check. One written again
+//   after RelockGiveUp relocks stays unprotected.
+namespace
+{
+constexpr u32 RelockAfter = 2;
+constexpr u8 RelockGiveUp = 4;
+struct WatchedPage
+{
+	std::vector<u8> copy;
+	u32 stillFor = 0;
+};
+std::unordered_map<u32, WatchedPage> watchedPages;	// RAM page -> its contents a second ago
+std::vector<u8> relocks;							// RAM page -> times protected again
+
+constexpr u32 MaxFineWrites = 500;
+struct FinePage
+{
+	std::vector<u8> copy;	// the page before the write that unlocked it
+	bool pending = false;	// unlocked until settleFinePages
+	bool coarse = false;	// written too often: unprotected as upstream did (watched, relocked)
+	u64 secondStart = 0;	// sh4_sched_now64 at the start of the second its writes are counted in
+	u32 writes = 0;
+	uintptr_t storePc = 0;	// the store that unlocked it
+};
+std::unordered_map<u32, FinePage> finePages;		// RAM page ->
+std::vector<u32> finePending;						// RAM pages unlocked until settleFinePages
+int settleSchid = -1;
+std::unordered_set<uintptr_t> dataStores;			// the dynarec's stores that wrote data next to code
+
+const u8 *ramPage(u32 page) {
+	return GetMemPtr(0x0C000000 + page * PAGE_SIZE, PAGE_SIZE);
+}
+}
 
 #define FPCA(x) ((DynarecCodeEntryPtr&)p_sh4rcb->fpcb[(x>>1)&FPCB_MASK])
 
@@ -235,6 +283,7 @@ std::vector<RuntimeBlockInfoPtr> bm_AllBlocks()
 }
 
 u32 bmStatCompiled, bmStatCacheResets;	// Deadcast: for the perf line (spg.cpp)
+u32 bmStatCodeWrites, bmStatCodeDropped, bmStatCodeStores;
 
 void bm_AddBlock(RuntimeBlockInfo* blk)
 {
@@ -306,9 +355,13 @@ void bm_DiscardBlock(RuntimeBlockInfo* block)
 	block_ptr->Discard();
 }
 
+static void relockStablePages();
+static int settleFinePagesEvent(int tag, int cycles, int jitter, void *arg);
+
 void bm_Periodical_1s()
 {
 	bm_CleanupDeletedBlocks();
+	relockStablePages();
 }
 
 void bm_vmem_pagefill(void** ptr, u32 size_bytes)
@@ -326,6 +379,8 @@ void bm_Reset()
 {
 	bm_CleanupDeletedBlocks();
 	mmuwin::unprotectAll();
+	if (bm_codeLocked != nullptr)
+		memset(bm_codeLocked, 0, pageCount);
 	protected_blocks = 0;
 	unprotected_blocks = 0;
 
@@ -355,9 +410,16 @@ void bm_Reset()
 	}
 }
 
+u8 *bm_codeLocked;
+
 void bm_LockPage(u32 addr, u32 size)
 {
 	addr = addr & (RAM_MASK - PAGE_MASK);
+	// Deadcast: stores that reach it through addrspace::writet go past the lock (bm_CodeWrite), through the RAM's
+	// next view, which only virtmem has
+	if (addrspace::virtmemEnabled())
+		for (u32 offset = 0; offset < size; offset += PAGE_SIZE)
+			bm_codeLocked[(addr + offset) / PAGE_SIZE] = 1;
 	// Deadcast: the page's mappings in the MMU windows too (deadcast/mmuwindows.h)
 	for (u32 offset = 0; offset < size; offset += PAGE_SIZE)
 		mmuwin::protectRamPage(addr + offset, true);
@@ -373,6 +435,8 @@ void bm_LockPage(u32 addr, u32 size)
 void bm_UnlockPage(u32 addr, u32 size)
 {
 	addr = addr & (RAM_MASK - PAGE_MASK);
+	for (u32 offset = 0; offset < size; offset += PAGE_SIZE)
+		bm_codeLocked[(addr + offset) / PAGE_SIZE] = 0;
 	for (u32 offset = 0; offset < size; offset += PAGE_SIZE)
 		mmuwin::protectRamPage(addr + offset, false);
 	if (addrspace::virtmemEnabled())
@@ -507,6 +571,11 @@ void bm_ResetCache()
 		blocks_per_page[i].clear();
 
 	memset(unprotected_pages, 0, pageCount);
+	watchedPages.clear();
+	std::fill(relocks.begin(), relocks.end(), 0);
+	finePages.clear();
+	finePending.clear();
+	dataStores.clear();
 
 #ifdef DYNA_OPROF
 	if (oprofHandle)
@@ -544,6 +613,9 @@ void bm_Init()
 	pageCount = RAM_SIZE_MAX / PAGE_SIZE;
 	unprotected_pages = new bool[pageCount];
 	blocks_per_page = new std::set<RuntimeBlockInfo*>[pageCount];
+	relocks.assign(pageCount, 0);
+	bm_codeLocked = new u8[pageCount]();
+	settleSchid = sh4_sched_register(0, &settleFinePagesEvent);
 
 #ifdef DYNA_OPROF
 	oprofHandle=op_open_agent();
@@ -562,8 +634,13 @@ void bm_Term()
 	oprofHandle=0;
 #endif
 	bm_Reset();
+	if (settleSchid >= 0)
+		sh4_sched_unregister(settleSchid);
+	settleSchid = -1;
 	delete[] unprotected_pages;
 	delete[] blocks_per_page;
+	delete[] bm_codeLocked;
+	bm_codeLocked = nullptr;
 }
 
 void bm_WriteBlockMap(const std::string& file)
@@ -670,7 +747,232 @@ void RuntimeBlockInfo::SetProtectedFlags()
 	}
 }
 
-void bm_RamWriteAccess(u32 addr)
+static void watchUnlockedPage(u32 page)
+{
+	if (mmu_enabled() || page >= relocks.size())
+		return;
+	if (relocks[page] >= RelockGiveUp)
+	{
+		if (relocks[page] == RelockGiveUp)
+		{
+			relocks[page]++;
+			printf("Deadcast smc: page %08x written again after %u relocks, left unprotected\n", 0x0C000000 + page * PAGE_SIZE,
+					RelockGiveUp);
+		}
+		return;
+	}
+	const u8 *mem = ramPage(page);
+	if (mem == nullptr)
+		return;
+	WatchedPage& watched = watchedPages[page];
+	watched.copy.assign(mem, mem + PAGE_SIZE);
+	watched.stillFor = 0;
+}
+
+static void relockStablePages()
+{
+	for (auto it = watchedPages.begin(); it != watchedPages.end(); )
+	{
+		const u32 page = it->first;
+		WatchedPage& watched = it->second;
+		const u8 *mem = ramPage(page);
+		if (mem == nullptr || !unprotected_pages[page] || mmu_enabled())
+		{
+			it = watchedPages.erase(it);
+			continue;
+		}
+		if (memcmp(mem, watched.copy.data(), PAGE_SIZE) != 0)
+		{
+			memcpy(watched.copy.data(), mem, PAGE_SIZE);
+			watched.stillFor = 0;
+			++it;
+			continue;
+		}
+		if (++watched.stillFor < RelockAfter)
+		{
+			++it;
+			continue;
+		}
+		// the blocks compiled with the check go, to be compiled again without (SetProtectedFlags locks the page)
+		const u32 start = page * PAGE_SIZE;
+		const u32 end = start + PAGE_SIZE;
+		std::vector<RuntimeBlockInfoPtr> checked;
+		for (const auto& [code, block] : blkmap)
+		{
+			const u32 addr = block->addr & RAM_MASK;
+			if (!block->read_only && !block->temp_block && IsOnRam(block->addr) && addr < end
+					&& addr + block->sh4_code_size > start)
+				checked.push_back(block);
+		}
+		unprotected_pages[page] = false;
+		relocks[page]++;
+		for (const RuntimeBlockInfoPtr& block : checked)
+			bm_DiscardBlock(block.get());
+		printf("Deadcast smc: page %08x protected again (%u), %zu blocks to compile again\n", 0x0C000000 + start,
+				relocks[page], checked.size());
+		// its writes go through again until they are too many again
+		auto fine = finePages.find(page);
+		if (fine != finePages.end())
+		{
+			fine->second.coarse = false;
+			fine->second.writes = 0;
+		}
+		it = watchedPages.erase(it);
+	}
+}
+
+// the write that faulted goes through: the page unlocked until settleFinePages, its blocks kept
+static bool fineWrite(u32 page, uintptr_t hostPc)
+{
+	if (mmu_enabled() || settleSchid < 0)
+		return false;
+	FinePage& fine = finePages[page];
+	if (fine.pending)
+	{
+		// an alias of it still locked
+		bm_UnlockPage(page * PAGE_SIZE);
+		return true;
+	}
+	if (fine.coarse)
+		return false;
+	const u64 now = sh4_sched_now64();
+	if (now - fine.secondStart >= SH4_MAIN_CLOCK)
+	{
+		fine.secondStart = now;
+		fine.writes = 0;
+	}
+	if (++fine.writes > MaxFineWrites)
+	{
+		fine.coarse = true;
+		printf("Deadcast smc: page %08x written more than %u times a second, unprotected\n", 0x0C000000 + page * PAGE_SIZE,
+				MaxFineWrites);
+		return false;
+	}
+	const u8 *mem = ramPage(page);
+	if (mem == nullptr)
+		return false;
+	fine.copy.assign(mem, mem + PAGE_SIZE);
+	fine.pending = true;
+	fine.storePc = hostPc;
+	bmStatCodeWrites++;
+	finePending.push_back(page);
+	bm_UnlockPage(page * PAGE_SIZE);
+	if (finePending.size() == 1)
+		sh4_sched_request(settleSchid, SH4_TIMESLICE);
+	return true;
+}
+
+// what changed since the write: the blocks it touched go, the page is locked again
+static void settleFinePage(u32 page, FinePage& fine)
+{
+	fine.pending = false;
+	std::set<RuntimeBlockInfo*>& block_list = blocks_per_page[page];
+	const u8 *mem = ramPage(page);
+	bool codeChanged = false;
+	if (mem != nullptr && !block_list.empty() && memcmp(mem, fine.copy.data(), PAGE_SIZE) != 0)
+	{
+		std::vector<std::pair<u32, u32>> changed;	// offsets in the page, from and to
+		for (u32 i = 0; i < PAGE_SIZE; )
+		{
+			if (mem[i] == fine.copy[i])
+			{
+				i++;
+				continue;
+			}
+			const u32 from = i;
+			while (i < PAGE_SIZE && mem[i] != fine.copy[i])
+				i++;
+			changed.emplace_back(from, i);
+		}
+		const u32 start = page * PAGE_SIZE;
+		// RAM offset and size
+		const auto touched = [&](u32 addr, u32 size) {
+			if (addr + size <= start || addr >= start + PAGE_SIZE)
+				return false;
+			const u32 from = std::max(addr, start) - start;
+			const u32 to = std::min(addr + size, start + PAGE_SIZE) - start;
+			for (const auto& [changedFrom, changedTo] : changed)
+				if (changedFrom < to && changedTo > from)
+					return true;
+			return false;
+		};
+		std::vector<RuntimeBlockInfo*> stale;
+		for (RuntimeBlockInfo *block : block_list)
+		{
+			bool hit = touched(block->addr & RAM_MASK, block->sh4_code_size);
+			for (size_t i = 0; !hit && i < block->constReads.size(); i++)
+				hit = touched(block->constReads[i].first, block->constReads[i].second);
+			if (hit)
+				stale.push_back(block);
+		}
+		for (RuntimeBlockInfo *block : stale)
+			bm_DiscardBlock(block);
+		bmStatCodeDropped += stale.size();
+		codeChanged = !stale.empty();
+	}
+	if (!codeChanged && fine.storePc != 0)
+		dataStores.insert(fine.storePc);
+	// none left: the next block compiled there locks it (SetProtectedFlags)
+	if (!block_list.empty())
+		bm_LockPage(page * PAGE_SIZE);
+}
+
+static void settleFinePages()
+{
+	for (u32 page : finePending)
+	{
+		auto it = finePages.find(page);
+		if (it != finePages.end() && it->second.pending)
+			settleFinePage(page, it->second);
+	}
+	finePending.clear();
+}
+
+static int settleFinePagesEvent(int tag, int cycles, int jitter, void *arg)
+{
+	settleFinePages();
+	return 0;
+}
+
+void bm_SettleWrites()
+{
+	if (!finePending.empty())
+		settleFinePages();
+}
+
+bool bm_StoreToSlowPath(void *p, uintptr_t hostPc)
+{
+	if (hostPc == 0 || mmu_enabled() || !addrspace::virtmemEnabled() || bm_getRamOffset(p) == (u32)-1)
+		return false;
+	return dataStores.count(hostPc) != 0;
+}
+
+void bm_CodeWrite(u32 offset, u32 size, u64 data)
+{
+	offset &= RAM_MASK;
+	u8 *ram = &mem_b[0];
+	if (memcmp(&ram[offset], &data, size) == 0)
+		return;
+	// the next view of the RAM (its first mirror), never locked
+	memcpy(&ram[RAM_SIZE + offset], &data, size);
+	bmStatCodeStores++;
+	std::set<RuntimeBlockInfo*>& block_list = blocks_per_page[offset / PAGE_SIZE];
+	const auto touched = [&](u32 addr, u32 bytes) { return addr < offset + size && addr + bytes > offset; };
+	std::vector<RuntimeBlockInfo*> stale;
+	for (RuntimeBlockInfo *block : block_list)
+	{
+		bool hit = touched(block->addr & RAM_MASK, block->sh4_code_size);
+		for (size_t i = 0; !hit && i < block->constReads.size(); i++)
+			hit = touched(block->constReads[i].first, block->constReads[i].second);
+		if (hit)
+			stale.push_back(block);
+	}
+	for (RuntimeBlockInfo *block : stale)
+		bm_DiscardBlock(block);
+	bmStatCodeDropped += stale.size();
+}
+
+void bm_RamWriteAccess(u32 addr, uintptr_t hostPc)
 {
 	addr &= RAM_MASK;
 	if (unprotected_pages[addr / PAGE_SIZE])
@@ -679,9 +981,12 @@ void bm_RamWriteAccess(u32 addr)
 		addrspace::protectRamInWindow(addr & ~PAGE_MASK, PAGE_SIZE, false);
 		return;
 	}
+	if (fineWrite(addr / PAGE_SIZE, hostPc))
+		return;
 
 	unprotected_pages[addr / PAGE_SIZE] = true;
 	bm_UnlockPage(addr);
+	watchUnlockedPage(addr / PAGE_SIZE);
 	std::set<RuntimeBlockInfo*>& block_list = blocks_per_page[addr / PAGE_SIZE];
 	if (!block_list.empty())
 	{
@@ -717,12 +1022,12 @@ u32 bm_getRamOffset(void *p)
 	}
 }
 
-bool bm_RamWriteAccess(void *p)
+bool bm_RamWriteAccess(void *p, uintptr_t hostPc)
 {
 	u32 offset = bm_getRamOffset(p);
 	if (offset == (u32)-1)
 		return false;
-	bm_RamWriteAccess(offset);
+	bm_RamWriteAccess(offset, hostPc);
 	return true;
 }
 

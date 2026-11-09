@@ -9,6 +9,7 @@
 #include "hw/sh4/sh4_cache.h"
 #include "cfg/option.h"
 #include "emulator.h"
+#include "hw/sh4/dyna/blockmanager.h"
 
 CCNRegisters ccn;
 
@@ -72,6 +73,9 @@ static void CCN_CCR_write(u32 addr, u32 value)
 		//Shikigami No Shiro II uses ICI frequently
 		if (!config::DynarecEnabled)
 			icache.Invalidate();
+		else
+			// Deadcast: code written to a page with blocks is looked at now, not a moment later
+			bm_SettleWrites();
 		temp.ICI = 0;
 	}
 	if (temp.OCI) {

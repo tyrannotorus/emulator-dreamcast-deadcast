@@ -12,6 +12,7 @@
 #include "hw/mem/addrspace.h"
 #include "deadcast/waitloops.h"
 extern u32 bmStatCompiled, bmStatCacheResets;
+extern u32 bmStatCodeWrites, bmStatCodeDropped, bmStatCodeStores;
 extern u64 bmStatCompileUs;
 
 namespace aica { extern u32 aicaStatReads, aicaStatWrites, aicaStatMeets; extern u64 aicaStatWaitUs; }
@@ -324,7 +325,7 @@ static void perfVblank()
 	printf("Deadcast perf %6.1f s: vblank %5.2f/s %5.1f%% | rendered %5.2f/s skipped %5.2f/s | presented %5.2f/s longest %5.1f ms"
 			" | emu cpu %3.0f%% waits %3.0f%% | render cpu %3.0f%% | mmu flushes %u+%u misses %u"
 			" | renders %u (to textures %u) %.1f ms draws %u vertices %u | textures updated %u (%u KB, seen before %u) | audio underruns %u | aica reads %u writes %u waits %u %.1f%% | wait turns skipped %u | asleep %.1f%% | compiled %u in %.1f ms resets %u"
-			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms | aica cpu %.0f%% | audio in %.0f/s out %.0f/s fill %u | submit %.2f ms + page %.2f ms\n",
+			" | gpu scene %.2f ms max %.2f page %.2f ms max %.2f | render max %.1f ms process %.1f ms blocked gpu %.1f%% page %.1f%% parse %.1f%% | emu frames late %u max %.1f ms | gaps over 25 ms %u | shown %.2f/s repeats %u longest %.1f ms | aica cpu %.0f%% | audio in %.0f/s out %.0f/s fill %u | submit %.2f ms + page %.2f ms | code writes %u stores %u dropped %u\n",
 			(now - start) / 1e6, vblanks / secs, vblanks / secs / nominal * 100.0,
 			(FrameCount - frames) / secs, (fskip - skipped) / secs,
 			presented / secs, longest / 1000.0,
@@ -348,7 +349,9 @@ static void perfVblank()
 			aicaClock && aicaCpu != 0 ? (aicaNow - aicaCpu) / window * 100.0 : 0.0,
 			audioFramesIn.exchange(0) / secs, audioFramesOut.exchange(0) / secs, audioFillPermille.load(),
 			perfSubmitUs[0].exchange(0) / 1000.0 / std::max(perfSubmits[0].exchange(0), 1u),
-			perfSubmitUs[1].exchange(0) / 1000.0 / std::max(perfSubmits[1].exchange(0), 1u));
+			perfSubmitUs[1].exchange(0) / 1000.0 / std::max(perfSubmits[1].exchange(0), 1u),
+			bmStatCodeWrites, bmStatCodeStores, bmStatCodeDropped);
+	bmStatCodeWrites = bmStatCodeDropped = bmStatCodeStores = 0;
 	aicaCpu = aicaNow;
 	framesOver = 0;
 	frameMaxUs = 0;

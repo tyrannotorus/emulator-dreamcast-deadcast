@@ -53,6 +53,11 @@ struct RuntimeBlockInfo
 	BlockEndType BlockType;
 	bool has_jcond;
 	bool read_only;
+	// Deadcast: a conditional exit tests T where it is pinned (w18), not a copy of it in w29 (rec_arm64.cpp)
+	bool exitTestsT = false;
+	// Deadcast: the RAM it read at compile time into constants (ssa.cpp), offset and size: its code too
+	// (bm_RamWriteAccess)
+	std::vector<std::pair<u32, u32>> constReads;
 
 	std::vector<shil_opcode> oplist;
 	//predecessors references
@@ -114,18 +119,35 @@ static inline bool bm_IsRamPageProtected(u32 addr)
 
 #if FEAT_SHREC != DYNAREC_NONE
 
-bool bm_RamWriteAccess(void *p);
-void bm_RamWriteAccess(u32 addr);
+// Deadcast: hostPc, the code that wrote (bm_StoreToSlowPath)
+bool bm_RamWriteAccess(void *p, uintptr_t hostPc = 0);
+void bm_RamWriteAccess(u32 addr, uintptr_t hostPc = 0);
+// Deadcast: pages of code written to since the last settle, compared now (the i-cache invalidated)
+void bm_SettleWrites();
+// Deadcast: whether the dynarec's store at hostPc, faulting on protected code at p, goes to its slow path for good: it
+// wrote data next to code before (a page written that way faults ~70 us a write, its locks and unlocks included)
+bool bm_StoreToSlowPath(void *p, uintptr_t hostPc);
+// Deadcast: a store to a page whose code is protected, past the protection: written through another view of the RAM,
+// and the blocks whose code or constants it changed thrown away (addrspace::writet)
+void bm_CodeWrite(u32 offset, u32 size, u64 data);
+extern u8 *bm_codeLocked;
+static inline bool bm_IsCodeLocked(u32 offset) {
+	return bm_codeLocked != nullptr && bm_codeLocked[(offset & RAM_MASK) / PAGE_SIZE] != 0;
+}
 void bm_LockPage(u32 addr, u32 size = PAGE_SIZE);
 void bm_UnlockPage(u32 addr, u32 size = PAGE_SIZE);
 u32 bm_getRamOffset(void *p);
 
 #else
 
-inline static bool bm_RamWriteAccess(void *p) {
+inline static bool bm_RamWriteAccess(void *p, uintptr_t hostPc = 0) {
 	return false;
 }
-inline static void bm_RamWriteAccess(u32 addr) {}
+inline static void bm_RamWriteAccess(u32 addr, uintptr_t hostPc = 0) {}
+inline static void bm_SettleWrites() {}
+inline static bool bm_StoreToSlowPath(void *p, uintptr_t hostPc) { return false; }
+inline static void bm_CodeWrite(u32 offset, u32 size, u64 data) {}
+static inline bool bm_IsCodeLocked(u32 offset) { return false; }
 inline static void bm_LockPage(u32 addr, u32 size = PAGE_SIZE) {}
 inline static void bm_UnlockPage(u32 addr, u32 size = PAGE_SIZE) {}
 inline static u32 bm_getRamOffset(void *p) {
