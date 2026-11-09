@@ -46,6 +46,8 @@ struct RuntimeBlockInfo
 	u32 pcCheckSize = 0;
 	// Deadcast: under the MMU, each access through the window (offset in the code) and its stub's
 	std::vector<std::pair<u32, u32>> mmuStubs;
+	// Deadcast: the SH4 address of each of mmuStubs' accesses
+	std::vector<u32> mmuSites;
 	bool mmuNoLink = false;
 	// Deadcast: the code it was compiled from, when the code at its address keeps being rewritten (bm_ParkBlock)
 	std::vector<u8> smcCode;	// Deadcast: rdv_LinkBlock found an exit could not be linked under the MMU

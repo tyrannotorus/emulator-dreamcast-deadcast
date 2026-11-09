@@ -26,6 +26,7 @@
 #endif
 #include <list>
 #include <map>
+#include <unordered_set>
 
 #include <aarch64/macro-assembler-aarch64.h>
 using namespace vixl::aarch64;
@@ -88,6 +89,8 @@ static DynaCode *lightThunk;
 // Deadcast: a store queue's flush (pref) while R0-R15 and T are pinned: the TA's polygon FIFO fed right
 // there, the rest through the handler (GenMainloop)
 static DynaCode *sqFlush;
+// Deadcast: the SH4 addresses of stores that wrote to the store queues (rewrite): compiled inline, straight to sq_buffer
+static std::unordered_set<u32> sqStoreSites;
 // the TA's, for it (ta.cpp): its state machine (the state at [2048]), the transitions to handle, its
 // data's write pointer and the data's start (that many bytes after it), its context, the data's size
 extern u8 ta_fsm[2049];
@@ -349,6 +352,7 @@ public:
 		jitWriteProtect(codeBuffer, false);
 		this->block = block;
 		block->mmuStubs.clear();
+		block->mmuSites.clear();
 		block->exitTestsT = false;
 		CheckBlock(force_checks, block);
 		
@@ -2356,6 +2360,7 @@ private:
 		Register vaddr;
 		u32 write;
 		u32 pc;
+		u32 site;		// its instruction's SH4 address (sqStoreSites)
 		std::vector<Arm64RegAlloc::DirtyReg> dirty;	// to write back first (regalloc.mmuDirty)
 		u32 size = 0;
 		CPURegister data;
@@ -2375,6 +2380,7 @@ private:
 		access.vaddr = vaddr;
 		access.write = write;
 		access.pc = block->vaddr + op.guest_offs - (op.delay_slot ? 2 : 0);
+		access.site = block->vaddr + op.guest_offs;
 		access.dirty = regalloc.mmuDirty;
 		return access;
 	}
@@ -2471,6 +2477,7 @@ private:
 				}
 				B(&access.next);
 				block->mmuStubs.emplace_back(access.accessOffset, (u32)access.stub.GetLocation());
+				block->mmuSites.push_back(access.site);
 				continue;
 			}
 			genWriteBackDirty(access.dirty);
@@ -2530,6 +2537,7 @@ private:
 			}
 			B(&access.next);
 			block->mmuStubs.emplace_back(access.accessOffset, (u32)access.stub.GetLocation());
+			block->mmuSites.push_back(access.site);
 		}
 		Bind(&done);
 		mmuAccesses.clear();
@@ -2866,6 +2874,26 @@ private:
 				data = regalloc.MapVRegister(op.rs2);
 			else
 				shil_param_to_host_reg(op.rs2, w1);
+			if (mmu != nullptr && op.size >= 4 && !mmu_enabled() && sqStoreSites.count(block->vaddr + op.guest_offs) != 0)
+			{
+				// Deadcast: a store that wrote to the store queues: there inline (sq_buffer, at the context's start),
+				// anything else through its stub (which looks again)
+				Lsr(w3, raddr, 26);
+				Cmp(w3, 0x38);
+				B(&mmu->stub, ne);
+				And(x3, raddr.X(), 0x3f);
+				mmu->accessOffset = (u32)GetBuffer()->GetCursorOffset();
+				if (op.size == 8)
+					Str(x1, MemOperand(x28, x3));
+				else if (data.IsVRegister())
+					Str(data.S(), MemOperand(x28, x3));
+				else
+					Str(data.W(), MemOperand(x28, x3));
+				Bind(&mmu->next);
+				mmu->size = op.size;
+				mmu->data = data;
+				return;
+			}
 			if (mmu != nullptr)
 			{
 				const MemOperand addr(x27, raddr, UXTW);
@@ -3466,17 +3494,30 @@ public:
 			// not map (a write to protected RAM or VRAM is let through by the fault handler first):
 			// its stub, for good
 			RuntimeBlockInfoPtr block = bm_GetBlock((void *)context.pc);
+			// a block thrown away to be compiled again (below) still runs to its end
+			const bool live = block != nullptr;
+			if (!live)
+				block = bm_GetStaleBlock((void *)context.pc);
 			verify(block != nullptr);
 			const u32 offset = (u32)((u8 *)code_ptr - (u8 *)block->code);
 			u32 *stub = nullptr;
-			for (const auto& [access, stubOffset] : block->mmuStubs)
-				if (access == offset)
-					stub = (u32 *)((u8 *)block->code + stubOffset);
+			u32 site = 0;
+			for (size_t i = 0; i < block->mmuStubs.size(); i++)
+				if (block->mmuStubs[i].first == offset)
+				{
+					stub = (u32 *)((u8 *)block->code + block->mmuStubs[i].second);
+					site = block->mmuSites[i];
+				}
 			verify(stub != nullptr);
 			*code_ptr = 0x14000000 | ((u32)(stub - code_ptr) & 0x3FFFFFF);
 			virtmem::flush_cache(CC_RW2RX(code_ptr), CC_RW2RX(code_ptr + 1), code_ptr, code_ptr + 1);
 			context.pc = (uintptr_t)CC_RW2RX(stub);
 			jitWriteProtect(*codeBuffer, true);
+			// Deadcast: a store to the store queues (the TA's vertices, for every game): its block compiled again with it
+			// inline (GenWriteMemory, sqStoreSites)
+			const u32 guest = (u32)((u8 *)faultAddress - addrspace::window);
+			if (((armv8_op >> 22) & 3) == 0 && (guest >> 26) == 0x38 && sqStoreSites.insert(site).second && live)
+				bm_DiscardBlock(block.get());
 			return true;
 		}
 		if ((armv8_op & 0x3B200C00) == 0x38200800 && ((armv8_op >> 13) & 7) == 2 && ((armv8_op >> 5) & 31) == 27
