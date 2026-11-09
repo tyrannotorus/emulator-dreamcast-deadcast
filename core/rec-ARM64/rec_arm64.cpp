@@ -46,6 +46,7 @@ using namespace vixl::aarch64;
 #include "oslib/virtmem.h"
 #include "emulator.h"
 #include "deadcast/waitloops.h"
+#include "deadcast/hotpaths.h"
 #include "deadcast/profiler.h"
 #include "deadcast/mmuwindows.h"
 
@@ -380,6 +381,16 @@ public:
 			// Deadcast: a known wait loop goes by without running while nothing changes (waitloops.cpp)
 			Mov(w0, block->vaddr);
 			GenCallRuntime(hook);
+		}
+		if (deadcast::HotPath hot = deadcast::hotPath(block))
+		{
+			// Deadcast: a known loop run natively (hotpaths.h), on from the pc it returns. The block's own code
+			// below is left as compiled, never run.
+			Mov(w0, block->vaddr);
+			GenCallRuntime(hot);
+			Mov(w29, w0);
+			Str(w29, sh4_context_mem_operand(&sh4ctx.pc));
+			GenBranch(arm64_no_update);
 		}
 		// Deadcast: the registers the block starts with, loaded at once
 		regalloc.PreloadLiveIns(16, pinnedRegs ? 2 : 6, 6);

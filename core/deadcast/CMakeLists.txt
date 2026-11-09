@@ -1,6 +1,8 @@
 target_sources(${PROJECT_NAME} PRIVATE
         codecache.cpp
         codecache.h
+        hotpaths.cpp
+        hotpaths.h
         link.cpp
         link.h
         link_bluetooth.cpp
