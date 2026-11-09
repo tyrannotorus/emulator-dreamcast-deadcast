@@ -49,23 +49,22 @@ u32 unprotected_blocks;
 
 // Deadcast: a write to a protected page of code no longer unprotects it for good. Upstream, the first write threw
 // the page's blocks away and every block compiled there afterwards checked its own code on each entry (CheckBlock),
-// for the rest of the session: NFL 2K2 writes a word into its vertex routines' page every few seconds, and the checks
-// were 7% of its SH4 thread.
-// - The write goes through (the page unlocked, a copy of it kept, its blocks kept). SH4_TIMESLICE cycles later
-//   (settleFinePages) the page is compared with the copy: the blocks whose code, or RAM read into constants
-//   (constReads), changed are thrown away, the others stay, and the page is locked again.
-// - A store of the dynarec's whose write changed no code (data next to code: NFL 2K2 writes ~660 times a second
-//   into two such pages) goes to its slow path for good on its next fault (bm_StoreToSlowPath): written there through
-//   another view of the RAM, the page never unlocked (bm_CodeWrite). Constant-address stores to RAM go through the
-//   dynarec's window too (rec_arm64.cpp), so that they can.
+// for the rest of the session: NFL 2K2 writes into its vertex routines' pages ~660 times a second, data next to code,
+// and the checks were 7% of its SH4 thread.
+// - A store of the dynarec's through its window that faults there goes to its slow path for good (bm_StoreToSlowPath,
+//   Sh4Dynarec::storeToStub): written past the protection, through another view of the RAM, and the blocks whose code
+//   or RAM read into constants (constReads) it changed thrown away at once (bm_CodeWrite); the page stays locked.
+//   Constant-address stores to RAM go through the window too (rec_arm64.cpp), so that they can.
+// - Any other write (the emulator's own, a DMA loading code from the disc): the page's blocks go at once, as upstream,
+//   but the page is locked again by the next block compiled there (SetProtectedFlags), not left unprotected. (Letting
+//   the write through and comparing the page a moment later lost Project Justice: it ran the code it had just written.)
 // - A word a block had read into a constant (constReads), written, is data: blocks compiled after read it from RAM
 //   (bm_IsDataWord), or each write would throw them away again (Skies of Arcadia: 250 blocks a second).
-// - A page stored to past its protection more than MaxCodeStores times an emulated second (DOA2: 50,000 to 95,000)
-//   is unprotected, as upstream did: its blocks check their code, cheaper than a slow store each time.
-// - A page written more than MaxFineWrites times in an emulated second (data next to code) is unprotected as
-//   before (coarse). Each emulated second it is compared with what it held the second before; unchanged for
-//   RelockAfter seconds, it is protected again, and its blocks compiled again without the check. One written again
-//   after RelockGiveUp relocks stays unprotected.
+// - A page stored to past its protection more than MaxCodeStores times an emulated second (DOA2: 50,000 to 95,000),
+//   or written otherwise more than MaxCodeWrites times, is unprotected, as upstream did: its blocks check their code,
+//   cheaper then. Each emulated second it is compared with what it held the second before; unchanged for RelockAfter
+//   seconds, it is protected again, and its blocks compiled again without the check. One written again after
+//   RelockGiveUp relocks stays unprotected.
 namespace
 {
 constexpr u32 RelockAfter = 2;
@@ -78,23 +77,17 @@ struct WatchedPage
 std::unordered_map<u32, WatchedPage> watchedPages;	// RAM page -> its contents a second ago
 std::vector<u8> relocks;							// RAM page -> times protected again
 
-constexpr u32 MaxFineWrites = 500;
+constexpr u32 MaxCodeWrites = 500;
 constexpr u32 MaxCodeStores = 2000;
-struct FinePage
+struct CodePage
 {
-	std::vector<u8> copy;	// the page before the write that unlocked it
-	bool pending = false;	// unlocked until settleFinePages
 	bool coarse = false;	// written too often: unprotected as upstream did (watched, relocked)
-	u64 secondStart = 0;	// sh4_sched_now64 at the start of the second its writes are counted in
+	u64 writesSecond = 0;	// sh4_sched_now64 at the start of the second its writes are counted in (codePageWrite)
 	u32 writes = 0;
-	uintptr_t storePc = 0;	// the store that unlocked it
 	u64 storesSecond = 0;	// sh4_sched_now64 at the start of the second its stores are counted in (bm_CodeWrite)
 	u32 stores = 0;
 };
-std::unordered_map<u32, FinePage> finePages;		// RAM page ->
-std::vector<u32> finePending;						// RAM pages unlocked until settleFinePages
-int settleSchid = -1;
-std::unordered_set<uintptr_t> dataStores;			// the dynarec's stores that wrote data next to code
+std::unordered_map<u32, CodePage> codePages;		// RAM page ->
 std::unordered_set<u32> dataWords;					// RAM words next to code written as data: never read into constants
 // RAM page -> a bit for each of its bytes a protected block was compiled from or read into a constant: set only, the
 // page's cleared once it has no protected block left. A store to a page of code that sets none needs no block looked at.
@@ -405,7 +398,6 @@ void bm_DiscardBlock(RuntimeBlockInfo* block)
 }
 
 static void relockStablePages();
-static int settleFinePagesEvent(int tag, int cycles, int jitter, void *arg);
 
 void bm_Periodical_1s()
 {
@@ -624,9 +616,7 @@ void bm_ResetCache()
 	memset(unprotected_pages, 0, pageCount);
 	watchedPages.clear();
 	std::fill(relocks.begin(), relocks.end(), 0);
-	finePages.clear();
-	finePending.clear();
-	dataStores.clear();
+	codePages.clear();
 	dataWords.clear();
 
 #ifdef DYNA_OPROF
@@ -668,7 +658,6 @@ void bm_Init()
 	relocks.assign(pageCount, 0);
 	bm_codeLocked = new u8[pageCount]();
 	codeBits.resize(pageCount);
-	settleSchid = sh4_sched_register(0, &settleFinePagesEvent);
 
 #ifdef DYNA_OPROF
 	oprofHandle=op_open_agent();
@@ -687,9 +676,6 @@ void bm_Term()
 	oprofHandle=0;
 #endif
 	bm_Reset();
-	if (settleSchid >= 0)
-		sh4_sched_unregister(settleSchid);
-	settleSchid = -1;
 	delete[] unprotected_pages;
 	delete[] blocks_per_page;
 	delete[] bm_codeLocked;
@@ -865,139 +851,44 @@ static void relockStablePages()
 			bm_DiscardBlock(block.get());
 		printf("Deadcast smc: page %08x protected again (%u), %zu blocks to compile again\n", 0x0C000000 + start,
 				relocks[page], checked.size());
-		// its writes go through again until they are too many again
-		auto fine = finePages.find(page);
-		if (fine != finePages.end())
-		{
-			fine->second.coarse = false;
-			fine->second.writes = 0;
-		}
+		// its writes go past the protection again until they are too many again
+		auto code = codePages.find(page);
+		if (code != codePages.end())
+			code->second = CodePage();
 		it = watchedPages.erase(it);
 	}
 }
 
-// the write that faulted goes through: the page unlocked until settleFinePages, its blocks kept
-static bool fineWrite(u32 page, uintptr_t hostPc)
+// a write that is not a store of the dynarec's through its window, faulting: the page's blocks go now, the page unlocked
+// until the next block compiled there locks it again
+static bool codePageWrite(u32 page)
 {
-	if (mmu_enabled() || settleSchid < 0)
+	if (mmu_enabled())
 		return false;
-	FinePage& fine = finePages[page];
-	if (fine.pending)
-	{
-		// an alias of it still locked
-		bm_UnlockPage(page * PAGE_SIZE);
-		return true;
-	}
-	if (fine.coarse)
+	CodePage& code = codePages[page];
+	if (code.coarse)
 		return false;
 	const u64 now = sh4_sched_now64();
-	if (now - fine.secondStart >= SH4_MAIN_CLOCK)
+	if (now - code.writesSecond >= SH4_MAIN_CLOCK)
 	{
-		fine.secondStart = now;
-		fine.writes = 0;
+		code.writesSecond = now;
+		code.writes = 0;
 	}
-	if (++fine.writes > MaxFineWrites)
+	if (++code.writes > MaxCodeWrites)
 	{
-		fine.coarse = true;
+		code.coarse = true;
 		printf("Deadcast smc: page %08x written more than %u times a second, unprotected\n", 0x0C000000 + page * PAGE_SIZE,
-				MaxFineWrites);
+				MaxCodeWrites);
 		return false;
 	}
-	const u8 *mem = ramPage(page);
-	if (mem == nullptr)
-		return false;
-	fine.copy.assign(mem, mem + PAGE_SIZE);
-	fine.pending = true;
-	fine.storePc = hostPc;
 	bmStatCodeWrites++;
-	finePending.push_back(page);
 	bm_UnlockPage(page * PAGE_SIZE);
-	if (finePending.size() == 1)
-		sh4_sched_request(settleSchid, SH4_TIMESLICE);
-	return true;
-}
-
-// what changed since the write: the blocks it touched go, the page is locked again
-static void settleFinePage(u32 page, FinePage& fine)
-{
-	fine.pending = false;
 	std::set<RuntimeBlockInfo*>& block_list = blocks_per_page[page];
-	const u8 *mem = ramPage(page);
-	bool codeChanged = false;
-	if (mem != nullptr && !block_list.empty() && memcmp(mem, fine.copy.data(), PAGE_SIZE) != 0)
-	{
-		std::vector<std::pair<u32, u32>> changed;	// offsets in the page, from and to
-		for (u32 i = 0; i < PAGE_SIZE; )
-		{
-			if (mem[i] == fine.copy[i])
-			{
-				i++;
-				continue;
-			}
-			const u32 from = i;
-			while (i < PAGE_SIZE && mem[i] != fine.copy[i])
-				i++;
-			changed.emplace_back(from, i);
-		}
-		const u32 start = page * PAGE_SIZE;
-		// RAM offset and size
-		const auto touched = [&](u32 addr, u32 size) {
-			if (addr + size <= start || addr >= start + PAGE_SIZE)
-				return false;
-			const u32 from = std::max(addr, start) - start;
-			const u32 to = std::min(addr + size, start + PAGE_SIZE) - start;
-			for (const auto& [changedFrom, changedTo] : changed)
-				if (changedFrom < to && changedTo > from)
-					return true;
-			return false;
-		};
-		std::vector<RuntimeBlockInfo*> stale;
-		for (RuntimeBlockInfo *block : block_list)
-		{
-			bool hit = touched(block->addr & RAM_MASK, block->sh4_code_size);
-			codeChanged |= hit;
-			for (const auto& [addr, size] : block->constReads)
-				if (touched(addr, size))
-				{
-					// data, not code: read from RAM by the block compiled again (bm_IsDataWord)
-					dataWords.insert(addr & ~3u);
-					hit = true;
-				}
-			if (hit)
-				stale.push_back(block);
-		}
-		for (RuntimeBlockInfo *block : stale)
-			bm_DiscardBlock(block);
-		bmStatCodeDropped += stale.size();
-	}
-	if (!codeChanged && fine.storePc != 0)
-		dataStores.insert(fine.storePc);
-	// none left: the next block compiled there locks it (SetProtectedFlags)
-	if (!block_list.empty())
-		bm_LockPage(page * PAGE_SIZE);
-}
-
-static void settleFinePages()
-{
-	for (u32 page : finePending)
-	{
-		auto it = finePages.find(page);
-		if (it != finePages.end() && it->second.pending)
-			settleFinePage(page, it->second);
-	}
-	finePending.clear();
-}
-
-static int settleFinePagesEvent(int tag, int cycles, int jitter, void *arg)
-{
-	settleFinePages();
-	return 0;
-}
-
-void bm_SettleWrites()
-{
-	if (!finePending.empty())
-		settleFinePages();
+	std::vector<RuntimeBlockInfo*> list_copy(block_list.begin(), block_list.end());
+	for (RuntimeBlockInfo *block : list_copy)
+		bm_DiscardBlock(block);
+	bmStatCodeDropped += list_copy.size();
+	return true;
 }
 
 bool bm_IsDataWord(u32 offset)
@@ -1007,9 +898,13 @@ bool bm_IsDataWord(u32 offset)
 
 bool bm_StoreToSlowPath(void *p, uintptr_t hostPc)
 {
-	if (hostPc == 0 || mmu_enabled() || !addrspace::virtmemEnabled() || bm_getRamOffset(p) == (u32)-1)
+	if (hostPc == 0 || mmu_enabled() || !addrspace::virtmemEnabled())
 		return false;
-	return dataStores.count(hostPc) != 0;
+	const u32 offset = bm_getRamOffset(p);
+	if (offset == (u32)-1 || unprotected_pages[offset / PAGE_SIZE])
+		return false;
+	auto it = codePages.find(offset / PAGE_SIZE);
+	return it == codePages.end() || !it->second.coarse;
 }
 
 // unprotected for good, as upstream did on the first write: its blocks go, and check their code once compiled again
@@ -1028,10 +923,11 @@ void bm_CodeWrite(u32 offset, u32 size, u64 data)
 {
 	offset &= RAM_MASK;
 	u8 *ram = &mem_b[0];
+	bmStatCodeStores++;
 	if (memcmp(&ram[offset], &data, size) == 0)
 		return;
 	const u32 page = offset / PAGE_SIZE;
-	FinePage& fine = finePages[page];
+	CodePage& fine = codePages[page];
 	const u64 now = sh4_sched_now64();
 	if (now - fine.storesSecond >= SH4_MAIN_CLOCK)
 	{
@@ -1049,7 +945,6 @@ void bm_CodeWrite(u32 offset, u32 size, u64 data)
 	}
 	// the next view of the RAM (its first mirror), never locked
 	memcpy(&ram[RAM_SIZE + offset], &data, size);
-	bmStatCodeStores++;
 	if (!codeBytes(offset, size))
 		return;
 	std::set<RuntimeBlockInfo*>& block_list = blocks_per_page[offset / PAGE_SIZE];
@@ -1082,7 +977,7 @@ void bm_RamWriteAccess(u32 addr, uintptr_t hostPc)
 		addrspace::protectRamInWindow(addr & ~PAGE_MASK, PAGE_SIZE, false);
 		return;
 	}
-	if (fineWrite(addr / PAGE_SIZE, hostPc))
+	if (codePageWrite(addr / PAGE_SIZE))
 		return;
 
 	unprotected_pages[addr / PAGE_SIZE] = true;

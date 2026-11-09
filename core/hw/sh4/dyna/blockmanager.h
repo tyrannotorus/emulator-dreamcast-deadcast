@@ -122,10 +122,8 @@ static inline bool bm_IsRamPageProtected(u32 addr)
 // Deadcast: hostPc, the code that wrote (bm_StoreToSlowPath)
 bool bm_RamWriteAccess(void *p, uintptr_t hostPc = 0);
 void bm_RamWriteAccess(u32 addr, uintptr_t hostPc = 0);
-// Deadcast: pages of code written to since the last settle, compared now (the i-cache invalidated)
-void bm_SettleWrites();
-// Deadcast: whether the dynarec's store at hostPc, faulting on protected code at p, goes to its slow path for good: it
-// wrote data next to code before (a page written that way faults ~70 us a write, its locks and unlocks included)
+// Deadcast: whether the dynarec's store at hostPc, faulting on protected code at p, goes to its slow path for good
+// (Sh4Dynarec::storeToStub), where it writes past the protection (bm_CodeWrite)
 bool bm_StoreToSlowPath(void *p, uintptr_t hostPc);
 // Deadcast: a store to a page whose code is protected, past the protection: written through another view of the RAM,
 // and the blocks whose code or constants it changed thrown away (addrspace::writet)
@@ -146,7 +144,6 @@ inline static bool bm_RamWriteAccess(void *p, uintptr_t hostPc = 0) {
 	return false;
 }
 inline static void bm_RamWriteAccess(u32 addr, uintptr_t hostPc = 0) {}
-inline static void bm_SettleWrites() {}
 inline static bool bm_StoreToSlowPath(void *p, uintptr_t hostPc) { return false; }
 inline static void bm_CodeWrite(u32 offset, u32 size, u64 data) {}
 inline static bool bm_IsDataWord(u32 offset) { return false; }

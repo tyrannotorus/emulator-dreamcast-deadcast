@@ -105,6 +105,9 @@ public:
 	// Rewrite the memory access at host PC address 'faultAddress'. This fast memory access failed and should be rewritten
 	// to use mem access handlers.
 	virtual bool rewrite(host_context_t& context, void *faultAddress) = 0;
+	// Deadcast: a store of translated code through the window, faulting at faultAddress, sent to its slow-path stub for good
+	// (bm_StoreToSlowPath); false, nothing done, for any other instruction
+	virtual bool storeToStub(host_context_t& context, void *faultAddress) { return false; }
 	// Allocate a new block information structure.
 	virtual RuntimeBlockInfo *allocateBlock() {
 		return new RuntimeBlockInfo();

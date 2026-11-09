@@ -3385,6 +3385,35 @@ public:
 		context.pc = (uintptr_t)::handleException;
 	}
 
+	bool storeToStub(host_context_t &context, void *faultAddress) override
+	{
+		if (codeBuffer == nullptr || mmu_enabled() || addrspace::windowToMap(faultAddress) == nullptr)
+			return false;
+		u32 *code_ptr = (u32 *)CC_RX2RW(context.pc);
+		if ((u8 *)code_ptr < (u8 *)codeBuffer->getBase() || (u8 *)code_ptr >= (u8 *)codeBuffer->getBase() + codeBuffer->getSize())
+			return false;
+		// str/strb/strh/str s [x27, wN, uxtw] (genMmuAccess's)
+		const u32 op = *code_ptr;
+		if ((op & 0x3B200C00) != 0x38200800 || ((op >> 13) & 7) != 2 || ((op >> 5) & 31) != 27 || ((op >> 22) & 3) != 0)
+			return false;
+		RuntimeBlockInfoPtr block = bm_GetBlock((void *)context.pc);
+		if (block == nullptr)
+			return false;
+		const u32 offset = (u32)((u8 *)code_ptr - (u8 *)block->code);
+		u32 *stub = nullptr;
+		for (const auto& [access, stubOffset] : block->mmuStubs)
+			if (access == offset)
+				stub = (u32 *)((u8 *)block->code + stubOffset);
+		if (stub == nullptr)
+			return false;
+		jitWriteProtect(*codeBuffer, false);
+		*code_ptr = 0x14000000 | ((u32)(stub - code_ptr) & 0x3FFFFFF);
+		virtmem::flush_cache(CC_RW2RX(code_ptr), CC_RW2RX(code_ptr + 1), code_ptr, code_ptr + 1);
+		context.pc = (uintptr_t)CC_RW2RX(stub);
+		jitWriteProtect(*codeBuffer, true);
+		return true;
+	}
+
 	bool rewrite(host_context_t &context, void *faultAddress) override
 	{
 		constexpr u32 STR_LDR_MASK = 0xFFE0EC00;
