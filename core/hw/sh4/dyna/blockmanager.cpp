@@ -11,6 +11,7 @@
 #include <deque>
 #include <unordered_map>
 #include <unordered_set>
+#include <memory>
 #include "blockmanager.h"
 #include "ngen.h"
 
@@ -59,6 +60,8 @@ u32 unprotected_blocks;
 //   dynarec's window too (rec_arm64.cpp), so that they can.
 // - A word a block had read into a constant (constReads), written, is data: blocks compiled after read it from RAM
 //   (bm_IsDataWord), or each write would throw them away again (Skies of Arcadia: 250 blocks a second).
+// - A page stored to past its protection more than MaxCodeStores times an emulated second (DOA2: 50,000 to 95,000)
+//   is unprotected, as upstream did: its blocks check their code, cheaper than a slow store each time.
 // - A page written more than MaxFineWrites times in an emulated second (data next to code) is unprotected as
 //   before (coarse). Each emulated second it is compared with what it held the second before; unchanged for
 //   RelockAfter seconds, it is protected again, and its blocks compiled again without the check. One written again
@@ -76,6 +79,7 @@ std::unordered_map<u32, WatchedPage> watchedPages;	// RAM page -> its contents a
 std::vector<u8> relocks;							// RAM page -> times protected again
 
 constexpr u32 MaxFineWrites = 500;
+constexpr u32 MaxCodeStores = 2000;
 struct FinePage
 {
 	std::vector<u8> copy;	// the page before the write that unlocked it
@@ -84,12 +88,47 @@ struct FinePage
 	u64 secondStart = 0;	// sh4_sched_now64 at the start of the second its writes are counted in
 	u32 writes = 0;
 	uintptr_t storePc = 0;	// the store that unlocked it
+	u64 storesSecond = 0;	// sh4_sched_now64 at the start of the second its stores are counted in (bm_CodeWrite)
+	u32 stores = 0;
 };
 std::unordered_map<u32, FinePage> finePages;		// RAM page ->
 std::vector<u32> finePending;						// RAM pages unlocked until settleFinePages
 int settleSchid = -1;
 std::unordered_set<uintptr_t> dataStores;			// the dynarec's stores that wrote data next to code
 std::unordered_set<u32> dataWords;					// RAM words next to code written as data: never read into constants
+// RAM page -> a bit for each of its bytes a protected block was compiled from or read into a constant: set only, the
+// page's cleared once it has no protected block left. A store to a page of code that sets none needs no block looked at.
+std::vector<std::unique_ptr<u64[]>> codeBits;
+
+void markCodeBytes(u32 offset, u32 size)
+{
+	offset &= RAM_MASK;
+	while (size > 0)
+	{
+		const u32 page = offset / PAGE_SIZE;
+		const u32 from = offset % PAGE_SIZE;
+		const u32 n = std::min(size, (u32)PAGE_SIZE - from);
+		std::unique_ptr<u64[]>& bits = codeBits[page];
+		if (!bits)
+			bits.reset(new u64[PAGE_SIZE / 64]());
+		for (u32 i = from; i < from + n; i++)
+			bits[i / 64] |= 1ull << (i % 64);
+		offset += n;
+		size -= n;
+	}
+}
+
+// within one page
+bool codeBytes(u32 offset, u32 size)
+{
+	const std::unique_ptr<u64[]>& bits = codeBits[offset / PAGE_SIZE];
+	if (!bits)
+		return false;
+	for (u32 i = offset % PAGE_SIZE; i < offset % PAGE_SIZE + size; i++)
+		if ((bits[i / 64] >> (i % 64)) & 1)
+			return true;
+	return false;
+}
 
 const u8 *ramPage(u32 page) {
 	return GetMemPtr(0x0C000000 + page * PAGE_SIZE, PAGE_SIZE);
@@ -303,6 +342,13 @@ void bm_AddBlock(RuntimeBlockInfo* blk)
 
 	verify((void*)bm_GetCode(block->addr) == (void*)ngen_FailedToFindBlock);
 	FPCA(block->addr) = (DynarecCodeEntryPtr)CC_RW2RX(block->code);
+	// Deadcast: what a write must not change without throwing it away (bm_CodeWrite)
+	if (block->read_only)
+	{
+		markCodeBytes(block->addr, block->sh4_code_size);
+		for (const auto& [offset, size] : block->constReads)
+			markCodeBytes(offset, size);
+	}
 
 #ifdef DYNA_OPROF
 	if (oprofHandle)
@@ -572,6 +618,8 @@ void bm_ResetCache()
 
 	for (size_t i = 0; i < pageCount; i++)
 		blocks_per_page[i].clear();
+	for (auto& bits : codeBits)
+		bits.reset();
 
 	memset(unprotected_pages, 0, pageCount);
 	watchedPages.clear();
@@ -619,6 +667,7 @@ void bm_Init()
 	blocks_per_page = new std::set<RuntimeBlockInfo*>[pageCount];
 	relocks.assign(pageCount, 0);
 	bm_codeLocked = new u8[pageCount]();
+	codeBits.resize(pageCount);
 	settleSchid = sh4_sched_register(0, &settleFinePagesEvent);
 
 #ifdef DYNA_OPROF
@@ -718,6 +767,8 @@ void RuntimeBlockInfo::Discard()
 		{
 			auto& block_list = blocks_per_page[(addr & RAM_MASK) / PAGE_SIZE];
 			block_list.erase(this);
+			if (block_list.empty())
+				codeBits[(addr & RAM_MASK) / PAGE_SIZE].reset();
 		}
 	}
 }
@@ -961,15 +1012,46 @@ bool bm_StoreToSlowPath(void *p, uintptr_t hostPc)
 	return dataStores.count(hostPc) != 0;
 }
 
+// unprotected for good, as upstream did on the first write: its blocks go, and check their code once compiled again
+static void unprotectCodePage(u32 page)
+{
+	unprotected_pages[page] = true;
+	bm_UnlockPage(page * PAGE_SIZE);
+	watchUnlockedPage(page);
+	std::set<RuntimeBlockInfo*>& block_list = blocks_per_page[page];
+	std::vector<RuntimeBlockInfo*> list_copy(block_list.begin(), block_list.end());
+	for (RuntimeBlockInfo *block : list_copy)
+		bm_DiscardBlock(block);
+}
+
 void bm_CodeWrite(u32 offset, u32 size, u64 data)
 {
 	offset &= RAM_MASK;
 	u8 *ram = &mem_b[0];
 	if (memcmp(&ram[offset], &data, size) == 0)
 		return;
+	const u32 page = offset / PAGE_SIZE;
+	FinePage& fine = finePages[page];
+	const u64 now = sh4_sched_now64();
+	if (now - fine.storesSecond >= SH4_MAIN_CLOCK)
+	{
+		fine.storesSecond = now;
+		fine.stores = 0;
+	}
+	if (++fine.stores > MaxCodeStores)
+	{
+		printf("Deadcast smc: page %08x stored to more than %u times a second, unprotected\n", 0x0C000000 + page * PAGE_SIZE,
+				MaxCodeStores);
+		fine.coarse = true;
+		unprotectCodePage(page);
+		memcpy(&ram[offset], &data, size);
+		return;
+	}
 	// the next view of the RAM (its first mirror), never locked
 	memcpy(&ram[RAM_SIZE + offset], &data, size);
 	bmStatCodeStores++;
+	if (!codeBytes(offset, size))
+		return;
 	std::set<RuntimeBlockInfo*>& block_list = blocks_per_page[offset / PAGE_SIZE];
 	const auto touched = [&](u32 addr, u32 bytes) { return addr < offset + size && addr + bytes > offset; };
 	std::vector<RuntimeBlockInfo*> stale;
