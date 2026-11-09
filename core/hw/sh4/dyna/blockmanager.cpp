@@ -57,6 +57,8 @@ u32 unprotected_blocks;
 //   into two such pages) goes to its slow path for good on its next fault (bm_StoreToSlowPath): written there through
 //   another view of the RAM, the page never unlocked (bm_CodeWrite). Constant-address stores to RAM go through the
 //   dynarec's window too (rec_arm64.cpp), so that they can.
+// - A word a block had read into a constant (constReads), written, is data: blocks compiled after read it from RAM
+//   (bm_IsDataWord), or each write would throw them away again (Skies of Arcadia: 250 blocks a second).
 // - A page written more than MaxFineWrites times in an emulated second (data next to code) is unprotected as
 //   before (coarse). Each emulated second it is compared with what it held the second before; unchanged for
 //   RelockAfter seconds, it is protected again, and its blocks compiled again without the check. One written again
@@ -87,6 +89,7 @@ std::unordered_map<u32, FinePage> finePages;		// RAM page ->
 std::vector<u32> finePending;						// RAM pages unlocked until settleFinePages
 int settleSchid = -1;
 std::unordered_set<uintptr_t> dataStores;			// the dynarec's stores that wrote data next to code
+std::unordered_set<u32> dataWords;					// RAM words next to code written as data: never read into constants
 
 const u8 *ramPage(u32 page) {
 	return GetMemPtr(0x0C000000 + page * PAGE_SIZE, PAGE_SIZE);
@@ -576,6 +579,7 @@ void bm_ResetCache()
 	finePages.clear();
 	finePending.clear();
 	dataStores.clear();
+	dataWords.clear();
 
 #ifdef DYNA_OPROF
 	if (oprofHandle)
@@ -900,15 +904,20 @@ static void settleFinePage(u32 page, FinePage& fine)
 		for (RuntimeBlockInfo *block : block_list)
 		{
 			bool hit = touched(block->addr & RAM_MASK, block->sh4_code_size);
-			for (size_t i = 0; !hit && i < block->constReads.size(); i++)
-				hit = touched(block->constReads[i].first, block->constReads[i].second);
+			codeChanged |= hit;
+			for (const auto& [addr, size] : block->constReads)
+				if (touched(addr, size))
+				{
+					// data, not code: read from RAM by the block compiled again (bm_IsDataWord)
+					dataWords.insert(addr & ~3u);
+					hit = true;
+				}
 			if (hit)
 				stale.push_back(block);
 		}
 		for (RuntimeBlockInfo *block : stale)
 			bm_DiscardBlock(block);
 		bmStatCodeDropped += stale.size();
-		codeChanged = !stale.empty();
 	}
 	if (!codeChanged && fine.storePc != 0)
 		dataStores.insert(fine.storePc);
@@ -940,6 +949,11 @@ void bm_SettleWrites()
 		settleFinePages();
 }
 
+bool bm_IsDataWord(u32 offset)
+{
+	return !dataWords.empty() && dataWords.count((offset & RAM_MASK) & ~3u) != 0;
+}
+
 bool bm_StoreToSlowPath(void *p, uintptr_t hostPc)
 {
 	if (hostPc == 0 || mmu_enabled() || !addrspace::virtmemEnabled() || bm_getRamOffset(p) == (u32)-1)
@@ -962,8 +976,13 @@ void bm_CodeWrite(u32 offset, u32 size, u64 data)
 	for (RuntimeBlockInfo *block : block_list)
 	{
 		bool hit = touched(block->addr & RAM_MASK, block->sh4_code_size);
-		for (size_t i = 0; !hit && i < block->constReads.size(); i++)
-			hit = touched(block->constReads[i].first, block->constReads[i].second);
+		for (const auto& [addr, bytes] : block->constReads)
+			if (touched(addr, bytes))
+			{
+				// data, not code: read from RAM by the block compiled again (bm_IsDataWord)
+				dataWords.insert(addr & ~3u);
+				hit = true;
+			}
 		if (hit)
 			stale.push_back(block);
 	}

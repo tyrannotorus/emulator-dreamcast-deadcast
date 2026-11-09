@@ -130,6 +130,8 @@ bool bm_StoreToSlowPath(void *p, uintptr_t hostPc);
 // Deadcast: a store to a page whose code is protected, past the protection: written through another view of the RAM,
 // and the blocks whose code or constants it changed thrown away (addrspace::writet)
 void bm_CodeWrite(u32 offset, u32 size, u64 data);
+// Deadcast: a word of RAM next to code that is written as data, never read into a constant (ssa.cpp)
+bool bm_IsDataWord(u32 offset);
 extern u8 *bm_codeLocked;
 static inline bool bm_IsCodeLocked(u32 offset) {
 	return bm_codeLocked != nullptr && bm_codeLocked[(offset & RAM_MASK) / PAGE_SIZE] != 0;
@@ -147,6 +149,7 @@ inline static void bm_RamWriteAccess(u32 addr, uintptr_t hostPc = 0) {}
 inline static void bm_SettleWrites() {}
 inline static bool bm_StoreToSlowPath(void *p, uintptr_t hostPc) { return false; }
 inline static void bm_CodeWrite(u32 offset, u32 size, u64 data) {}
+inline static bool bm_IsDataWord(u32 offset) { return false; }
 static inline bool bm_IsCodeLocked(u32 offset) { return false; }
 inline static void bm_LockPage(u32 addr, u32 size = PAGE_SIZE) {}
 inline static void bm_UnlockPage(u32 addr, u32 size = PAGE_SIZE) {}

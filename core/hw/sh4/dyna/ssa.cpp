@@ -496,7 +496,9 @@ void SSAOptimizer::ConstPropPass()
 					void *ptr;
 					bool isRam;
 					u32 paddr;
-					if (rdv_readMemImmediate(op.rs1._imm, op.size, ptr, isRam, paddr, block) && isRam)
+					// Deadcast: not a word written as data next to code (bm_IsDataWord)
+					if (rdv_readMemImmediate(op.rs1._imm, op.size, ptr, isRam, paddr, block) && isRam
+							&& !bm_IsDataWord(paddr))
 					{
 						u32 v;
 						switch (op.size)
