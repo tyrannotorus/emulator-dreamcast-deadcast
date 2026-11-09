@@ -91,6 +91,12 @@ static DynaCode *lightThunk;
 static DynaCode *sqFlush;
 // Deadcast: the SH4 addresses of stores that wrote to the store queues (rewrite): compiled inline, straight to sq_buffer
 static std::unordered_set<u32> sqStoreSites;
+// Deadcast: the SH4 addresses of 32-bit loads that read a timer's count (TMU TCNT0-2), and the address read: compiled inline
+// (GenReadMemory), the count from the cycle counter as read_TMU_TCNTch computes it
+static std::unordered_map<u32, u32> tmuReadSites;
+extern s64 *const tmuChBase;
+extern u64 *const tmuMask;
+extern u32 *const tmuShift;
 // the TA's, for it (ta.cpp): its state machine (the state at [2048]), the transitions to handle, its
 // data's write pointer and the data's start (that many bytes after it), its context, the data's size
 extern u8 ta_fsm[2049];
@@ -1956,11 +1962,11 @@ public:
 			// handle. Anything else, or the TA's data at its start or full, through the handler.
 			Bind(&sqFlushLabel);
 			{
-				Label slow, handle;
+				Label slow, handle, ram;
 				Ubfx(w1, w0, 20, 6);
 				Add(x2, x28, SqTaRegionsOffset);
 				Ldrb(w2, MemOperand(x2, x1));
-				Cbz(w2, &slow);
+				Cbz(w2, &ram);
 				Mov(x2, reinterpret_cast<uintptr_t>(taContext));
 				Ldr(x2, MemOperand(x2));
 				Cbz(x2, &slow);
@@ -1997,6 +2003,19 @@ public:
 				Mov(w0, w3);
 				Mov(x16, reinterpret_cast<uintptr_t>(ta_vtx_handle));
 				B(&lightThunkLabel);
+				// Deadcast: a store queue area remapped to main RAM (sqRamRegions): the 32 bytes there, as
+				// WriteMemBlock_nommu_sq (protected code there faults as any store to it does)
+				Bind(&ram);
+				Mov(x2, reinterpret_cast<uintptr_t>(sqRamRegions));
+				Ldr(x2, MemOperand(x2, x1, LSL, 3));
+				Cbz(x2, &slow);
+				And(w3, w0, 0xFFFE0);
+				Add(x2, x2, x3);
+				Ubfx(w1, w0, 5, 1);
+				Add(x1, x28, Operand(x1, LSL, 5));
+				Ldp(q0, q1, MemOperand(x1));
+				Stp(q0, q1, MemOperand(x2));
+				Ret();
 				Bind(&slow);
 				Mov(x1, x28);
 				Ldr(x16, sh4_context_mem_operand(&sh4ctx.doSqWrite));
@@ -2602,6 +2621,42 @@ private:
 		return true;
 	}
 
+	// Deadcast: TMU channel 0-2 whose count (TCNT) the address is, else -1
+	static int tmuChannel(u32 addr)
+	{
+		switch (addr & 0x1FFFFFFF)
+		{
+		case TMU_TCNT0_addr: return 0;
+		case TMU_TCNT1_addr: return 1;
+		case TMU_TCNT2_addr: return 2;
+		default: return -1;
+		}
+	}
+
+	// Deadcast: a timer's count into w3, as read_TMU_TCNTch: its base less the time since, now() = sh4_sched_ffb -
+	// sh4_sched_next + SH4_TIMESLICE - cycle_counter, shifted and masked; run out (negative: read_TMU_TCNT reloads it),
+	// to slow. x2, x3 and x16 scratch.
+	void genTmuCount(int ch, Label *slow)
+	{
+		Mov(x2, reinterpret_cast<uintptr_t>(sh4SchedFfb));
+		Ldr(x2, MemOperand(x2));
+		Ldrsw(x3, sh4_context_mem_operand(&sh4ctx.sh4_sched_next));
+		Sub(x2, x2, x3);
+		Ldrsw(x3, sh4_context_mem_operand(&sh4ctx.cycle_counter));
+		Sub(x2, x2, x3);
+		Add(x2, x2, SH4_TIMESLICE);
+		Mov(x16, reinterpret_cast<uintptr_t>(&tmuShift[ch]));
+		Ldr(w3, MemOperand(x16));
+		Lsr(x2, x2, x3);
+		Mov(x16, reinterpret_cast<uintptr_t>(&tmuMask[ch]));
+		Ldr(x3, MemOperand(x16));
+		And(x2, x2, x3);
+		Mov(x16, reinterpret_cast<uintptr_t>(&tmuChBase[ch]));
+		Ldr(x3, MemOperand(x16));
+		Subs(x3, x3, x2);
+		B(slow, mi);
+	}
+
 	void GenReadMemory(const shil_opcode& op, size_t opid, bool optimise)
 	{
 		if (GenReadMemoryImmediate(op))
@@ -2619,6 +2674,27 @@ private:
 				dest = regalloc.MapRegister(op.rd);
 			else if (op.size == 4 && regalloc.IsAllocf(op.rd))
 				dest = regalloc.MapVRegister(op.rd);
+			auto tmuSite = tmuReadSites.end();
+			if (mmu != nullptr && op.size == 4 && !dest.IsVRegister() && !mmu_enabled())
+				tmuSite = tmuReadSites.find(block->vaddr + op.guest_offs);
+			if (tmuSite != tmuReadSites.end())
+			{
+				// Deadcast: a timer's count, as read_TMU_TCNTch: its base less the time since, now() =
+				// sh4_sched_ffb - sh4_sched_next + SH4_TIMESLICE - cycle_counter, shifted and masked. Another address,
+				// or the count run out (the reload to do), through the stub
+				Mov(w3, tmuSite->second);
+				Cmp(raddr, w3);
+				B(&mmu->stub, ne);
+				genTmuCount(tmuChannel(tmuSite->second), &mmu->stub);
+				mmu->accessOffset = (u32)GetBuffer()->GetCursorOffset();
+				Mov(dest.W(), w3);
+				Bind(&mmu->next);
+				mmu->size = op.size;
+				mmu->data = dest;
+				if (dest.Is(w0))
+					host_reg_to_shil_param(op.rd, dest);
+				return;
+			}
 			if (mmu != nullptr)
 			{
 				const MemOperand addr(x27, raddr, UXTW);
@@ -2795,7 +2871,19 @@ private:
 					break;
 
 				case 4:
-					GenCallRuntime((void (*)())ptr);
+					if (!mmu_enabled() && tmuChannel(op.rs1._imm) >= 0)
+					{
+						// Deadcast: a timer's count (games poll them), inline; run out, the handler
+						Label slow, done;
+						genTmuCount(tmuChannel(op.rs1._imm), &slow);
+						Mov(w0, w3);
+						B(&done);
+						Bind(&slow);
+						GenCallRuntime((void (*)())ptr);
+						Bind(&done);
+					}
+					else
+						GenCallRuntime((void (*)())ptr);
 					break;
 
 				default:
@@ -3517,6 +3605,11 @@ public:
 			// inline (GenWriteMemory, sqStoreSites)
 			const u32 guest = (u32)((u8 *)faultAddress - addrspace::window);
 			if (((armv8_op >> 22) & 3) == 0 && (guest >> 26) == 0x38 && sqStoreSites.insert(site).second && live)
+				bm_DiscardBlock(block.get());
+			// a timer's count read (32-bit ldr w): inline too
+			const u32 tmu = guest & 0x1FFFFFFF;
+			if ((armv8_op & 0xFFE00C00) == 0xB8600800 && (tmu == TMU_TCNT0_addr || tmu == TMU_TCNT1_addr || tmu == TMU_TCNT2_addr)
+					&& tmuReadSites.emplace(site, guest).second && live)
 				bm_DiscardBlock(block.get());
 			return true;
 		}

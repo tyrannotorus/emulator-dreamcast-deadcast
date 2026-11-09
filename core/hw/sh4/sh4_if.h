@@ -124,6 +124,7 @@ void setSqwHandler();
 // remap as they are: the dynarec flushes those itself (rec_arm64.cpp). 64 bytes in the context's
 // spare room (Sh4Context::jitSave). Updated by setSqwHandler, as sq_remap changes and as the CPU starts.
 void sqTaRegionsUpdate();
+extern u8 *sqRamRegions[64];
 struct Sh4Context;
 // Deadcast: a store queue write under the MMU, unless translating its address raises an exception:
 // nonzero then, nothing written

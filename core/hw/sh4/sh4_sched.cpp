@@ -31,6 +31,8 @@ struct sched_list
 };
 
 static u64 sh4_sched_ffb;
+// Deadcast: for the dynarec's inline timer reads (rec_arm64.cpp)
+u64 *const sh4SchedFfb = &sh4_sched_ffb;
 static std::vector<sched_list> sch_list;
 static int sh4_sched_next_id = -1;
 

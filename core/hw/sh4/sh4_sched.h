@@ -26,6 +26,8 @@ void sh4_sched_unregister(int id);
 	Does not wrap, 64 bits.
 */
 u64 sh4_sched_now64();
+// Deadcast: sh4_sched_now64() = *sh4SchedFfb - sh4_sched_next, for the dynarec's inline timer reads
+extern u64 *const sh4SchedFfb;
 
 /*
 	Schedule a callback to be called sh4 *cycles* after the
