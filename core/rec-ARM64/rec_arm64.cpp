@@ -230,6 +230,9 @@ public:
 	Arm64Assembler(Sh4Context& sh4ctx, Sh4CodeBuffer& codeBuffer, void *buffer)
 	: MacroAssembler((u8 *)buffer, codeBuffer.getFreeSpace()), regalloc(this), sh4ctx(sh4ctx), codeBuffer(codeBuffer)
 	{
+		// Deadcast: the macro assembler's FP scratch d15, not d31: s31 holds FR15 when FR0-FR15 are pinned
+		GetScratchVRegisterList()->Remove(d31);
+		GetScratchVRegisterList()->Combine(d15);
 		call_regs.push_back((const WRegister*)&w0);
 		call_regs.push_back((const WRegister*)&w1);
 		call_regs.push_back((const WRegister*)&w2);
@@ -1041,37 +1044,38 @@ public:
 			// Deadcast: fipr and ftrv in single precision, fused multiply-adds: the SH4 computes them with
 			// errors of its own, not exactly either (the interpreter's, in double, is exact)
 			case shop_fipr:
-				Add(x2, x28, op.rs1.reg_offset());
-				Ld1(v0.V4S(), MemOperand(x2));
-				Add(x2, x28, op.rs2.reg_offset());
-				Ld1(v1.V4S(), MemOperand(x2));
-				Fmul(v20.V4S(), v0.V4S(), v1.V4S());
-				Faddp(v21.V4S(), v20.V4S(), v20.V4S());
-				Faddp(s22, v21.V2S());
-				host_reg_to_shil_param(op.rd, s22);
+				genLoadVector(v0, op.rs1);
+				genLoadVector(v1, op.rs2);
+				Fmul(v5.V4S(), v0.V4S(), v1.V4S());
+				Faddp(v6.V4S(), v5.V4S(), v5.V4S());
+				Faddp(s7, v6.V2S());
+				host_reg_to_shil_param(op.rd, s7);
 				break;
 
 			case shop_ftrv:
 				// fd[i] = sum over j of fn[j] * fm[j * 4 + i]: the lanes are the four results
-				Add(x2, x28, op.rs1.reg_offset());
-				Ld1(v0.V4S(), MemOperand(x2));
+				genLoadVector(v0, op.rs1);
 				Add(x2, x28, op.rs2.reg_offset());
 				Ld1(v1.V4S(), v2.V4S(), v3.V4S(), v4.V4S(), MemOperand(x2));
-				Fmul(v22.V4S(), v1.V4S(), v0.S(), 0);
-				Fmla(v22.V4S(), v2.V4S(), v0.S(), 1);
-				Fmla(v22.V4S(), v3.V4S(), v0.S(), 2);
-				Fmla(v22.V4S(), v4.V4S(), v0.S(), 3);
-				Add(x2, x28, op.rd.reg_offset());
-				St1(v22.V4S(), MemOperand(x2));
+				Fmul(v5.V4S(), v1.V4S(), v0.S(), 0);
+				Fmla(v5.V4S(), v2.V4S(), v0.S(), 1);
+				Fmla(v5.V4S(), v3.V4S(), v0.S(), 2);
+				Fmla(v5.V4S(), v4.V4S(), v0.S(), 3);
+				genStoreVector(op.rd, v5);
 				break;
 
 			case shop_frswap:
+				// Deadcast: the banks swapped in the context, FR0-FR15 there first and from there after when pinned
+				if (pinnedRegs)
+					genPinnedFrStore();
 				Add(x2, x28, op.rs1.reg_offset());
 				Add(x3, x28, op.rd.reg_offset());
 				Ld4(v0.V2D(), v1.V2D(), v2.V2D(), v3.V2D(), MemOperand(x2));
 				Ld4(v4.V2D(), v5.V2D(), v6.V2D(), v7.V2D(), MemOperand(x3));
 				St4(v4.V2D(), v5.V2D(), v6.V2D(), v7.V2D(), MemOperand(x2));
 				St4(v0.V2D(), v1.V2D(), v2.V2D(), v3.V2D(), MemOperand(x3));
+				if (pinnedRegs)
+					genPinnedFrLoad();
 				break;
 
 			case shop_cvt_f2i_t:
@@ -2262,37 +2266,84 @@ private:
 		for (int i = 0; i < 16; i += 2)
 			Stp(Register(pinned_gregs[i], 32), Register(pinned_gregs[i + 1], 32), sh4_context_mem_operand((Sh4RegType)(reg_r0 + i)));
 		Str(Register(pinned_T, 32), sh4_context_mem_operand(reg_sr_T));
+		genPinnedFrStore();
 	}
 	void genPinnedLoad()
 	{
 		for (int i = 0; i < 16; i += 2)
 			Ldp(Register(pinned_gregs[i], 32), Register(pinned_gregs[i + 1], 32), sh4_context_mem_operand((Sh4RegType)(reg_r0 + i)));
 		Ldr(Register(pinned_T, 32), sh4_context_mem_operand(reg_sr_T));
+		genPinnedFrLoad();
+	}
+	// Deadcast: whether the four registers of a vector (FVn) from reg are pinned FRs (s16-s31)
+	bool pinnedVector(const shil_param& param) const {
+		return pinnedRegs && param._reg >= reg_fr_0 && param._reg + 3 <= reg_fr_15;
+	}
+	// a vector (FVn, four registers) into v: from its pinned registers, else the context
+	void genLoadVector(const VRegister& v, const shil_param& param)
+	{
+		if (pinnedVector(param))
+			for (int i = 0; i < 4; i++)
+				Mov(v.V4S(), i, VRegister(16 + (param._reg - reg_fr_0) + i, 128).V4S(), 0);
+		else
+		{
+			Add(x2, x28, param.reg_offset());
+			Ld1(v.V4S(), MemOperand(x2));
+		}
+	}
+	// v's four lanes to a vector (FVn): its pinned registers, else the context
+	void genStoreVector(const shil_param& param, const VRegister& v)
+	{
+		if (pinnedVector(param))
+			for (int i = 0; i < 4; i++)
+				Mov(VRegister(16 + (param._reg - reg_fr_0) + i, 32), v.V4S(), i);
+		else
+		{
+			Add(x2, x28, param.reg_offset());
+			St1(v.V4S(), MemOperand(x2));
+		}
+	}
+
+	// FR0-FR15, pinned in s16-s31
+	void genPinnedFrStore()
+	{
+		for (int i = 0; i < 16; i += 2)
+			Stp(VRegister(16 + i, 32), VRegister(17 + i, 32), sh4_context_mem_operand((Sh4RegType)(reg_fr_0 + i)));
+	}
+	void genPinnedFrLoad()
+	{
+		for (int i = 0; i < 16; i += 2)
+			Ldp(VRegister(16 + i, 32), VRegister(17 + i, 32), sh4_context_mem_operand((Sh4RegType)(reg_fr_0 + i)));
 	}
 
 	// a light thunk: function's, else lightThunk, which calls x16. It keeps the host registers C may
-	// change (the pinned R8-R15 and T, w4-w7), on the stack; R0-R7 are in registers C keeps.
+	// change (the pinned R8-R15, T and FR0-FR15, w4-w7), on the stack; R0-R7 are in registers C keeps.
 	void genLightThunk(uintptr_t function)
 	{
 		inThunk = true;
-		Stp(x4, x5, MemOperand(sp, -112, PreIndex));
+		Stp(x4, x5, MemOperand(sp, -240, PreIndex));
 		Stp(x6, x7, MemOperand(sp, 16));
 		Stp(x8, x9, MemOperand(sp, 32));
 		Stp(x10, x11, MemOperand(sp, 48));
 		Stp(x12, x13, MemOperand(sp, 64));
 		Stp(x14, x15, MemOperand(sp, 80));
 		Stp(x18, x30, MemOperand(sp, 96));
+		// Deadcast: and FR0-FR15 (s16-s31), which C may change
+		for (int i = 0; i < 16; i += 2)
+			Stp(VRegister(16 + i, 64), VRegister(17 + i, 64), MemOperand(sp, 112 + i * 8));
 		if (function == 0)
 			Blr(x16);
 		else
 			GenCallRuntime((void (*)())function);
+		for (int i = 0; i < 16; i += 2)
+			Ldp(VRegister(16 + i, 64), VRegister(17 + i, 64), MemOperand(sp, 112 + i * 8));
 		Ldp(x18, x30, MemOperand(sp, 96));
 		Ldp(x14, x15, MemOperand(sp, 80));
 		Ldp(x12, x13, MemOperand(sp, 64));
 		Ldp(x10, x11, MemOperand(sp, 48));
 		Ldp(x8, x9, MemOperand(sp, 32));
 		Ldp(x6, x7, MemOperand(sp, 16));
-		Ldp(x4, x5, MemOperand(sp, 112, PostIndex));
+		Ldp(x4, x5, MemOperand(sp, 240, PostIndex));
 		Ret();
 		inThunk = false;
 	}

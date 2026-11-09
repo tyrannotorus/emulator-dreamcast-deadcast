@@ -54,12 +54,12 @@ public:
 	// ARM64 dynarec: w29) sets this: pc_dyn, which only those exits read, is never written back
 	bool jdynInHostReg = false;
 
-	// Deadcast: registers a host keeps in host registers of their own for good, across blocks (pinned):
-	// always allocated, never loaded, written back nor spilled here. The host keeps the context in
+	// Deadcast: registers a host keeps in host registers of their own for good, across blocks (pinned),
+	// integer or floating point: always allocated, never loaded, written back nor spilled here. The host keeps the context in
 	// step wherever other code reads or writes them there (the ARM64 dynarec's calls out).
 	void Pin(Sh4RegType reg, nreg_t host_reg)
 	{
-		verify(!IsFloat(reg) && reg >= 0 && reg < sh4_reg_count);
+		verify(reg >= 0 && reg < sh4_reg_count);
 		pinned[reg] = host_reg;
 		isPinned[reg] = true;
 	}
@@ -341,7 +341,7 @@ public:
 	bool reg_used(nreg_t host_reg)
 	{
 		for (int reg = 0; reg < sh4_reg_count; reg++)
-			if (isPinned[reg] && pinned[reg] == host_reg)
+			if (isPinned[reg] && !IsFloat((Sh4RegType)reg) && pinned[reg] == host_reg)
 				return true;
 		for (auto const& reg : reg_alloced)
 			if ((nreg_t)reg.second.host_reg == host_reg && !IsFloat(reg.first))
@@ -398,6 +398,8 @@ private:
 
 	nregf_t mapf(Sh4RegType reg)
 	{
+		if (IsPinned(reg))
+			return (nregf_t)pinned[reg];
 		verify(reg_alloced.count(reg));
 		return (nregf_t)reg_alloced[reg].host_reg;
 	}
@@ -406,7 +408,7 @@ private:
 	{
 		if (!IsFloat(reg))
 			return false;
-		return reg_alloced.find(reg) != reg_alloced.end();
+		return IsPinned(reg) || reg_alloced.find(reg) != reg_alloced.end();
 	}
 
 	bool IsAllocg(Sh4RegType reg)
