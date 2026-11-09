@@ -11,7 +11,7 @@ struct RuntimeBlockInfo;
 
 namespace deadcast
 {
-// called from the block's start, its own cycles charged; returns the next pc
+// called from the block's start, its own cycles charged; returns the next pc, or 0, nothing done, for the block's own code
 using HotPath = u32 (DYNACALL *)(u32 vaddr);
 // the native code for the block's loop, if it starts one this knows
 HotPath hotPath(const RuntimeBlockInfo *block);

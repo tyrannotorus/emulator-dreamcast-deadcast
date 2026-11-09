@@ -4,9 +4,20 @@
 #include "hw/sh4/dyna/blockmanager.h"
 #include "hw/sh4/dyna/decoder.h"
 #include "hw/sh4/modules/mmu.h"
+#include "hw/sh4/sh4_mmr.h"
+#include "hw/pvr/ta.h"
+#include "hotpaths_submit.h"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
+
+// the TA's polygon FIFO, as the dynarec's store queue flush reaches it (ta.cpp)
+extern u8 ta_fsm[2049];
+extern u8 **const taDataWrite;
+extern const ptrdiff_t taDataRootOffset;
+extern void **const taContext;
+extern const size_t taDataSize;
 
 namespace deadcast
 {
@@ -129,6 +140,60 @@ u32 DYNACALL maskSum(u32 head)
 	return pc;
 }
 
+// the TA submit loop (hotpaths_submit.h), d084-d0bc in NFL 2K2
+constexpr std::array<u16, 29> SubmitCode {
+	0x6286, 0x2228, 0x8d1a, 0x0009, 0x6a86, 0x4210, 0x5ba3, 0x5ca4, 0x5da5, 0x10b1, 0x10c2, 0x5ba6, 0x10d3, 0x5ca7, 0x10b6,
+	0x5da8, 0x10c7, 0x10d4, 0x8d04, 0x1040, 0x0083, 0xafed, 0x7020, 0x0009, 0xdd08, 0x20d2, 0x0083, 0xafe3, 0x7020
+};
+// the blocks' offsets from d084: d084 d08c d0ac d0b4, and d0c0 out of it; the literal end of strip at d0d8
+constexpr std::array<u32, 5> SubmitAt { 0, 0x08, 0x28, 0x30, 0x3c };
+constexpr std::array<u32, 4> SubmitCount { 4, 16, 3, 5 };
+constexpr u32 SubmitEndOfStrip = 0x54;
+u32 submitBase;
+std::array<s32, 4> submitCost;
+
+u32 DYNACALL submitHot(u32 vaddr)
+{
+	Sh4Context& ctx = Sh4cntx;
+	SubmitIo io;
+	io.r0 = ctx.r[0]; io.r2 = ctx.r[2]; io.r4 = ctx.r[4]; io.r8 = ctx.r[8];
+	io.r10 = ctx.r[10]; io.r11 = ctx.r[11]; io.r12 = ctx.r[12]; io.r13 = ctx.r[13];
+	io.cycles = ctx.cycle_counter;
+	io.entry = (u32)(std::find(SubmitAt.begin(), SubmitAt.end(), vaddr - submitBase) - SubmitAt.begin());
+	for (int i = 0; i < 4; i++)
+		io.cost[i] = submitCost[i];
+	io.endOfStrip = ReadMem32_nommu(submitBase + SubmitEndOfStrip);
+	io.ramMask = RAM_MASK;
+	io.ram = &mem_b[0];
+	io.ocr = sh4_onChipRam();
+	io.oixShift = CCN_CCR.OIX == 1 ? 13 : 1;
+	io.ora = CCN_CCR.ORA;
+	io.sq = (u8 *)&ctx.sq_buffer[0];
+	io.taRegions = (const u8 *)&ctx + SqTaRegionsOffset;
+	io.taContext = taContext;
+	io.taDataWrite = taDataWrite;
+	io.taDataRootOffset = taDataRootOffset;
+	io.taDataSize = taDataSize;
+	io.taFsm = ta_fsm;
+	io.taHandle = ta_vtx_handle;
+	io.sqWrite = (void (*)(u32, void *))ctx.doSqWrite;
+	io.sqWriteCtx = &ctx;
+	io.schedNext = &ctx.sh4_sched_next;
+	io.interruptPend = &ctx.interrupt_pend;
+	io.cpuRunning = &ctx.CpuRunning;
+	const u32 code = deadcast_submit(&io);
+	const u32 stop = code & 0xff;
+	// not taken where it was entered: the block's own code
+	if ((code & SubmitBailed) != 0 && stop == io.entry)
+		return 0;
+	ctx.r[0] = io.r0; ctx.r[2] = io.r2; ctx.r[4] = io.r4; ctx.r[8] = io.r8;
+	ctx.r[10] = io.r10; ctx.r[11] = io.r11; ctx.r[12] = io.r12; ctx.r[13] = io.r13;
+	ctx.cycle_counter = io.cycles;
+	// T as the blocks leave it: 1 at d084 (from d0b4's dt), d0b4 and d0c0, else 0
+	ctx.sr.T = stop == SubmitD084 || stop == SubmitD0b4 || stop == SubmitD0c0;
+	return submitBase + SubmitAt[stop];
+}
+
 } // namespace
 
 HotPath hotPath(const RuntimeBlockInfo *block)
@@ -147,6 +212,21 @@ HotPath hotPath(const RuntimeBlockInfo *block)
 				maskSumF, maskSumS, maskSumZ, maskSumN);
 		return maskSum;
 	}
+	if (block->fpu_cfg.PR == 0 && block->fpu_cfg.SZ == 0)
+		for (int i = 0; i < 4; i++)
+		{
+			const u32 base = head - SubmitAt[i];
+			if (!codeIs(base, SubmitCode))
+				continue;
+			if (base != submitBase)
+			{
+				submitBase = base;
+				for (int k = 0; k < 4; k++)
+					submitCost[k] = dec_blockCycles(base + SubmitAt[k], SubmitCount[k]);
+				NOTICE_LOG(DYNAREC, "Deadcast: the 2K engine's TA submit loop at %08x, native", base);
+			}
+			return submitHot;
+		}
 	return nullptr;
 }
 

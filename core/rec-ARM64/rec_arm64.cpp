@@ -384,13 +384,17 @@ public:
 		}
 		if (deadcast::HotPath hot = deadcast::hotPath(block))
 		{
-			// Deadcast: a known loop run natively (hotpaths.h), on from the pc it returns. The block's own code
-			// below is left as compiled, never run.
+			// Deadcast: a known loop run natively (hotpaths.h), on from the pc it returns, or 0 where it did
+			// not apply, the block's own code then
 			Mov(w0, block->vaddr);
 			GenCallRuntime(hot);
+			// 0: not taken, the block's own code below
+			Label own;
+			Cbz(w0, &own);
 			Mov(w29, w0);
 			Str(w29, sh4_context_mem_operand(&sh4ctx.pc));
 			GenBranch(arm64_no_update);
+			Bind(&own);
 		}
 		// Deadcast: the registers the block starts with, loaded at once
 		regalloc.PreloadLiveIns(16, pinnedRegs ? 2 : 6, 6);
