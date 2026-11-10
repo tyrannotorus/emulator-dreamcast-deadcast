@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -97,26 +98,36 @@ void warm()
 {
 	if (!usable())
 		return;
-	FILE *f = std::fopen(file().c_str(), "r");
+	std::unique_ptr<FILE, int (*)(FILE *)> f(std::fopen(file().c_str(), "r"), std::fclose);
 	if (f == nullptr)
 		return;
 	const auto start = std::chrono::steady_clock::now();
 	// compiled as while the SH4 runs: with the CPU stopped (as at a state load) a block's exits go back to
-	// the main loop for good instead of to the stubs that link them on first use (RelinkBlock)
-	const u32 running = Sh4cntx.CpuRunning;
+	// the main loop for good instead of to the stubs that link them on first use (RelinkBlock).
+	// Stopped again whatever happens, or the next reset fails (verify(!CpuRunning)).
+	struct Running {
+		const u32 was = Sh4cntx.CpuRunning;
+		~Running() { Sh4cntx.CpuRunning = was; }
+	} running;
 	Sh4cntx.CpuRunning = 1;
 	u32 compiled = 0, skipped = 0;
 	unsigned vaddr, fpscr, size;
 	unsigned long long hash;
-	while (std::fscanf(f, "%x %x %x %llx", &vaddr, &fpscr, &size, &hash) == 4)
+	while (std::fscanf(f.get(), "%x %x %x %llx", &vaddr, &fpscr, &size, &hash) == 4)
 	{
+		// its code checked before it is decoded: a state from elsewhere in the game can hold other code or
+		// data there. (A block left over at the save, its code since changed, has the hash of what is there
+		// now: rdv_Precompile skips what cannot be decoded.)
+		if (hashOf(vaddr, size) != hash)
+		{
+			skipped++;
+			continue;
+		}
 		const bool done = rdv_Precompile(vaddr, fpscr, [size, hash](u32 addr, u32 codeSize) {
 			return codeSize == size && hashOf(addr, codeSize) == hash;
 		});
 		(done ? compiled : skipped)++;
 	}
-	std::fclose(f);
-	Sh4cntx.CpuRunning = running;
 	const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 	NOTICE_LOG(DYNAREC, "Deadcast: %u blocks compiled ahead in %lld ms (%u not: changed, compiled already or no room)",
 			compiled, (long long)ms, skipped);
