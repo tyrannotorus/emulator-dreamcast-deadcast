@@ -375,15 +375,12 @@ void bm_vmem_pagefill(void** ptr, u32 size_bytes)
 	}
 }
 
-void bm_Reset()
+// every page of RAM unlocked: no protected block left anywhere
+static void unlockAllPages()
 {
-	bm_CleanupDeletedBlocks();
 	mmuwin::unprotectAll();
 	if (bm_codeLocked != nullptr)
 		memset(bm_codeLocked, 0, pageCount);
-	protected_blocks = 0;
-	unprotected_blocks = 0;
-
 #ifndef __SWITCH__
 	if (addrspace::virtmemEnabled())
 	{
@@ -408,6 +405,14 @@ void bm_Reset()
 	{
 		virtmem::region_unlock(&mem_b[0], RAM_SIZE);
 	}
+}
+
+void bm_Reset()
+{
+	bm_CleanupDeletedBlocks();
+	unlockAllPages();
+	protected_blocks = 0;
+	unprotected_blocks = 0;
 }
 
 u8 *bm_codeLocked;
@@ -545,6 +550,8 @@ void bm_ResetCache()
 #endif
 	sh4Dynarec->reset();
 	addrspace::bm_reset();
+	// Deadcast: no block left, so no page locked (Discard)
+	unlockAllPages();
 
 	for (const auto& it : blkmap)
 	{
@@ -706,10 +713,17 @@ void RuntimeBlockInfo::Discard()
 		// Remove this block from the per-page block lists
 		for (u32 addr = this->addr & ~PAGE_MASK; addr < this->addr + this->sh4_code_size; addr += PAGE_SIZE)
 		{
-			auto& block_list = blocks_per_page[(addr & RAM_MASK) / PAGE_SIZE];
+			const u32 page = (addr & RAM_MASK) / PAGE_SIZE;
+			auto& block_list = blocks_per_page[page];
 			block_list.erase(this);
 			if (block_list.empty())
-				codeBits[(addr & RAM_MASK) / PAGE_SIZE].reset();
+			{
+				codeBits[page].reset();
+				// Deadcast: a page is locked while it holds a protected block, no longer: its stores go straight to
+				// RAM again (a page left locked sent every store to it through bm_CodeWrite for good)
+				if (!addrspace::virtmemEnabled() || bm_codeLocked[page] != 0)
+					bm_UnlockPage(addr);
+			}
 		}
 	}
 }

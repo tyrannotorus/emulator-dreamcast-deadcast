@@ -2471,6 +2471,47 @@ private:
 		Ldr(x27, MemOperand(x9));
 	}
 
+	// Deadcast: in a store's stub without the MMU, main RAM in one of the window's aliases of it (P0, P1, P2) whose
+	// page holds no protected block (bm_codeLocked) stored through the window and on to the next op; anything
+	// else falls through to the handler. A store goes to its stub for good once it has written next to code
+	// (storeToStub): the page may lose its code since, and the store must not keep paying the handler for it.
+	// w3 and x16 scratch.
+	void genStubRamStore(MmuAccess& access)
+	{
+		Label handler;
+		// the address's top 6 bits: 03 (0C000000-0FFFFFFF), 23 (8C...), 2B (AC...)
+		Lsr(w3, access.vaddr, 26);
+		Mov(x16, (1ull << 0x03) | (1ull << 0x23) | (1ull << 0x2B));
+		Lsr(x16, x16, x3);
+		Tbz(w16, 0, &handler);
+		Ubfx(w3, access.vaddr, 12, __builtin_ctz(RAM_MASK + 1) - 12);
+		Mov(x16, reinterpret_cast<uintptr_t>(&bm_codeLocked));
+		Ldr(x16, MemOperand(x16));
+		Ldrb(w16, MemOperand(x16, x3));
+		Cbnz(w16, &handler);
+		const MemOperand addr(x27, access.vaddr, UXTW);
+		switch (access.size)
+		{
+		case 1:
+			Strb(Register(access.data.GetCode(), 32), addr);
+			break;
+		case 2:
+			Strh(Register(access.data.GetCode(), 32), addr);
+			break;
+		case 4:
+			if (access.data.IsVRegister())
+				Str(VRegister(access.data.GetCode(), 32), addr);
+			else
+				Str(Register(access.data.GetCode(), 32), addr);
+			break;
+		default:
+			Str(x1, addr);
+			break;
+		}
+		B(&access.next);
+		Bind(&handler);
+	}
+
 	void genMmuAccessStubs()
 	{
 		if (mmuAccesses.empty())
@@ -2503,6 +2544,7 @@ private:
 				// path, AICA RAM written): its handler, no exception to raise
 				if (access.write)
 				{
+					genStubRamStore(access);
 					if (access.size == 8)
 						Mov(x2, x1);
 					else if (access.data.IsVRegister())
