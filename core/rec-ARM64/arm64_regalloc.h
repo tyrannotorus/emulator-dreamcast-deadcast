@@ -33,7 +33,7 @@ enum eFReg {
 };
 
 static eReg alloc_regs[] = { W19, W20, W21, W22, W23, W24, W25, W26, (eReg)-1 };
-// Deadcast: s15 is the macro assembler's scratch (d15: its default, d31, holds FR15 when pinned)
+// Deadcast: s15 is the macro assembler's FP scratch (rec_arm64.cpp)
 static eFReg alloc_fregs[] = { S8, S9, S10, S11, S12, S13, S14, (eFReg)-1 };
 
 // Deadcast: without the MMU, R0-R15 and T live in host registers for good (pinned, RegAlloc::Pin), so
@@ -62,8 +62,7 @@ struct Arm64RegAlloc : RegAlloc<eReg, eFReg, ALLOC_F64>
 			for (int i = 0; i < 16; i++)
 				Pin((Sh4RegType)(reg_r0 + i), pinned_gregs[i]);
 			Pin(reg_sr_T, pinned_T);
-			// Deadcast: FR0-FR15 too, in s16-s31: blocks neither load them at their start nor store them at
-			// their end (16% of hot translated code was that); calls out keep the context in step (thunks)
+			// Deadcast: FR0-FR15 too, in s16-s31
 			for (int i = 0; i < 16; i++)
 				Pin((Sh4RegType)(reg_fr_0 + i), (eReg)(S16 + i));
 			RegAlloc::DoAlloc(block, alloc_regs_pinned, alloc_fregs);

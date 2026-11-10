@@ -54,8 +54,8 @@ public:
 	// ARM64 dynarec: w29) sets this: pc_dyn, which only those exits read, is never written back
 	bool jdynInHostReg = false;
 
-	// Deadcast: registers a host keeps in host registers of their own for good, across blocks (pinned),
-	// integer or floating point: always allocated, never loaded, written back nor spilled here. The host keeps the context in
+	// Deadcast: registers a host keeps in host registers of their own for good, across blocks (pinned):
+	// always allocated, never loaded, written back nor spilled here. The host keeps the context in
 	// step wherever other code reads or writes them there (the ARM64 dynarec's calls out).
 	void Pin(Sh4RegType reg, nreg_t host_reg)
 	{

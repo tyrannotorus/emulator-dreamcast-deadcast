@@ -57,8 +57,7 @@ struct RuntimeBlockInfo
 	bool read_only;
 	// Deadcast: a conditional exit tests T where it is pinned (w18), not a copy of it in w29 (rec_arm64.cpp)
 	bool exitTestsT = false;
-	// Deadcast: the RAM it read at compile time into constants (ssa.cpp), offset and size: its code too
-	// (bm_RamWriteAccess)
+	// Deadcast: the RAM it read into constants (ssa.cpp), offset and size: a write there throws it away too
 	std::vector<std::pair<u32, u32>> constReads;
 
 	std::vector<shil_opcode> oplist;
@@ -121,16 +120,14 @@ static inline bool bm_IsRamPageProtected(u32 addr)
 
 #if FEAT_SHREC != DYNAREC_NONE
 
-// Deadcast: hostPc, the code that wrote (bm_StoreToSlowPath)
-bool bm_RamWriteAccess(void *p, uintptr_t hostPc = 0);
-void bm_RamWriteAccess(u32 addr, uintptr_t hostPc = 0);
-// Deadcast: whether the dynarec's store at hostPc, faulting on protected code at p, goes to its slow path for good
-// (Sh4Dynarec::storeToStub), where it writes past the protection (bm_CodeWrite)
-bool bm_StoreToSlowPath(void *p, uintptr_t hostPc);
-// Deadcast: a store to a page whose code is protected, past the protection: written through another view of the RAM,
-// and the blocks whose code or constants it changed thrown away (addrspace::writet)
+bool bm_RamWriteAccess(void *p);
+void bm_RamWriteAccess(u32 addr);
+// Deadcast: whether a store of translated code faulting on protected code at p goes to its slow path for good
+// (Sh4Dynarec::storeToStub)
+bool bm_StoreToSlowPath(void *p);
+// Deadcast: a store past the protection of a page of code; the blocks whose code or constants it changes go
 void bm_CodeWrite(u32 offset, u32 size, u64 data);
-// Deadcast: a word of RAM next to code that is written as data, never read into a constant (ssa.cpp)
+// Deadcast: a word written as data next to code: never read into a constant (ssa.cpp)
 bool bm_IsDataWord(u32 offset);
 extern u8 *bm_codeLocked;
 static inline bool bm_IsCodeLocked(u32 offset) {
@@ -142,11 +139,11 @@ u32 bm_getRamOffset(void *p);
 
 #else
 
-inline static bool bm_RamWriteAccess(void *p, uintptr_t hostPc = 0) {
+inline static bool bm_RamWriteAccess(void *p) {
 	return false;
 }
-inline static void bm_RamWriteAccess(u32 addr, uintptr_t hostPc = 0) {}
-inline static bool bm_StoreToSlowPath(void *p, uintptr_t hostPc) { return false; }
+inline static void bm_RamWriteAccess(u32 addr) {}
+inline static bool bm_StoreToSlowPath(void *p) { return false; }
 inline static void bm_CodeWrite(u32 offset, u32 size, u64 data) {}
 inline static bool bm_IsDataWord(u32 offset) { return false; }
 static inline bool bm_IsCodeLocked(u32 offset) { return false; }

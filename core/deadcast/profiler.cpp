@@ -107,7 +107,7 @@ void profilerBlockGone(u64 runs)
 	runsHistogram[bucket]++;
 }
 
-// DEADCAST_PROF_NORUNS: not counted, the blocks' code as it runs unprofiled (counting costs small blocks up to 40%)
+// DEADCAST_PROF_NORUNS: runs not counted, the blocks' code as it runs unprofiled
 bool profilerCountsRuns()
 {
 	static const bool noRuns = std::getenv("DEADCAST_PROF_NORUNS") != nullptr;

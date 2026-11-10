@@ -11,7 +11,6 @@
 
 #include <chrono>
 #include <cstdio>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,6 +18,9 @@ namespace deadcast::codecache
 {
 namespace
 {
+
+// a list's first line; one without it, from an older version, can list blocks whose code changed and is not used
+constexpr char Header[] = "deadcast blocks 2\n";
 
 struct Entry
 {
@@ -71,7 +73,8 @@ void save()
 		return;
 	std::vector<Entry> list;
 	bm_ForEachBlock([&list](const RuntimeBlockInfo& block) {
-		if (block.temp_block || !inMainRam(block.addr) || block.sh4_code_size == 0)
+		// protected: its code is still what it was compiled from
+		if (!block.read_only || block.temp_block || !inMainRam(block.addr) || block.sh4_code_size == 0)
 			return;
 		const u64 hash = hashOf(block.addr, block.sh4_code_size);
 		if (hash != 0)
@@ -84,6 +87,7 @@ void save()
 	FILE *f = std::fopen(temp.c_str(), "w");
 	if (f == nullptr)
 		return;
+	std::fputs(Header, f);
 	for (const Entry& e : list)
 		std::fprintf(f, "%08x %08x %x %016llx\n", e.vaddr, e.fpscr, e.size, (unsigned long long)e.hash);
 	const bool written = std::fflush(f) == 0;
@@ -98,36 +102,33 @@ void warm()
 {
 	if (!usable())
 		return;
-	std::unique_ptr<FILE, int (*)(FILE *)> f(std::fopen(file().c_str(), "r"), std::fclose);
+	const std::string path = file();
+	FILE *f = std::fopen(path.c_str(), "r");
 	if (f == nullptr)
 		return;
+	char header[sizeof(Header)] = "";
+	if (std::fgets(header, sizeof(header), f) == nullptr || std::string(header) != Header)
+	{
+		std::fclose(f);
+		NOTICE_LOG(DYNAREC, "Deadcast: %s is from an older version, not used", path.c_str());
+		return;
+	}
 	const auto start = std::chrono::steady_clock::now();
 	// compiled as while the SH4 runs: with the CPU stopped (as at a state load) a block's exits go back to
-	// the main loop for good instead of to the stubs that link them on first use (RelinkBlock).
-	// Stopped again whatever happens, or the next reset fails (verify(!CpuRunning)).
-	struct Running {
-		const u32 was = Sh4cntx.CpuRunning;
-		~Running() { Sh4cntx.CpuRunning = was; }
-	} running;
+	// the main loop for good instead of to the stubs that link them on first use (RelinkBlock)
+	const u32 running = Sh4cntx.CpuRunning;
 	Sh4cntx.CpuRunning = 1;
 	u32 compiled = 0, skipped = 0;
 	unsigned vaddr, fpscr, size;
 	unsigned long long hash;
-	while (std::fscanf(f.get(), "%x %x %x %llx", &vaddr, &fpscr, &size, &hash) == 4)
+	while (std::fscanf(f, "%x %x %x %llx", &vaddr, &fpscr, &size, &hash) == 4)
 	{
-		// its code checked before it is decoded: a state from elsewhere in the game can hold other code or
-		// data there. (A block left over at the save, its code since changed, has the hash of what is there
-		// now: rdv_Precompile skips what cannot be decoded.)
-		if (hashOf(vaddr, size) != hash)
-		{
-			skipped++;
-			continue;
-		}
-		const bool done = rdv_Precompile(vaddr, fpscr, [size, hash](u32 addr, u32 codeSize) {
-			return codeSize == size && hashOf(addr, codeSize) == hash;
-		});
+		// the code it was compiled from, else not decoded (a state from elsewhere in the game holds other code or data)
+		const bool done = hashOf(vaddr, size) == hash && rdv_Precompile(vaddr, fpscr);
 		(done ? compiled : skipped)++;
 	}
+	std::fclose(f);
+	Sh4cntx.CpuRunning = running;
 	const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 	NOTICE_LOG(DYNAREC, "Deadcast: %u blocks compiled ahead in %lld ms (%u not: changed, compiled already or no room)",
 			compiled, (long long)ms, skipped);

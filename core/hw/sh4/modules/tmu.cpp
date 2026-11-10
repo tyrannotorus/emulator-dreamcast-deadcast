@@ -19,7 +19,7 @@ static u32 old_mode[3] = { 0xFFFF, 0xFFFF, 0xFFFF};
 static constexpr InterruptID tmu_intID[3] = { sh4_TMU0_TUNI0, sh4_TMU1_TUNI1, sh4_TMU2_TUNI2 };
 int tmu_sched[3];
 static s64 tmu_ch_base[3];
-// Deadcast: for the dynarec's inline TCNT reads (rec_arm64.cpp), read_TMU_TCNTch's terms
+// Deadcast: for the dynarec's inline TCNT reads (rec_arm64.cpp)
 extern s64 *const tmuChBase = tmu_ch_base;
 extern u64 *const tmuMask = tmu_mask;
 extern u32 *const tmuShift = tmu_shift;

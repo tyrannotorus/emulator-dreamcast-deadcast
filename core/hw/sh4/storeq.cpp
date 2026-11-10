@@ -105,8 +105,8 @@ static void DYNACALL sqWriteTA(u32 dest, Sh4Context *ctx)
 	TAWriteSQ(dest, ctx->sq_buffer);
 }
 
-// Deadcast: a store queue area's 1 MB, remapped (sqWriteRemap) to main RAM: where in it, for the dynarec's flush to
-// write the 32 bytes straight there (rec_arm64.cpp, sqFlush) as WriteMemBlock_nommu_sq does; else nullptr
+// Deadcast: where in main RAM each store queue area's 1 MB is remapped (sqWriteRemap), else nullptr: the dynarec's
+// flush writes there itself (rec_arm64.cpp)
 u8 *sqRamRegions[64];
 
 void sqTaRegionsUpdate()
@@ -122,7 +122,7 @@ void sqTaRegionsUpdate()
 			// the address: sq_remap[k] | (dest & 0xFFFE0), area 4 and below the YUV converter's
 			const u32 a = sq_remap[k];
 			ta = ((a >> 26) & 7) == 4 && ((a & 0x01FFFFE0) | 0xFFFE0) < 0x800000;
-			// in main RAM, the 1 MB whole (GetMemPtr's test, for its last 32 bytes too)
+			// the whole 1 MB in main RAM
 			if (((a >> 29) & 7) != 7 && ((a >> 26) & 7) == 3 && (a & 0xFFFE0) == 0 && (a & RAM_MASK) + 0x100000 <= RAM_SIZE)
 				sqRamRegions[k] = &mem_b[a & RAM_MASK];
 		}

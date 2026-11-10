@@ -1,7 +1,6 @@
 // Header file for native generator interface
 
 #pragma once
-#include <functional>
 #include "blockmanager.h"
 #include "oslib/host_context.h"
 #include "../sh4_interpreter.h"
@@ -25,9 +24,9 @@ DynarecCodeEntryPtr DYNACALL rdv_FailedToFindBlock(u32 pc);
 DynarecCodeEntryPtr DYNACALL rdv_FailedToFindBlock_pc();
 //Called when a block check failed, and the block needs to be invalidated
 DynarecCodeEntryPtr DYNACALL rdv_BlockCheckFail(u32 addr);
-// Deadcast: compiles the block at vaddr (main RAM, no MMU) for the FPU mode fpscr now, if none is there and
-// sameCode(addr, its SH4 code's bytes) says it is the code expected (deadcast/codecache.cpp)
-bool rdv_Precompile(u32 vaddr, u32 fpscr, const std::function<bool(u32, u32)>& sameCode);
+// Deadcast: compiles the block at vaddr (main RAM, no MMU) for the FPU mode fpscr now, if none is there. Its code must
+// be what a block was compiled from before (deadcast/codecache.cpp): anything else can throw.
+bool rdv_Precompile(u32 vaddr, u32 fpscr);
 // Registers a custom FailedToFindBlock handler function
 void rdv_SetFailedToFindBlockHandler(void (*handler)());
 // Where the translated code is, as executed (Deadcast profiler)
@@ -105,8 +104,7 @@ public:
 	// Rewrite the memory access at host PC address 'faultAddress'. This fast memory access failed and should be rewritten
 	// to use mem access handlers.
 	virtual bool rewrite(host_context_t& context, void *faultAddress) = 0;
-	// Deadcast: a store of translated code through the window, faulting at faultAddress, sent to its slow-path stub for good
-	// (bm_StoreToSlowPath); false, nothing done, for any other instruction
+	// Deadcast: a store of translated code through the window, faulting, sent to its stub for good; false for any other
 	virtual bool storeToStub(host_context_t& context, void *faultAddress) { return false; }
 	// Allocate a new block information structure.
 	virtual RuntimeBlockInfo *allocateBlock() {
