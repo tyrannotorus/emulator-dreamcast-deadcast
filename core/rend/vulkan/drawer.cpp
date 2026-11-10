@@ -126,7 +126,9 @@ void Drawer::DrawPoly(const vk::CommandBuffer& cmdBuffer, u32 listType, bool sor
 	TileClipping tileClip = SetTileClip(cmdBuffer, poly.tileclip, scissorRect);
 
 	float trilinearAlpha = 1.f;
-	if (poly.tsp.FilterMode > 1 && poly.pcw.Texture && listType != ListType_Punch_Through && poly.tcw.MipMapped == 1)
+	// as the pipeline's (PipelineManager, params.trilinear): its shader multiplies the colour by trilinearAlpha
+	const bool trilinear = poly.tsp.FilterMode > 1 && poly.pcw.Texture && listType != ListType_Punch_Through && poly.tcw.MipMapped == 1;
+	if (trilinear)
 	{
 		trilinearAlpha = 0.25f * (poly.tsp.MipMapD & 0x3);
 		if (poly.tsp.FilterMode == 2)
@@ -148,7 +150,10 @@ void Drawer::DrawPoly(const vk::CommandBuffer& cmdBuffer, u32 listType, bool sor
 			palette_index = float((poly.tcw.PalSelect >> 4) << 8) / 1023.f;
 	}
 
-	if (tileClip == TileClipping::Inside || trilinearAlpha != 1.f || gpuPalette != 0)
+	// Deadcast: for every trilinear pass, its 1 too (pass A with no D-adjust fraction, MipMapD 4, the default).
+	// Upstream pushed only an alpha other than 1, so that pass was multiplied by what was pushed last: 0 at the
+	// frame's start or after a pass B, and so blank, or not, as the draw order went
+	if (tileClip == TileClipping::Inside || trilinear || gpuPalette != 0)
 	{
 		const std::array<float, 6> pushConstants = {
 				(float)scissorRect.offset.x,
