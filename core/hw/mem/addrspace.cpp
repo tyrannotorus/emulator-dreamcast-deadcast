@@ -40,6 +40,8 @@ static void* memInfo_ptr[0x100];
 constexpr u32 OCR_SIZE = 0x2000;
 constexpr u32 OCR_VIEW = 0x20800000;		// its view, after the writable AICA RAM
 static int onChipRamMapped = -1;			// its layout in area 7 (mapOnChipRam), -1 none
+constexpr u32 OnChipRamBases[] = { 0x7C000000, 0x7E000000 };
+constexpr u32 OnChipRamMapSize = 0x10000;
 static bool aramHandled;					// aramThroughHandlers
 
 // Deadcast: the dynarec's window on the SH4's address space without the MMU (addrspace.h): the memory
@@ -567,7 +569,8 @@ void initMappings()
 		vram.setRegion(&ram_base[0x04000000], VRAM_SIZE); // Points to first vram mirror (writable and lockable)
 		mem_b.setRegion(&ram_base[0x0C000000], RAM_SIZE); // Main memory, first mirror
 		elan::RAM = &ram_base[0x0A000000];
-		virtmem::unmap_to_reserved(&ram_base[0x1C000000], 0x10000);
+		for (u32 base : OnChipRamBases)
+			virtmem::unmap_to_reserved(&ram_base[base & 0x1FFFFFFF], OnChipRamMapSize);
 		onChipRamMapped = -1;
 		if (virtmem::map_shared(&ram_base[OCR_VIEW], MAP_OCR_START_OFFSET, OCR_SIZE))
 			sh4_setOnChipRam(&ram_base[OCR_VIEW]);
@@ -587,36 +590,35 @@ void initMappings()
 			(u32)(ARAM_SIZE / 1_MB), &aica::aica_ram[0]);
 }
 
-// Deadcast: the on-chip RAM where the dynarec's accesses to it (7C000000, masked to area 7: 1C000000)
-// reach it while it is indexed by address bit 13 (CCR.OIX = 0, as games use it): its two 4 KB halves
-// alternate every 8 KB, A A B B, over the first 64 KB. It stays mapped while it is disabled
-// (CCR.ORA = 0, the operand cache then): nothing reads it then, and games switch it on and off every
-// frame. The rest of area 7, the control registers' mirror among it (1F000000), still faults to its
-// handlers.
+// Deadcast: the on-chip RAM where the dynarec's accesses to it reach it: the first 64 KB at 7C000000 and at
+// 7E000000 (area 7: 1C000000, 1E000000; the BIOS keeps its stack at 7E000000). Indexed by address bit 13
+// (CCR.OIX = 0) its two 4 KB halves go A A B B; by bit 25 (OIX = 1), A at 7C000000 and B at 7E000000. It stays
+// mapped while it is disabled (CCR.ORA = 0, the operand cache then): nothing reads it then, and games switch it
+// on and off every frame. The rest of area 7, the control registers' mirror among it (1F000000), still faults
+// to its handlers.
 void mapOnChipRam(bool indexBit25)
 {
 	if (ram_base == nullptr || sh4_onChipRam() != &ram_base[OCR_VIEW] || onChipRamMapped == (int)indexBit25)
 		return;
 	onChipRamMapped = indexBit25;
-	u8 *start = &ram_base[0x1C000000];
-	constexpr u32 Size = 0x10000;
-	if (indexBit25)
-	{
-		virtmem::unmap_to_reserved(start, Size);
-		if (window != nullptr)
-			virtmem::unmap_to_reserved(window + 0x7C000000, Size);
-		return;
-	}
-	for (u32 page = 0; page < Size / PAGE_SIZE; page++)
-		if (!virtmem::map_shared(start + page * PAGE_SIZE, MAP_OCR_START_OFFSET + ((page >> 1) & 1) * PAGE_SIZE, PAGE_SIZE)
-				|| (window != nullptr
-					&& !virtmem::map_shared(window + 0x7C000000 + page * PAGE_SIZE, MAP_OCR_START_OFFSET + ((page >> 1) & 1) * PAGE_SIZE, PAGE_SIZE)))
+	for (u32 base : OnChipRamBases)
+		for (u32 page = 0; page < OnChipRamMapSize / PAGE_SIZE; page++)
 		{
-			WARN_LOG(VMEM, "Deadcast: cannot map the on-chip RAM");
-			virtmem::unmap_to_reserved(start, Size);
-			if (window != nullptr)
-				virtmem::unmap_to_reserved(window + 0x7C000000, Size);
-			return;
+			const u32 half = indexBit25 ? (base >> 25) & 1 : (page >> 1) & 1;
+			const u32 offset = MAP_OCR_START_OFFSET + half * PAGE_SIZE;
+			const u32 addr = base + page * PAGE_SIZE;
+			if (!virtmem::map_shared(&ram_base[addr & 0x1FFFFFFF], offset, PAGE_SIZE)
+					|| (window != nullptr && !virtmem::map_shared(window + addr, offset, PAGE_SIZE)))
+			{
+				WARN_LOG(VMEM, "Deadcast: cannot map the on-chip RAM");
+				for (u32 b : OnChipRamBases)
+				{
+					virtmem::unmap_to_reserved(&ram_base[b & 0x1FFFFFFF], OnChipRamMapSize);
+					if (window != nullptr)
+						virtmem::unmap_to_reserved(window + b, OnChipRamMapSize);
+				}
+				return;
+			}
 		}
 }
 
