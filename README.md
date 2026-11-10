@@ -1,6 +1,10 @@
 # Deadcast
 A Sega Dreamcast emulator targeting optimal performance on the Trimui Brick/Hammer.
 
+<img width="640" height="480" alt="Dead or Alive 2 (USA) emu 19761108-053740 56" src="https://github.com/user-attachments/assets/b91cdcc7-76e1-40f4-a4d0-d0ec36cd9d03" />
+<img width="640" height="480" alt="NBA 2K2 v1 000 (2001)(Sega)(US) ! 1S emu 19761108-054023 29" src="https://github.com/user-attachments/assets/225ae1df-f75c-40d6-8956-7d8442dab0be" />
+<img width="640" height="480" alt="Sega Rally 2 v1 003 (1999)(Sega)(US) ! emu 19761108-053907 38" src="https://github.com/user-attachments/assets/c3af2529-b985-452a-ba65-3a18c04f8e32" />
+
 # Features
 ## Emulator
 - Many games play well or close to full speed on the TrimUI Brick/Hammer.
