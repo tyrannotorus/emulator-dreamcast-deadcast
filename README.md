@@ -6,7 +6,6 @@ A Sega Dreamcast emulator targeting optimal performance on the Trimui Brick/Hamm
 <img width="640" height="480" alt="Sega Rally 2 v1 003 (1999)(Sega)(US) ! emu 19761108-053907 38" src="https://github.com/user-attachments/assets/c3af2529-b985-452a-ba65-3a18c04f8e32" />
 
 # Features
-## Emulator
 - Many games play well or close to full speed on the TrimUI Brick/Hammer.
 - USB-C / Bluetooth device-to-device co-op play.
 - In-app Recomp store for game mods
