@@ -240,8 +240,16 @@ void Drawer::DrawList(const vk::CommandBuffer& cmdBuffer, u32 listType, bool sor
 
 	const PolyParam *pp_end = polys.data() + last;
 	for (const PolyParam *pp = &polys[first]; pp != pp_end; pp++)
+	{
+		// the polygon after next, and what the next one's draw reads of its texture, fetched while this one's draw is
+		// recorded (a draw leaves little of them in the cache)
+		__builtin_prefetch(pp + 2);
+		__builtin_prefetch((const char *)(pp + 3) - 1);
+		if (pp + 1 != pp_end && pp[1].texture != nullptr)
+			((const Texture *)pp[1].texture)->prefetchForDraw();
 		if (pp->count > 2)
 			DrawPoly(cmdBuffer, listType, sortTriangles, *pp, pp->first, pp->count);
+	}
 }
 
 void Drawer::DrawModVols(const vk::CommandBuffer& cmdBuffer, int first, int count)

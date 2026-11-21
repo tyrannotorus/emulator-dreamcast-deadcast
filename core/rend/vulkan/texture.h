@@ -62,6 +62,12 @@ public:
 	vk::ImageView GetImageView() const { return *imageView; }
 	vk::Image GetImage() const { return *image; }
 	vk::ImageView GetReadOnlyImageView() const { return readOnlyImageView ? readOnlyImageView : *imageView; }
+	// the fields a polygon's draw reads, fetched ahead (Drawer::DrawList)
+	void prefetchForDraw() const {
+		__builtin_prefetch(&gpuPalette);
+		__builtin_prefetch(&imageView);
+		__builtin_prefetch(&readOnlyImageView);
+	}
 	void SetCommandBuffer(vk::CommandBuffer commandBuffer) { this->commandBuffer = commandBuffer; }
 	bool Force32BitTexture(TextureType type) const override { return !VulkanContext::Instance()->IsFormatSupported(type); }
 	vk::Extent2D getSize() const { return extent; }
