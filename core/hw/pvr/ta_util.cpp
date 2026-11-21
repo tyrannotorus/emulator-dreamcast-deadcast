@@ -491,10 +491,149 @@ void fix_texture_bleeding(const std::vector<PolyParam>& polys, int first, int en
 }
 
 //
-// Create the vertex index, eliminating invalid vertices and merging strips when possible.
-// Use primitive restart when merging strips.
+// Translucent regroup (config::TranslucentRegroup): before the translucent index is made, a polygon moves back to join
+// an earlier group drawn the same way when it shares no pixel with any polygon it passes, and the index builder then
+// draws each group as one. Every pixel still gets its polygons in their order, and each polygon is drawn from the same
+// vertices in the same order, so the picture is the same:
+// - What a polygon covers is bounded by the screen box of its vertices (the vertex shader keeps w at 1 without native
+//   depth interpolation, and a pixel is drawn when its centre is inside a triangle); boxes count as apart only with a
+//   pixel between them.
+// - The index builder merges a culled polygon into a neighbour of the other cull direction by turning its strip around
+//   (a repeated vertex), which moves the edge ties between its own triangles. So what moves is a run of polygons the
+//   index builder would merge anyway (a unit, its turns kept); it joins only a group whose first polygon has its first
+//   polygon's cull mode, and the index builder then merges along the groups rather than by adjacency.
+// - Naomi 2 polygons, whose vertices are transformed later, are never passed.
+// A group's box is the union of its polygons', so passing it is checked against all of them at once.
 //
-void makePrimRestartIndex(std::vector<PolyParam>& polys, int first, int end, bool merge, rend_context& ctx)
+// whether makePrimRestartIndex puts an index down for the polygon (its loop, without the indices)
+static bool pushesIndex(const PolyParam& pp, const rend_context& ctx)
+{
+	for (u32 i = 0; i < pp.count; i++)
+	{
+		if (pp.isNaomi2() || !is_vertex_inf(ctx.verts[pp.first + i]))
+			return true;
+		while (i < pp.count - 1)
+		{
+			if (!is_vertex_inf(ctx.verts[pp.first + i + 1]))
+			{
+				if (pp.count - (i + 1) < 3)
+					i = pp.count - 1;
+				break;
+			}
+			i++;
+		}
+	}
+	return false;
+}
+
+static std::vector<u8> regroupJoins;	// for each polygon from first: merged into the polygon before it
+
+const u8 *regroupTranslucent(std::vector<PolyParam>& polys, int first, int end, bool baseMerge, const rend_context& ctx)
+{
+	if (end - first < 2)
+		return nullptr;
+	struct Box {
+		float x0 = 1e38f, y0 = 1e38f, x1 = -1e38f, y1 = -1e38f;
+		bool empty() const { return x0 > x1; }
+		void add(const Box& b) { x0 = std::min(x0, b.x0); y0 = std::min(y0, b.y0); x1 = std::max(x1, b.x1); y1 = std::max(y1, b.y1); }
+		bool near(const Box& b) const {
+			constexpr float Margin = 1.f;
+			return !empty() && !b.empty() && x0 <= b.x1 + Margin && b.x0 <= x1 + Margin && y0 <= b.y1 + Margin && b.y0 <= y1 + Margin;
+		}
+	};
+	struct Unit { u32 begin, end; Box box; bool barrier; };
+	struct Group { u32 head; Box box; bool barrier; };
+	constexpr int MaxLookBack = 64;
+	static std::vector<Unit> units;
+	static std::vector<Group> groups;
+	static std::vector<std::pair<u32, u32>> order;	// group, unit
+	static std::vector<PolyParam> moved;
+	units.clear();
+	groups.clear();
+	order.clear();
+
+	// the runs makePrimRestartIndex would merge in this order
+	for (int i = first; i < end; i++)
+	{
+		const PolyParam& pp = polys[i];
+		Box box;
+		if (!pp.isNaomi2())
+			for (u32 v = pp.first; v < pp.first + pp.count; v++)
+			{
+				const Vertex& vtx = ctx.verts[v];
+				if (is_vertex_inf(vtx))
+					continue;
+				box.add({ vtx.x, vtx.y, vtx.x, vtx.y });
+			}
+		// (a run of Naomi 2 polygons is merged as any other, and stays where it is)
+		if (baseMerge && !units.empty() && pp.equivalentIgnoreCullingDirection(polys[units.back().begin])
+				&& pushesIndex(polys[units.back().begin], ctx))
+		{
+			units.back().end = i + 1;
+			units.back().box.add(box);
+		}
+		else
+			units.push_back({ (u32)i, (u32)i + 1, box, pp.isNaomi2() });
+	}
+	bool movedAny = false;
+	for (u32 u = 0; u < units.size(); u++)
+	{
+		const Unit& unit = units[u];
+		const PolyParam& head = polys[unit.begin];
+		int target = -1;
+		if (!unit.barrier)
+			for (int g = (int)groups.size() - 1, n = 0; g >= 0 && n < MaxLookBack; g--, n++)
+			{
+				const Group& gr = groups[g];
+				if (gr.barrier)
+					break;
+				const PolyParam& gh = polys[gr.head];
+				if (gh.equivalentIgnoreCullingDirection(head) && (head.isp.CullMode < 2 || gh.isp.CullMode == head.isp.CullMode))
+				{
+					target = g;
+					break;
+				}
+				if (gr.box.near(unit.box))
+					break;
+			}
+		if (target == -1)
+		{
+			groups.push_back({ unit.begin, unit.box, unit.barrier });
+			target = (int)groups.size() - 1;
+		}
+		else
+		{
+			if (target != (int)groups.size() - 1)
+				movedAny = true;
+			groups[target].box.add(unit.box);
+		}
+		order.emplace_back((u32)target, u);
+	}
+	if (!movedAny && !baseMerge)
+		return nullptr;
+	std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+	moved.clear();
+	regroupJoins.clear();
+	u32 lastGroup = ~0u;
+	for (const auto& [g, u] : order)
+	{
+		for (u32 i = units[u].begin; i < units[u].end; i++)
+		{
+			regroupJoins.push_back(g == lastGroup ? 1 : 0);
+			lastGroup = g;
+			moved.push_back(polys[i]);
+		}
+	}
+	if (movedAny)
+		std::copy(moved.begin(), moved.end(), polys.begin() + first);
+	return regroupJoins.data();
+}
+
+//
+// Create the vertex index, eliminating invalid vertices and merging strips when possible.
+// Use primitive restart when merging strips. With joins (regroupTranslucent), merged where they say, not by adjacency.
+//
+void makePrimRestartIndex(std::vector<PolyParam>& polys, int first, int end, bool merge, rend_context& ctx, const u8 *joins)
 {
 	if (first >= (int)polys.size())
 		return;
@@ -504,10 +643,9 @@ void makePrimRestartIndex(std::vector<PolyParam>& polys, int first, int end, boo
 	{
 		int first_index;
 		bool dupe_next_vtx = false;
-		if (merge
-				&& last_poly != nullptr
+		if (last_poly != nullptr
 				&& last_poly->count != 0
-				&& poly->equivalentIgnoreCullingDirection(*last_poly))
+				&& (joins != nullptr ? joins[poly - &polys[first]] != 0 : merge && poly->equivalentIgnoreCullingDirection(*last_poly)))
 		{
 			ctx.idx.push_back(~0);
 			dupe_next_vtx = poly->isp.CullMode >= 2 && poly->isp.CullMode != last_poly->isp.CullMode;
