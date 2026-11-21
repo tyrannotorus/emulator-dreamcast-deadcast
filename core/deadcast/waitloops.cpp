@@ -151,6 +151,67 @@ static void DYNACALL katanaWaitSkip(u32 vaddr)
 	}
 }
 
+// The Katana library's wait for a flag to clear (Sonic Adventure 2, Crazy Taxi), calling an idle callback
+// each turn, with a timeout on a counter, wherever a game has it. v is the loop's head:
+//   v+00  mov.l @(a,PC),R3 ; mov.l @R3,R2 ; jsr @R2 ; mov.l @(4,R3),R4         cb.f(cb.arg), cb at a's literal
+//   v+08  mov.l @(b,PC),R1 ; mov.l @R1,R3 ; mov.l @(c,PC),R0 ; mov.l @R0,R2 ;
+//         mov.l @(d,PC),R1 ; add R3,R2 ; add #1,R2 ; mov.l @R1,R3 ; cmp/hi R2,R3 ; bf v+20
+//                                                     *now > *start + *limit + 1 (b, c, d's literals): timed out
+//   v+1c  (two instructions: the way out on the timeout)
+//   v+20  mov.l @(e,PC),R3 ; mov.l @R3,R2 ; tst R2,R2 ; bf v                    on while *flag != 0 (e's literal)
+// While the callback is the no-op (rts; nop), a turn reads RAM and writes only registers, the same values
+// each turn; the flag and the counters change by interrupts only, which stop the skip.
+struct CodeWord
+{
+	u16 value;
+	u16 mask;
+};
+static constexpr u16 Exact = 0xffff, PcLiteral = 0xff00;	// mov.l @(disp,PC),Rn: any disp
+static constexpr std::array<CodeWord, 20> KatanaCallbackWaitCode {{
+	{ 0xd300, PcLiteral }, { 0x6232, Exact }, { 0x420b, Exact }, { 0x5431, Exact },
+	{ 0xd100, PcLiteral }, { 0x6312, Exact }, { 0xd000, PcLiteral }, { 0x6202, Exact },
+	{ 0xd100, PcLiteral }, { 0x323c, Exact }, { 0x7201, Exact }, { 0x6312, Exact }, { 0x3326, Exact }, { 0x8b01, Exact },
+	{ 0, 0 }, { 0, 0 },
+	{ 0xd300, PcLiteral }, { 0x6232, Exact }, { 0x2228, Exact }, { 0x8beb, Exact },
+}};
+
+static bool isKatanaCallbackWait(u32 v)
+{
+	for (size_t i = 0; i < KatanaCallbackWaitCode.size(); i++)
+		if ((ReadMem16_nommu(v + i * 2) & KatanaCallbackWaitCode[i].mask) != KatanaCallbackWaitCode[i].value)
+			return false;
+	return true;
+}
+
+// what the mov.l @(disp,PC),Rn at pc loads
+static u32 pcLiteral(u32 pc)
+{
+	return ReadMem32_nommu((pc & ~3u) + 4 + (ReadMem16_nommu(pc) & 0xff) * 4);
+}
+
+static TurnClock katanaCallbackClock;
+
+static void DYNACALL katanaCallbackWaitSkip(u32 v)
+{
+	if (!katanaCallbackClock.steady() || Sh4cntx.interrupt_pend)
+		return;
+	const u32 cb = pcLiteral(v), start = pcLiteral(v + 0x08), limit = pcLiteral(v + 0x0c);
+	const u32 now = pcLiteral(v + 0x10), flag = pcLiteral(v + 0x20);
+	if (!inMainRam(cb) || !inMainRam(start) || !inMainRam(limit) || !inMainRam(now) || !inMainRam(flag)
+			|| ((cb | start | limit | now | flag) & 3) != 0)
+		return;
+	// the callback, still the no-op?
+	const u32 f = ReadMem32_nommu(cb);
+	if (!inMainRam(f) || (f & 1) != 0 || ReadMem16_nommu(f) != 0x000b || ReadMem16_nommu(f + 2) != 0x0009)
+		return;
+	const auto waits = [&] {
+		return ReadMem32_nommu(flag) != 0
+				&& !(ReadMem32_nommu(now) > ReadMem32_nommu(start) + ReadMem32_nommu(limit) + 1);
+	};
+	passTurns(katanaCallbackClock.turn, ~0u, waits);
+	katanaCallbackClock.restart();
+}
+
 // Sega Rally 2 (WinCE), waiting for the next frame: its loop asks F for the frame count until it
 // changes from R12's,
 //   bsr F ; nop
@@ -309,6 +370,11 @@ WaitLoopHook waitLoopHook(const RuntimeBlockInfo *block)
 	{
 		NOTICE_LOG(DYNAREC, "Deadcast: wait loop at %08x (the Katana library's vblank wait): skipped while waiting", block->vaddr);
 		return katanaWaitSkip;
+	}
+	if (!mmu_enabled() && inMainRam(block->vaddr) && (block->vaddr & 1) == 0 && isKatanaCallbackWait(block->vaddr))
+	{
+		NOTICE_LOG(DYNAREC, "Deadcast: wait loop at %08x (the Katana library's callback wait): skipped while waiting", block->vaddr);
+		return katanaCallbackWaitSkip;
 	}
 	// cmp/eq R12,R0 ; bt -5, after bsr ; nop in the same page
 	if ((block->vaddr & 0xfff) >= 4 && ReadMem16_nommu(block->addr) == 0x30c0 && ReadMem16_nommu(block->addr + 2) == 0x89fb
