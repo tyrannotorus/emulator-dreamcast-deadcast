@@ -27,8 +27,18 @@ SYSROOT="$TC/aarch64-nextui-linux-gnu/libc"
 export PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/share/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
 unset PKG_CONFIG_PATH
+# Release flags: no stack protector (the host's clang puts a canary check in every function with an array or an
+# address-taken local); line tables only, for the profiler's samples (the shipped binary is stripped). The compiler
+# optimizes with shell/brick/deadcast.prof, a sample profile of the emulator's own code on the Brick: branches laid
+# out, inlined and registers allocated for the paths the samples show hot, the code meaning the same. Code changed
+# since the profile was taken is optimized as without one, until the profile is taken again.
+PROFILE=$PWD/shell/brick/deadcast.prof
+[ -f "$PROFILE" ] || { echo "brick: no sample profile $PROFILE"; exit 2; }
+FLAGS="-O3 -DNDEBUG -fno-stack-protector -gline-tables-only -fdebug-info-for-profiling -fprofile-sample-use=$PROFILE"
 mkdir -p "$B"
 cmake -S . -B "$B" -G Ninja \
+    -DCMAKE_C_FLAGS_RELEASE="$FLAGS" \
+    -DCMAKE_CXX_FLAGS_RELEASE="$FLAGS" \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/ui/toolchain/tg5040.cmake" \
     -DTG5040_ROOT="$TC" \
     -DTG5040_GC_SECTIONS=ON \
