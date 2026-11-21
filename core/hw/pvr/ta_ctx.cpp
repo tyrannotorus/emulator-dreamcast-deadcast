@@ -5,6 +5,7 @@
 #include "serialize.h"
 #include "stdclass.h"
 
+#include <cstdlib>
 #include <mutex>
 #include <vector>
 
@@ -54,13 +55,15 @@ bool QueueRender(TA_context* ctx)
 	// Deadcast: auto frame skip (always on, option.h): frames are not rendered while emulation is behind real
 	// time, up to AutoSkipFrame in a row, so the SH4 can catch up (renders to texture are never skipped)
 	static int lagSkips;
+	// DEADCAST_NO_FRAMESKIP (benches): no frame dropped for lag, so what a render costs shows as speed lost
+	static const int autoSkipFrame = std::getenv("DEADCAST_NO_FRAMESKIP") != nullptr ? 0 : config::AutoSkipFrame;
 	if (!skipFrame)
 	{
 		RenderCount++;
 		if (RenderCount % (config::SkipFrame + 1) != 0)
 			skipFrame = true;
 		else if (!ctx->rend.isRTT && emulationLagMs > 8.f
-				&& lagSkips < config::AutoSkipFrame
+				&& lagSkips < autoSkipFrame
 				// Deadcast: and not while the audio output has a third of its buffer or more still to play:
 				// emulation is then ahead of real time, whatever the waits for the screen added to the lag
 				&& audioFillPermille.load(std::memory_order_relaxed) < 333)

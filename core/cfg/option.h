@@ -477,7 +477,7 @@ extern Option<int> SkipFrame;
 extern Option<int> MaxThreads;
 // Deadcast: auto frame skip always at its most (2: up to two frames in a row, ta_ctx.cpp), not a setting: a
 // value saved in emu.cfg or a game's section is ignored. Off, a game behind real time starves the audio
-// output and crackles.
+// output and crackles. Benches turn it off with DEADCAST_NO_FRAMESKIP (ta_ctx.cpp).
 constexpr int AutoSkipFrame = 2;
 extern Option<int> RenderResolution;
 extern Option<bool> IntegerScale;
