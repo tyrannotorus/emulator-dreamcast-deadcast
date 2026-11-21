@@ -491,7 +491,7 @@ void fix_texture_bleeding(const std::vector<PolyParam>& polys, int first, int en
 }
 
 //
-// Translucent regroup (config::TranslucentRegroup): before the translucent index is made, a polygon moves back to join
+// Translucent regroup: before the translucent index is made, a polygon moves back to join
 // an earlier group drawn the same way when it shares no pixel with any polygon it passes, and the index builder then
 // draws each group as one. Every pixel still gets its polygons in their order, and each polygon is drawn from the same
 // vertices in the same order, so the picture is the same:

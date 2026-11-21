@@ -1167,7 +1167,7 @@ static void parseRenderPass(RenderPass& pass, const RenderPass& previousPass, re
 		// translucent polygons that share no pixel grouped by state, then merged along the groups (ta_util.cpp): with
 		// primitive restart only, and exact only while a polygon draws inside the screen box of its vertices, which
 		// native depth interpolation breaks
-		const u8 *joins = config::TranslucentRegroup && !perPixel && primRestart && !config::NativeDepthInterpolation
+		const u8 *joins = !perPixel && primRestart && !config::NativeDepthInterpolation
 				? regroupTranslucent(ctx.global_param_tr, previousPass.tr_count, pass.tr_count, mergeTranslucent, ctx) : nullptr;
 		if (primRestart)
 			makePrimRestartIndex(ctx.global_param_tr, previousPass.tr_count, pass.tr_count, mergeTranslucent, ctx, joins);
