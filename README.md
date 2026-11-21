@@ -17,7 +17,9 @@ A Sega Dreamcast emulator targeting optimal performance on the Trimui Brick/Hamm
 3. Put the Dreamcast BIOS (`dc_boot.bin`) in the `/Emus/tg5040/DC-DEADCAST.pak/bios/` folder on your SD Card.
 
 # Credits
+- [Reicast](https://github.com/skmp/reicast-emulator): the Dreamcast emulator Flycast was derived from.
 - [Flycast](https://github.com/flyinghead/flycast): the emulator Deadcast is built from.
+- [Flycastrophe](https://github.com/Helaas/Flycastrophe): a Flycast core built on Deadcast's speed changes, whose own improvements were shared back.
 - [dreamcomp](https://github.com/cherryduck/dreamcomp): the Dreamcast recompiler the recomp engine builds on.
 - [Rez Recompiled](https://github.com/tyrannotorus/recomp-dreamcast-rez): the port the Rez recomp module comes from.
 
