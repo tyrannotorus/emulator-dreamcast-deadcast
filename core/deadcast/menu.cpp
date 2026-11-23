@@ -1,6 +1,7 @@
 #include "menu.h"
 #include "link.h"
 #include "netplay.h"
+#include "rows.h"
 #include "ui.h"
 #include "cfg/cfg.h"
 #include "cfg/option.h"
@@ -97,46 +98,29 @@ struct State
 };
 State st;
 
-// The emulator's settings (ui/src/options.h): live, saved as they change (the game's own: Flycast's per-game config)
-template<typename T>
-config::Option<T> *option(const options::Setting& setting)
-{
-	for (config::BaseOption *o : config::Settings::instance().list())
-		if (auto *found = dynamic_cast<config::Option<T> *>(o);
-				found != nullptr && found->getSection() == setting.section && found->getName() == setting.key)
-			return found;
-	return nullptr;
-}
-
+// The emulator's settings (rows.h): live, saved as they change (the game's own: Flycast's per-game config)
 options::Store liveSettings()
 {
 	return {
 		[](const options::Setting& setting) {
-			if (setting.flag)
-			{
-				config::Option<bool> *o = option<bool>(setting);
-				return o != nullptr ? (o->get() ? 1 : 0) : setting.fallback;
-			}
-			config::Option<int> *o = option<int>(setting);
-			return o != nullptr ? o->get() : setting.fallback;
+			const rows::Bound o = rows::option(setting);
+			return o.flag != nullptr ? (o.flag->get() ? 1 : 0) : o.number->get();
 		},
 		[](const options::Setting& setting, int value) {
-			if (setting.flag)
+			const rows::Bound o = rows::option(setting);
+			if (o.flag != nullptr)
 			{
-				if (config::Option<bool> *o = option<bool>(setting))
-				{
-					o->set(value != 0);
-					o->save();
-					// Threaded Audio: the AICA thread started or stopped now (the game is stopped under the menu);
-					// a two-player session keeps it on (emulator.cpp)
-					if (o == &config::ThreadedAudio && !config::GGPOEnable)
-						aica::applyThreadedAudio();
-				}
+				o.flag->set(value != 0);
+				o.flag->save();
+				// Threaded Audio: the AICA thread started or stopped now (the game is stopped under the menu); a
+				// two-player session keeps it on (emulator.cpp)
+				if (o.flag == &config::ThreadedAudio && !config::GGPOEnable)
+					aica::applyThreadedAudio();
 			}
-			else if (config::Option<int> *o = option<int>(setting))
+			else
 			{
-				o->set(value);
-				o->save();
+				o.number->set(value);
+				o.number->save();
 			}
 		},
 	};
@@ -641,13 +625,11 @@ ui::Host host()
 		host.saveAsDefault = [](const options::Page& page) {
 			for (const options::Setting& setting : page.settings)
 			{
-				if (setting.flag)
-				{
-					if (config::Option<bool> *o = option<bool>(setting))
-						o->saveDefault();
-				}
-				else if (config::Option<int> *o = option<int>(setting))
-					o->saveDefault();
+				const rows::Bound o = rows::option(setting);
+				if (o.flag != nullptr)
+					o.flag->saveDefault();
+				else
+					o.number->saveDefault();
 			}
 		};
 	host.controls = [] { ui::push(bindingsScreen()); };

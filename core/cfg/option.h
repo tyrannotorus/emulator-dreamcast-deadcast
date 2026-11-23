@@ -175,9 +175,10 @@ public:
 		if (settings.hasPerGameConfig())
 			deleteEntry(settings.gameId, section + "." + name);
 	}
-	// Deadcast: the option's emu.cfg section and key
+	// Deadcast: the option's emu.cfg section and key, and its default
 	const std::string& getSection() const { return section; }
 	const std::string& getName() const { return name; }
+	const T& getDefault() const { return defaultValue; }
 
 	void override(T v)
 	{

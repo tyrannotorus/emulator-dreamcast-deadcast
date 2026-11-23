@@ -14,6 +14,8 @@ target_sources(${PROJECT_NAME} PRIVATE
         osd.h
         profiler.cpp
         profiler.h
+        rows.cpp
+        rows.h
         uploadworker.cpp
         uploadworker.h
         waitloops.cpp
