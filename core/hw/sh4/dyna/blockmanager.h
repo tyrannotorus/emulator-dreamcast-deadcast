@@ -44,6 +44,9 @@ struct RuntimeBlockInfo
 	// Deadcast: under the MMU, the bytes of the pc check its code starts with, which a linked exit to
 	// its vaddr enters past
 	u32 pcCheckSize = 0;
+	// Deadcast: and past its FPU check too, for a linked exit from a block that checked SR.FD and keeps it
+	u32 fpuCheckSize = 0;
+	bool keepsFpu = false;
 	// Deadcast: under the MMU, each access through the window (offset in the code) and its stub's
 	std::vector<std::pair<u32, u32>> mmuStubs;
 	// Deadcast: the SH4 address of each of mmuStubs' accesses

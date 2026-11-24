@@ -26,7 +26,7 @@ DynarecCodeEntryPtr DYNACALL rdv_FailedToFindBlock_pc();
 DynarecCodeEntryPtr DYNACALL rdv_BlockCheckFail(u32 addr);
 // Deadcast: compiles the block at vaddr (main RAM, no MMU) for the FPU mode fpscr now, if none is there. Its code must
 // be what a block was compiled from before (deadcast/codecache.cpp): anything else can throw.
-bool rdv_Precompile(u32 vaddr, u32 fpscr);
+bool rdv_Precompile(u32 vaddr, u32 paddr, u32 fpscr);
 // Registers a custom FailedToFindBlock handler function
 void rdv_SetFailedToFindBlockHandler(void (*handler)());
 // Where the translated code is, as executed (Deadcast profiler)

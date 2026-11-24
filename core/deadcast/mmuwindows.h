@@ -10,9 +10,9 @@
 
 namespace mmuwin
 {
-constexpr u32 DispatchCacheOffset = 0x10000;	// the cache at current - this
-constexpr u32 DispatchFilledOffset = 0x12000;	// its MmuFilled at current - this
-constexpr u32 CodeLutOffset = 0x22000;			// the code pages of slot 0 at current - this
+constexpr u32 DispatchCacheOffset = 0x40000;	// the cache at current - this
+constexpr u32 DispatchFilledOffset = 0x42000;	// its MmuFilled at current - this
+constexpr u32 CodeLutOffset = 0x52000;			// the code pages of slot 0 at current - this
 
 // the current ASID's window (the dynarec's x27), null without one
 extern u8 *current;

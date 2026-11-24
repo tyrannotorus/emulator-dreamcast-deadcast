@@ -80,11 +80,13 @@ void MapleConfigMap::SetVibration(float power, float inclination, u32 duration_m
 
 // Deadcast: scripted input on the first controller, DEADCAST_PRESS="SECONDS:BUTTON[+BUTTON][/HELD],...":
 // each pressed SECONDS after the first input read, for HELD emulated seconds (0.15 by default).
-// Buttons: A B X Y START UP DOWN LEFT RIGHT, and AX=<-1..1>, AY=<-1..1> for the analog stick
+// Buttons: A B X Y START UP DOWN LEFT RIGHT, AX=<-1..1>, AY=<-1..1> for the analog stick, and RT=<0..1>,
+// LT=<0..1> for the analog triggers (a racing game's throttle and brake)
 static float scriptedStick[2];
+static float scriptedTrigger[2];	// R, L
 static u32 scriptedPress()
 {
-	struct Press { double at; double held; u32 buttons; float stick[2]; bool hasStick; };
+	struct Press { double at; double held; u32 buttons; float stick[2]; bool hasStick; float trigger[2] = { 0.f, 0.f }; };
 	static std::vector<Press> presses;
 	static u64 start;
 	static bool parsed;
@@ -125,6 +127,8 @@ static u32 scriptedPress()
 						press.stick[buttons[b + 1] == 'Y'] = (float)atof(buttons.substr(b + 3, plus - b - 3).c_str());
 						press.hasStick = true;
 					}
+					if (buttons.compare(b, 3, "RT=") == 0 || buttons.compare(b, 3, "LT=") == 0)
+						press.trigger[buttons[b] == 'L'] = (float)atof(buttons.substr(b + 3, plus - b - 3).c_str());
 					for (const auto& n : names)
 						if (buttons.compare(b, plus - b, n.name) == 0 && strlen(n.name) == plus - b)
 							press.buttons |= n.bit;
@@ -137,6 +141,7 @@ static u32 scriptedPress()
 	const double now = (double)(sh4_sched_now64() - start) / SH4_MAIN_CLOCK;
 	u32 held = 0;
 	scriptedStick[0] = scriptedStick[1] = 0.f;
+	scriptedTrigger[0] = scriptedTrigger[1] = 0.f;
 	for (const Press& press : presses)
 		if (now >= press.at && now < press.at + press.held)
 		{
@@ -146,6 +151,9 @@ static u32 scriptedPress()
 				scriptedStick[0] = press.stick[0];
 				scriptedStick[1] = press.stick[1];
 			}
+			for (int t = 0; t < 2; t++)
+				if (press.trigger[t] != 0.f)
+					scriptedTrigger[t] = press.trigger[t];
 		}
 	return held;
 }
@@ -173,6 +181,10 @@ void MapleConfigMap::GetInput(PlainJoystickState* pjs)
 			for (int axis = 0; axis < 2; axis++)
 				if (scriptedStick[axis] != 0.f)
 					pjs->joy[axis == 0 ? PJAI_X1 : PJAI_Y1] = (u8)std::clamp(128.f + scriptedStick[axis] * 127.f, 0.f, 255.f);
+			if (scriptedTrigger[0] != 0.f)
+				pjs->trigger[PJTI_R] = (u8)std::clamp(scriptedTrigger[0] * 255.f, 0.f, 255.f);
+			if (scriptedTrigger[1] != 0.f)
+				pjs->trigger[PJTI_L] = (u8)std::clamp(scriptedTrigger[1] * 255.f, 0.f, 255.f);
 		}
 	}
 	else if (settings.platform.isAtomiswave())

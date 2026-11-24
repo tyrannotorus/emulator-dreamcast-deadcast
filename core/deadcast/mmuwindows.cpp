@@ -14,7 +14,7 @@ namespace
 {
 constexpr int Windows = 16;
 constexpr u64 WindowSize = 1ull << 32;
-constexpr u64 Prefix = 0x30000;			// the dispatch cache and code page table below each window
+constexpr u64 Prefix = 0x60000;			// the dispatch cache and code page table below each window
 constexpr u64 Stride = WindowSize + Prefix;
 static_assert(sizeof(MmuDispatchEntry) * MmuDispatchEntries == DispatchCacheOffset);
 static_assert(sizeof(MmuFilled) <= DispatchFilledOffset - DispatchCacheOffset);

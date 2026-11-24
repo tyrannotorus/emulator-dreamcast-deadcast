@@ -53,6 +53,7 @@ static u16 bucket_index(u32 address, int size, u32 asid)
 }
 
 SqPage sqPages[256];
+MmuPinnedPages mmuPinnedPages;
 static void cache_entry(const TLB_Entry &entry)
 {
 	const u32 sqMask = mmu_mask[entry.Data.SZ1 * 2 + entry.Data.SZ0];
@@ -342,6 +343,9 @@ MmuError mmu_data_translation(u32 va, u32& rv)
 		rv = va;
 		return MmuError::NONE;
 	}
+	// Deadcast: a recorded block compiled ahead reads constants from its own pages (mmu.h)
+	if (unlikely(mmuPinnedPages.count != 0) && mmuPinnedLookup(va, rv))
+		return MmuError::NONE;
 
 	MmuError lookup = mmu_full_lookup(va, nullptr, rv);
 	if (lookup == MmuError::NONE && (rv & 0x1C000000) == 0x1C000000)

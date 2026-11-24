@@ -240,18 +240,25 @@ static DynarecCodeEntryPtr compilePCTimed(u32 blockcheck_failures)
 	return rbi->code;
 }
 
-bool rdv_Precompile(u32 vaddr, u32 fpscr)
+bool rdv_Precompile(u32 vaddr, u32 paddr, u32 fpscr)
 {
 	// where decoding cannot raise an SH4 exception on the CPU as just loaded (an address error, an MMU miss, an FPU
-	// op with the FPU disabled) and a block is not there already
-	if ((vaddr & 1) != 0 || mmu_enabled() || Sh4cntx.sr.FD == 1 || (vaddr & 0x1C000000) != 0x0C000000
-			|| bm_HasBlock(vaddr) || smc_hotspots.count(vaddr) != 0 || codeBuffer.getFreeSpace() < 1_MB)
+	// op with the FPU disabled) and a block is not there already. Deadcast: under the MMU, its caller found vaddr's
+	// code at paddr (deadcast/codecache.cpp) and keeps SR.FD clear meanwhile (the block checks it as it runs).
+	if ((vaddr & 1) != 0 || (paddr & 0x1C000000) != 0x0C000000 || (!mmu_enabled() && (vaddr != paddr || Sh4cntx.sr.FD == 1))
+			|| (mmu_enabled() && Sh4cntx.sr.FD == 1)
+			|| bm_HasBlock(paddr) || smc_hotspots.count(paddr) != 0 || codeBuffer.getFreeSpace() < 1_MB)
 		return false;
 	RuntimeBlockInfo* rbi = sh4Dynarec->allocateBlock();
 	fpscr_t fpu;
 	fpu.full = fpscr;
 	const bool decoded = rbi->Setup(vaddr, fpu);
 	verify(decoded);
+	if (rbi->addr != paddr)
+	{
+		delete rbi;
+		return false;
+	}
 	rbi->blockcheck_failures = 0;
 	sh4Dynarec->compile(rbi, !rbi->read_only, true);
 	verify(rbi->code != nullptr);

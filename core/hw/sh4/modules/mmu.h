@@ -95,6 +95,26 @@ template<u32 translation_type>
 MmuError mmu_full_SQ(u32 va, u32& rv);
 
 #ifdef FAST_MMU
+// Deadcast: pages translated ahead, looked up first while there are any: deadcast/codecache.cpp compiles a recorded
+// block with its pages as it found them, the MMU's state (TLB, registers, the lookups' caches and cycles) untouched
+struct MmuPinnedPages
+{
+	u32 count = 0;
+	u32 vpage[3];
+	u32 ppage[3];
+};
+extern MmuPinnedPages mmuPinnedPages;
+static inline bool mmuPinnedLookup(u32 va, u32& rv)
+{
+	for (u32 i = 0; i < mmuPinnedPages.count; i++)
+		if ((va & ~0xfffu) == mmuPinnedPages.vpage[i])
+		{
+			rv = mmuPinnedPages.ppage[i] | (va & 0xfff);
+			return true;
+		}
+	return false;
+}
+
 static inline MmuError mmu_instruction_translation(u32 va, u32& rv)
 {
 	if (fast_reg_lut[va >> 29] != 0)
@@ -102,6 +122,8 @@ static inline MmuError mmu_instruction_translation(u32 va, u32& rv)
 		rv = va;
 		return MmuError::NONE;
 	}
+	if (unlikely(mmuPinnedPages.count != 0) && mmuPinnedLookup(va, rv))
+		return MmuError::NONE;
 
 	return mmu_full_lookup(va, nullptr, rv);
 }
@@ -157,7 +179,7 @@ struct MmuDispatchEntry
 	u32 pad;
 	void *code;
 };
-constexpr u32 MmuDispatchEntries = 4096;
+constexpr u32 MmuDispatchEntries = 16384;	// Deadcast: 4096 thrashed (Windows CE: DLLs, kernel)
 extern MmuDispatchEntry mmuDispatchCache[MmuDispatchEntries];
 void mmuDispatchCacheFlush();
 
