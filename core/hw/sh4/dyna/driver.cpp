@@ -394,8 +394,8 @@ void* DYNACALL rdv_LinkBlock(u8* code,u32 dpc)
 			rbi->mmuNoLink = true;
 		}
 		u32 ncs = rbi->relink_offset + rbi->Relink();
+		// Deadcast: the block's out of line code follows its exit (rec_arm64.cpp): its size stays
 		verify(rbi->host_code_size >= ncs);
-		rbi->host_code_size = ncs;
 		return (void *)rv;
 	}
 	if (!stale_block)
@@ -428,8 +428,8 @@ void* DYNACALL rdv_LinkBlock(u8* code,u32 dpc)
 			nxt->AddRef(rbi);
 		}
 		u32 ncs = rbi->relink_offset + rbi->Relink();
+		// Deadcast: the block's out of line code follows its exit (rec_arm64.cpp): its size stays
 		verify(rbi->host_code_size >= ncs);
-		rbi->host_code_size = ncs;
 	}
 	else
 	{

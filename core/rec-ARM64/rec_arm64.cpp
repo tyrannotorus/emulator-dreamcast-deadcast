@@ -399,12 +399,22 @@ public:
 		regalloc.DoAlloc(block, pinnedRegs);
 
 		// scheduler
-		// Deadcast: the timeslice run out (the counter negative): out of line, at the block's end
-		Ldr(w1, sh4_context_mem_operand(&sh4ctx.cycle_counter));
-		Tbnz(w1, 31, &timesliceOver);
-		Bind(&cyclesRemaining);
-		Sub(w1, w1, block->guest_cycles);
-		Str(w1, sh4_context_mem_operand(&sh4ctx.cycle_counter));
+		// Deadcast: the timeslice run out (the counter negative): out of line, at the block's end. With the
+		// registers pinned, the counter is in w7: no load nor store
+		if (pinnedRegs)
+		{
+			Tbnz(w7, 31, &timesliceOver);
+			Bind(&cyclesRemaining);
+			Sub(w7, w7, block->guest_cycles);
+		}
+		else
+		{
+			Ldr(w1, sh4_context_mem_operand(&sh4ctx.cycle_counter));
+			Tbnz(w1, 31, &timesliceOver);
+			Bind(&cyclesRemaining);
+			Sub(w1, w1, block->guest_cycles);
+			Str(w1, sh4_context_mem_operand(&sh4ctx.cycle_counter));
+		}
 		if (profilerCountsRuns())
 		{
 			// Deadcast: the profiler's count of the block's runs
@@ -1160,14 +1170,18 @@ public:
 			}
 		}
 		regalloc.Cleanup();
-		genMmuAccessStubs();
-		genPrefSlowPaths();
-		genBlockChecksFailed();
 
+		// Deadcast: the exit right after the body, then the code run out of line (the accesses' stubs, the slow
+		// paths, the failed checks): the body no longer branches over it to its exit, and runs on into it in
+		// the same cache lines. The exit never falls through; it keeps its size when relinked (RelinkBlock).
 		block->relink_offset = (u32)GetBuffer()->GetCursorOffset();
 		block->relink_data = 0;
 
 		RelinkBlock(block);
+
+		genMmuAccessStubs();
+		genPrefSlowPaths();
+		genBlockChecksFailed();
 
 		Finalize();
 		jitWriteProtect(codeBuffer, true);
@@ -1579,6 +1593,7 @@ public:
 			{
 				// Deadcast: the main loop's lookup in mmuDispatchCache, right here: the branch to the next
 				// block then is this exit's own, which the CPU predicts by itself
+				const ptrdiff_t start = GetBuffer()->GetCursorOffset();
 				Label slow;
 				Tst(w29, 1);
 				B(&slow, ne);
@@ -1590,11 +1605,15 @@ public:
 				Br(x0);
 				Bind(&slow);
 				GenBranch(arm64_no_update);
+				// Deadcast: the out of line code follows the exit, which keeps one size (MmuDynamicExitSize)
+				verify(GetBuffer()->GetCursorOffset() - start <= MmuDynamicExitSize * 4);
+				while (GetBuffer()->GetCursorOffset() - start < MmuDynamicExitSize * 4)
+					Nop();
 			}
 			else
 			{
 				GenBranch(arm64_no_update);
-				for (int i = 0 ; i < 5; i++)
+				for (int i = 0 ; i < (mmu_enabled() ? MmuDynamicExitSize - 1 : 5); i++)
 					Nop();
 			}
 
@@ -1927,7 +1946,11 @@ public:
 		Str(w0, sh4_context_mem_operand(&sh4ctx.pc));
 		// Add timeslice to cycle counter
 		Add(w1, w1, SH4_TIMESLICE);
-		Str(w1, sh4_context_mem_operand(&sh4ctx.cycle_counter));
+		// Deadcast: pinned, the counter is w7 (the thunks keep the context's in step with it)
+		if (pinnedRegs)
+			Mov(w7, w1);
+		else
+			Str(w1, sh4_context_mem_operand(&sh4ctx.cycle_counter));
 		Ldr(w0, sh4_context_mem_operand(&sh4ctx.CpuRunning));
 		Cbz(w0, &end_mainloop);
 		// Deadcast: UpdateSystem_INTC's common case right here, no call: the timeslice taken off
@@ -1946,7 +1969,10 @@ public:
 		GenCallRuntime(UpdateSystem_INTC_due);
 		Cbnz(w0, &do_interrupts);
 		Mov(lr, x29);
-		Ldr(w0, sh4_context_mem_operand(&sh4ctx.cycle_counter));
+		if (pinnedRegs)
+			Mov(w0, w7);
+		else
+			Ldr(w0, sh4_context_mem_operand(&sh4ctx.cycle_counter));
 		Ret();
 
 		Bind(&do_interrupts);
@@ -2133,13 +2159,28 @@ public:
 				And(w16, w0, 0xfe0);
 				Orr(w3, w3, w16);
 				// area 4, below the YUV converter: the TA's polygon FIFO
+				Label notTa;
 				Ubfx(w1, w3, 26, 3);
 				Cmp(w1, 4);
-				B(&slow, ne);
+				B(&notTa, ne);
 				And(w1, w3, 0x01FFFFE0);
 				Cmp(w1, 0x800000);
 				B(&slow, hs);
 				genTaFifo(slow, handle);
+				Mov(w0, wzr);
+				Ret();
+				// Deadcast: area 3, main RAM (WriteMemBlock_nommu_sq's): the 32 bytes through the memory map, where a
+				// store to protected code faults as any other (bm_RamWriteAccess)
+				Bind(&notTa);
+				Cmp(w1, 3);
+				B(&slow, ne);
+				And(w3, w3, RAM_MASK & ~31u);
+				Mov(x2, reinterpret_cast<uintptr_t>(addrspace::ram_base + 0x0C000000));
+				Add(x2, x2, x3);
+				Ubfx(w1, w0, 5, 1);
+				Add(x1, x28, Operand(x1, LSL, 5));
+				Ldp(q0, q1, MemOperand(x1));
+				Stp(q0, q1, MemOperand(x2));
 				Mov(w0, wzr);
 				Ret();
 				Bind(&handle);
@@ -2401,6 +2442,7 @@ private:
 		for (int i = 0; i < 16; i += 2)
 			Stp(Register(pinned_gregs[i], 32), Register(pinned_gregs[i + 1], 32), sh4_context_mem_operand((Sh4RegType)(reg_r0 + i)));
 		Str(Register(pinned_T, 32), sh4_context_mem_operand(reg_sr_T));
+		Str(w7, sh4_context_mem_operand(&sh4ctx.cycle_counter));	// the cycle counter (compileBlock)
 		genPinnedFrStore();
 	}
 	void genPinnedLoad()
@@ -2408,6 +2450,7 @@ private:
 		for (int i = 0; i < 16; i += 2)
 			Ldp(Register(pinned_gregs[i], 32), Register(pinned_gregs[i + 1], 32), sh4_context_mem_operand((Sh4RegType)(reg_r0 + i)));
 		Ldr(Register(pinned_T, 32), sh4_context_mem_operand(reg_sr_T));
+		Ldr(w7, sh4_context_mem_operand(&sh4ctx.cycle_counter));
 		genPinnedFrLoad();
 	}
 	// Deadcast: whether a vector's (FVn) four registers are pinned (s16-s31)
@@ -2463,6 +2506,8 @@ private:
 		inThunk = true;
 		Stp(x4, x5, MemOperand(sp, -240, PreIndex));
 		Stp(x6, x7, MemOperand(sp, 16));
+		// Deadcast: the cycle counter (w7) where C reads and changes it
+		Str(w7, sh4_context_mem_operand(&sh4ctx.cycle_counter));
 		Stp(x8, x9, MemOperand(sp, 32));
 		Stp(x10, x11, MemOperand(sp, 48));
 		Stp(x12, x13, MemOperand(sp, 64));
@@ -2484,6 +2529,7 @@ private:
 		Ldp(x8, x9, MemOperand(sp, 32));
 		Ldp(x6, x7, MemOperand(sp, 16));
 		Ldp(x4, x5, MemOperand(sp, 240, PostIndex));
+		Ldr(w7, sh4_context_mem_operand(&sh4ctx.cycle_counter));
 		Ret();
 		inThunk = false;
 	}
@@ -2495,14 +2541,14 @@ private:
 		const int save = offsetof(Sh4Context, jitSave);
 		Str(x30, MemOperand(x28, save));
 		Stp(x4, x5, MemOperand(x28, save + 16));
-		Stp(x6, x7, MemOperand(x28, save + 32));
+		Str(x6, MemOperand(x28, save + 32));
 		genPinnedStore();
 		if (function == 0)
 			Blr(x16);
 		else
 			GenCallRuntime((void (*)())function);
 		genPinnedLoad();
-		Ldp(x6, x7, MemOperand(x28, save + 32));
+		Ldr(x6, MemOperand(x28, save + 32));
 		Ldp(x4, x5, MemOperand(x28, save + 16));
 		Ldr(x30, MemOperand(x28, save));
 		Ret();
@@ -2539,8 +2585,6 @@ private:
 	{
 		if (prefSlowPaths.empty())
 			return;
-		Label done;
-		B(&done);
 		for (PrefSlowPath& slow : prefSlowPaths)
 		{
 			Bind(&slow.entry);
@@ -2557,7 +2601,6 @@ private:
 			GenCallRuntime(do_sqw_mmu_no_ex);
 			B(&slow.back);
 		}
-		Bind(&done);
 		prefSlowPaths.clear();
 	}
 
@@ -2669,8 +2712,6 @@ private:
 	{
 		if (mmuAccesses.empty())
 			return;
-		Label done;
-		B(&done);
 		for (MmuAccess& access : mmuAccesses)
 		{
 			Bind(&access.stub);
@@ -2808,7 +2849,6 @@ private:
 			block->mmuStubs.emplace_back(access.accessOffset, (u32)access.stub.GetLocation());
 			block->mmuSites.push_back(access.site);
 		}
-		Bind(&done);
 		mmuAccesses.clear();
 	}
 
@@ -2905,7 +2945,10 @@ private:
 		Ldr(x2, MemOperand(x2));
 		Ldrsw(x3, sh4_context_mem_operand(&sh4ctx.sh4_sched_next));
 		Sub(x2, x2, x3);
-		Ldrsw(x3, sh4_context_mem_operand(&sh4ctx.cycle_counter));
+		if (pinnedRegs)
+			Sxtw(x3, w7);
+		else
+			Ldrsw(x3, sh4_context_mem_operand(&sh4ctx.cycle_counter));
 		Sub(x2, x2, x3);
 		Add(x2, x2, SH4_TIMESLICE);
 		Mov(x16, reinterpret_cast<uintptr_t>(&tmuShift[ch]));
@@ -3437,25 +3480,26 @@ private:
 
 		// WARNING: the rewrite code relies on having 2 ops before the memory access
 		// Update rewrite (and perhaps write_memory_rewrite_size) if adding or removing code
-		Ubfx(x7, x0, 0, 29);
-		Add(x7, x7, sizeof(Sh4Context), LeaveFlags);
+		// Deadcast: x2 scratch (w7 is the cycle counter when the registers are pinned)
+		Ubfx(x2, x0, 0, 29);
+		Add(x2, x2, sizeof(Sh4Context), LeaveFlags);
 
 		switch(op.size)
 		{
 		case 1:
-			Strb(w1, MemOperand(x28, x7));
+			Strb(w1, MemOperand(x28, x2));
 			break;
 
 		case 2:
-			Strh(w1, MemOperand(x28, x7));
+			Strh(w1, MemOperand(x28, x2));
 			break;
 
 		case 4:
-			Str(w1, MemOperand(x28, x7));
+			Str(w1, MemOperand(x28, x2));
 			break;
 
 		case 8:
-			Str(x1, MemOperand(x28, x7));
+			Str(x1, MemOperand(x28, x2));
 			break;
 		}
 		EnsureCodeSize(start_instruction, write_memory_rewrite_size);
@@ -3556,15 +3600,15 @@ private:
 	{
 		if (!pcCheckFailed.IsLinked() && !fpuDisabled.IsLinked() && !timesliceOver.IsLinked())
 			return;
-		Label done;
-		B(&done);
 		if (timesliceOver.IsLinked())
 		{
-			// the scheduler's turn (arm64_intc_sched), its new count in w1, then back
+			// the scheduler's turn (arm64_intc_sched), its new count in w1 (in w7 when pinned), then back
 			Bind(&timesliceOver);
 			Mov(w0, block->vaddr);
+			if (pinnedRegs)
+				Mov(w1, w7);
 			GenCall(arm64_intc_sched);
-			Mov(w1, w0);
+			Mov(pinnedRegs ? w7 : w1, w0);
 			B(&cyclesRemaining);
 		}
 		if (pcCheckFailed.IsLinked())
@@ -3582,7 +3626,7 @@ private:
 			Mov(w0, block->vaddr);
 			GenBranch(checkBlockFpu);
 		}
-		Bind(&done);
+		// (nothing falls through to here: each path above branches away)
 	}
 
 	void shil_param_to_host_reg(const shil_param& param, const Register& reg)
@@ -3687,6 +3731,8 @@ private:
 	const int write_memory_rewrite_size = 5; // ubfx, add, str
 	// Deadcast: the compact accesses (compactMemAccess): ubfx, add, load; ubfx, add, store, nop
 	static constexpr int compact_read_size = 3;
+	// Deadcast: a dynamic exit's instructions under the MMU, whether it looks the next block up (CPU running) or not
+	static constexpr int MmuDynamicExitSize = 16;
 	static constexpr int compact_write_size = 4;
 	Sh4Context& sh4ctx;
 	Sh4CodeBuffer& codeBuffer;
