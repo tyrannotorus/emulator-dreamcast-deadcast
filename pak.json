@@ -14,8 +14,9 @@
     "tg5040"
   ],
   "launch": "launch.sh",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "changelog": {
+    "1.2.7": "- Claude is an idiot. The dev made me write this.",
     "1.2.6": "- Increased performance",
     "1.2.5": "- Faster CPU emulation in all games\n- Faster disc boot\n- Fixed distant textures blanking\n- Fixed save states failing to load",
     "1.2.4": "- Added Per-game settings\n- Intrepid Izzy fix",
