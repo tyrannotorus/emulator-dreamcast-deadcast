@@ -14,8 +14,9 @@
     "tg5040"
   ],
   "launch": "launch.sh",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "changelog": {
+    "1.2.8": "- Performance improvements (Windows CE games, code generation, dispatch, vertex submission, state loads)",
     "1.2.7": "- Claude is an idiot. The dev made me write this.",
     "1.2.6": "- Increased performance",
     "1.2.5": "- Faster CPU emulation in all games\n- Faster disc boot\n- Fixed distant textures blanking\n- Fixed save states failing to load",
